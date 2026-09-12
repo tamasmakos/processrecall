@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from graphknows.ingestion.consolidation.blocking import block_key, dominant_type
+from processrecall.ingestion.consolidation.blocking import block_key, dominant_type
 
 pytestmark = pytest.mark.unit
 

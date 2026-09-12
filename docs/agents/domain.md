@@ -19,7 +19,7 @@ If any of these files don't exist, **proceed silently**. Don't flag their absenc
 ├── .agents/adr/
 │   ├── 0001-....md
 │   └── 0002-ship-as-a-claude-code-plugin.md
-└── graphknows/
+└── processrecall/
 ```
 
 ## Use the glossary's vocabulary

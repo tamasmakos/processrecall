@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import inspect
 
-from graphknows.channels import registry
-from graphknows.channels.base import Channel
-from graphknows.channels.registry import core_channels
-from graphknows.packs.protocol import DomainPack
+from processrecall.channels import registry
+from processrecall.channels.base import Channel
+from processrecall.channels.registry import core_channels
+from processrecall.packs.protocol import DomainPack
 
 
 def test_the_core_collectors_are_the_same_on_every_call() -> None:

@@ -17,9 +17,9 @@ DESTRUCTIVE = {"memory_drop_namespace", "memory_purge"}
 # cannot decide the result.
 _PROBE = """
 import asyncio, json
-from graphknows.server.mcp import tools
-from graphknows.server.mcp._app import app
-from graphknows.server.mcp.tools.admin import ENABLED_ADMIN_TOOLS
+from processrecall.server.mcp import tools
+from processrecall.server.mcp._app import app
+from processrecall.server.mcp.tools.admin import ENABLED_ADMIN_TOOLS
 
 print(json.dumps({
     "advertised": sorted(t.name for t in asyncio.run(app.list_tools())),
@@ -56,7 +56,7 @@ def _tool_surface(tmp_path: Path, flag: str | None) -> dict[str, list[str]]:
 @pytest.mark.asyncio
 async def test_no_tool_accepts_namespace() -> None:
     """The namespace is bound by the process, so no inputSchema exposes it."""
-    from graphknows.server.mcp._app import app
+    from processrecall.server.mcp._app import app
 
     offenders = [
         tool.name
@@ -99,9 +99,9 @@ def test_enabled_admin_tools_are_named_at_startup(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """An enabled destructive surface is announced, never silently present."""
-    from graphknows.server.mcp import stdio_server
+    from processrecall.server.mcp import stdio_server
 
-    with caplog.at_level("WARNING", logger="graphknows.startup"):
+    with caplog.at_level("WARNING", logger="processrecall.startup"):
         monkeypatch.setattr(stdio_server, "ENABLED_ADMIN_TOOLS", ())
         stdio_server._announce_admin_tools()
         assert caplog.text == ""

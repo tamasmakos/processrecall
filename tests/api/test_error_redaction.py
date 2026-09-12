@@ -24,9 +24,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from graphknows.exceptions import StoreError
-from graphknows.memory import Memory
-from graphknows.settings import GraphKnowsSettings
+from processrecall.exceptions import StoreError
+from processrecall.memory import Memory
+from processrecall.settings import GraphKnowsSettings
 
 _UNREACHABLE_HOST = "127.0.0.1:1"
 _UNREACHABLE_URL = f"http://{_UNREACHABLE_HOST}"
@@ -39,7 +39,7 @@ def _settings() -> GraphKnowsSettings:
 
 async def test_doctor_redacts_the_host_but_logs_it(caplog: pytest.LogCaptureFixture) -> None:
     memory = Memory(settings=_settings())
-    with caplog.at_level(logging.ERROR, logger="graphknows.memory"):
+    with caplog.at_level(logging.ERROR, logger="processrecall.memory"):
         result = await memory.doctor()
 
     message = result["arcadedb"]
@@ -57,7 +57,7 @@ async def test_purge_memory_redacts_the_host_but_logs_it(caplog: pytest.LogCaptu
     exercises the redaction path here.
     """
     memory = Memory(settings=_settings())
-    with caplog.at_level(logging.ERROR, logger="graphknows.memory"):
+    with caplog.at_level(logging.ERROR, logger="processrecall.memory"):
         result = await memory.purge_memory(session_id="s1")
 
     assert result["deleted"] is False
@@ -77,7 +77,7 @@ async def test_flush_memory_redacts_the_host_but_logs_it(caplog: pytest.LogCaptu
             "[Errno 111] Connection refused"
         )
     )
-    with caplog.at_level(logging.ERROR, logger="graphknows.memory"):
+    with caplog.at_level(logging.ERROR, logger="processrecall.memory"):
         out = await memory.flush()
 
     assert any(e.startswith("connect:") for e in out["errors"]), out["errors"]

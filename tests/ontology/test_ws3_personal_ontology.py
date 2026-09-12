@@ -2,7 +2,7 @@
 
 All tests are offline: no live API calls, no embedding model.
 
-Import strategy: to avoid the heavy ``graphknows.extraction.__init__`` (which
+Import strategy: to avoid the heavy ``processrecall.extraction.__init__`` (which
 pulls in gliner/networkx/langchain etc.), sub-modules are loaded directly via
 ``importlib`` or absolute file paths.  The ``sys.modules`` cache ensures each
 module is loaded at most once per session.
@@ -27,8 +27,8 @@ ASSETS_ROOT = REPO_ROOT / "tests" / "fixtures" / "ontology"
 PERSONAL_TTL = ASSETS_ROOT / "personal.ttl"
 PERSONAL_SUMMARY = ASSETS_ROOT / "personal-summary.jsonld"
 
-_ONTOLOGY_PKG = REPO_ROOT / "graphknows" / "symbolic" / "ontology"
-_RELATIONS_PKG = REPO_ROOT / "graphknows" / "ingestion" / "extraction" / "relations"
+_ONTOLOGY_PKG = REPO_ROOT / "processrecall" / "symbolic" / "ontology"
+_RELATIONS_PKG = REPO_ROOT / "processrecall" / "ingestion" / "extraction" / "relations"
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +52,7 @@ def _load_module(name: str, path: Path) -> Any:
 
 def _loader_mod():
     return _load_module(
-        "graphknows.symbolic.ontology.loader",
+        "processrecall.symbolic.ontology.loader",
         _ONTOLOGY_PKG / "loader.py",
     )
 
@@ -61,7 +61,7 @@ def _filter_mod():
     # Relation filter imports loader lazily (inside functions) so no pre-load needed.
     _loader_mod()
     return _load_module(
-        "graphknows.ingestion.extraction.relations.filter",
+        "processrecall.ingestion.extraction.relations.filter",
         _RELATIONS_PKG / "filter.py",
     )
 

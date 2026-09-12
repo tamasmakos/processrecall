@@ -23,7 +23,7 @@
 # code, and neither is installed in the workspace container.)
 set -uo pipefail
 
-CONTAINER="${GRAPHKNOWS_CONTAINER:-graphknows-workspace}"
+CONTAINER="${GRAPHKNOWS_CONTAINER:-processrecall-workspace}"
 # Ratchet: env may RAISE the floor, never lower it (no `FLOOR=0 git push` bypass).
 COVERAGE_FLOOR_MIN=65
 COVERAGE_FLOOR="${GRAPHKNOWS_COVERAGE_FLOOR:-$COVERAGE_FLOOR_MIN}"
@@ -121,21 +121,21 @@ else
 fi
 
 step "ruff (check + format)"
-dex "ruff check --no-fix graphknows evaluation tests"; record $? "ruff check"
-dex "ruff format --check graphknows evaluation tests"; record $? "ruff format"
+dex "ruff check --no-fix processrecall evaluation tests"; record $? "ruff check"
+dex "ruff format --check processrecall evaluation tests"; record $? "ruff format"
 
 step "mypy (whole package)"
-dex "mypy graphknows --strict --ignore-missing-imports --allow-untyped-decorators --no-warn-unused-ignores"
+dex "mypy processrecall --strict --ignore-missing-imports --allow-untyped-decorators --no-warn-unused-ignores"
 record $? "mypy"
 
 step "import-linter (module boundaries)"
 dex "lint-imports"; record $? "import-linter"
 
 step "bandit (whole package)"
-dex "bandit -r graphknows --skip B101,B104,B105,B110,B112"; record $? "bandit"
+dex "bandit -r processrecall --skip B101,B104,B105,B110,B112"; record $? "bandit"
 
 step "pytest (unit) + coverage floor ${COVERAGE_FLOOR}%"
-dex "python -m pytest -q -m 'not integration' --cov=graphknows \
+dex "python -m pytest -q -m 'not integration' --cov=processrecall \
      --cov-report=xml:coverage.xml --cov-report=term:skip-covered --cov-fail-under=${COVERAGE_FLOOR}"
 record $? "pytest/coverage"
 
@@ -152,7 +152,7 @@ fi
 
 step "dependency drift (report-only)"
 if dex "command -v deptry >/dev/null 2>&1"; then
-  dex "deptry graphknows" || echo "gate: deptry findings above are report-only for now - not failing the push."
+  dex "deptry processrecall" || echo "gate: deptry findings above are report-only for now - not failing the push."
 else
   echo "gate: deptry is not in the workspace image. Rebuild it: docker compose build && docker compose up -d" >&2
 fi

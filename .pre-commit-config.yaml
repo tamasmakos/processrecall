@@ -33,8 +33,8 @@ repos:
     rev: v1.16.0
     hooks:
       - id: mypy
-        name: mypy (graphknows)
-        files: ^graphknows/
+        name: mypy (processrecall)
+        files: ^processrecall/
         args:
           - --strict
           - --ignore-missing-imports
@@ -52,7 +52,7 @@ repos:
         name: bandit (security scan)
         args:
           - -r
-          - graphknows/
+          - processrecall/
           - --skip
           - B101,B104,B105,B110,B112
         pass_filenames: false

@@ -1228,7 +1228,7 @@ wheels = [
 ]
 
 [[package]]
-name = "graphknows"
+name = "processrecall"
 source = { editable = "." }
 dependencies = [
     { name = "dateparser" },

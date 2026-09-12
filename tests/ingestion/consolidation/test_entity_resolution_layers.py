@@ -6,13 +6,13 @@ from typing import Any
 
 import pytest
 
-from graphknows.ingestion.consolidation.entity_resolution import (
+from processrecall.ingestion.consolidation.entity_resolution import (
     EntityView,
     Layer,
     Resolver,
     mention_layer,
 )
-from graphknows.models.fact import Mention
+from processrecall.models.fact import Mention
 
 pytestmark = pytest.mark.unit
 

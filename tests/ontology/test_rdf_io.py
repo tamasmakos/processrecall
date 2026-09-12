@@ -23,16 +23,16 @@ import pytest
 
 pytest.importorskip("rdflib")
 
-from graphknows.symbolic.ontology import rdf_io
-from graphknows.symbolic.ontology.loader import load_ontology_terms, load_rdf_ontology_file
+from processrecall.symbolic.ontology import rdf_io
+from processrecall.symbolic.ontology.loader import load_ontology_terms, load_rdf_ontology_file
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "ontology_rdf"
 IMPORTS = FIXTURES / "imports"
 SKOS_CHAIN = FIXTURES / "skos-chain.ttl"
 
-ALPHA = "https://graphknows.io/fixtures/alpha"
-BETA = "https://graphknows.io/fixtures/beta"
-GAMMA = "https://graphknows.io/fixtures/gamma"
+ALPHA = "https://processrecall.io/fixtures/alpha"
+BETA = "https://processrecall.io/fixtures/beta"
+GAMMA = "https://processrecall.io/fixtures/gamma"
 
 
 def _labels(graph: object) -> set[str]:
@@ -128,7 +128,7 @@ class TestImportsClosure:
 
     def test_the_digest_tool_records_the_closure_it_was_built_from(self) -> None:
         """The point of recording it: a digest that cannot name its release is unauditable."""
-        from graphknows.symbolic.ontology.digest import build
+        from processrecall.symbolic.ontology.digest import build
 
         digest = build([IMPORTS / "a.ttl"])
         assert {c["label"] for c in digest["classes"]} == {
@@ -168,11 +168,11 @@ class TestSkolemIds:
     def test_the_projected_blank_node_block_is_identical_across_parses(self) -> None:
         """The consumer: a re-import of an unchanged file must not churn the row."""
         pytest.importorskip("networkx")
-        from graphknows.symbolic.ontology.rdf.projection import project
+        from processrecall.symbolic.ontology.rdf.projection import project
 
         blocks = []
         for _ in range(2):
             _, meta, _, _ = project(rdf_io.parse_file(SKOS_CHAIN))
-            blocks.append(meta["https://graphknows.io/fixtures/places#Java"].bnode_meta)
+            blocks.append(meta["https://processrecall.io/fixtures/places#Java"].bnode_meta)
         assert blocks[0] and blocks[0] == blocks[1]
-        assert blocks[0][0]["@id"].startswith("urn:graphknows:skolem:")
+        assert blocks[0][0]["@id"].startswith("urn:processrecall:skolem:")

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from graphknows.storage.namespace import sanitize
+from processrecall.storage.namespace import sanitize
 
 
 class TestSanitize:

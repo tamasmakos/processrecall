@@ -6,9 +6,9 @@ from collections.abc import Iterable
 
 import pytest
 
-from graphknows.ingestion.parsers.registry import Parser, ParserRegistry
-from graphknows.models.segment import Segment, SegmentKind
-from graphknows.models.source import Source
+from processrecall.ingestion.parsers.registry import Parser, ParserRegistry
+from processrecall.models.segment import Segment, SegmentKind
+from processrecall.models.source import Source
 
 
 class _WholeFileParser:

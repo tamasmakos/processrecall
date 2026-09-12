@@ -10,11 +10,11 @@
 @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
 @prefix owl:  <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-@prefix ex:   <https://graphknows.io/fixtures/places#> .
+@prefix ex:   <https://processrecall.io/fixtures/places#> .
 
-<https://graphknows.io/fixtures/places>
+<https://processrecall.io/fixtures/places>
     a owl:Ontology ;
-    owl:versionIRI <https://graphknows.io/fixtures/places/1.2.0> ;
+    owl:versionIRI <https://processrecall.io/fixtures/places/1.2.0> ;
     rdfs:label "Places (SKOS)" .
 
 ex:Landform a skos:Concept ;

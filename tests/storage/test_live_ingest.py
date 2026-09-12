@@ -17,11 +17,11 @@ from typing import Any
 
 import pytest
 
-from graphknows.memory import Memory
-from graphknows.models.segment import Segment, SegmentKind
-from graphknows.models.source import Source
-from graphknows.packs.agent import AgentPack
-from graphknows.packs.code import CodePack
+from processrecall.memory import Memory
+from processrecall.models.segment import Segment, SegmentKind
+from processrecall.models.source import Source
+from processrecall.packs.agent import AgentPack
+from processrecall.packs.code import CodePack
 
 _CODE = "def load_packs(packs):\n    return LoadedPacks(packs)\n"
 _PROSE = "The team decided to ship the loader before the parser.\n"
@@ -66,8 +66,8 @@ async def ingested(arcadedb_required: None) -> AsyncIterator[Memory]:
 
 async def _rows(memory: Memory, query: str, **params: Any) -> list[dict[str, Any]]:
     """Read the scratch namespace back through a store of our own."""
-    from graphknows.settings import get_settings
-    from graphknows.storage import build_graph_store
+    from processrecall.settings import get_settings
+    from processrecall.storage import build_graph_store
 
     store = build_graph_store(get_settings(), memory.namespace)
     await store.connect()

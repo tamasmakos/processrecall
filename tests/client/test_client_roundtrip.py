@@ -1,7 +1,7 @@
 """Round-trip tests for GraphKnowsMCPClient over a real stdio subprocess.
 
 Spawns ``fake_mcp_server.py`` — a stdlib-only stub, not the real
-``graphknows-mcp`` — so ``integrations.client`` proves itself against real
+``processrecall-mcp`` — so ``integrations.client`` proves itself against real
 subprocess framing (newline-delimited JSON on stdin/stdout) and real
 JSON-RPC request/response correlation without pulling the ML/extraction
 stack into this test's imports (FR-023, SC-015).
@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from graphknows.integrations.client import GraphKnowsMCPClient, MCPClientError
+from processrecall.integrations.client import GraphKnowsMCPClient, MCPClientError
 
 FAKE_SERVER = [sys.executable, str(Path(__file__).parent / "fake_mcp_server.py")]
 

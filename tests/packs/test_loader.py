@@ -7,9 +7,9 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from graphknows.exceptions import PackConflictError
-from graphknows.models import ConceptRef, PredicateRef
-from graphknows.packs import DomainPack, load_packs
+from processrecall.exceptions import PackConflictError
+from processrecall.models import ConceptRef, PredicateRef
+from processrecall.packs import DomainPack, load_packs
 
 
 @dataclass(frozen=True)

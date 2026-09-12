@@ -15,7 +15,7 @@ import logging
 
 import pytest
 
-from graphknows.symbolic.ontology import senses
+from processrecall.symbolic.ontology import senses
 
 
 class TestMissingCorpusIsLoudAndOffline:

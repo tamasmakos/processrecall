@@ -1,7 +1,7 @@
 """The production secret check and the env value that switches it on.
 
 ``check_production_secrets`` is a no-op for every env value but ``production``,
-so a misspelling silently disables it. ``graphknows_env`` is a lowercase enum
+so a misspelling silently disables it. ``processrecall_env`` is a lowercase enum
 (FR-006, SC-004); this pins that the near-misses are rejected at construction.
 """
 
@@ -10,8 +10,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from graphknows.exceptions import ConfigurationError
-from graphknows.settings import Env, GraphKnowsSettings
+from processrecall.exceptions import ConfigurationError
+from processrecall.settings import Env, GraphKnowsSettings
 
 
 @pytest.fixture(autouse=True)
@@ -26,13 +26,13 @@ def test_env_value_is_a_lowercase_enum() -> None:
         with pytest.raises(ValidationError):
             GraphKnowsSettings(_env_file=None, GRAPHKNOWS_ENV=spelling)
 
-    assert GraphKnowsSettings(_env_file=None).graphknows_env is Env.development
+    assert GraphKnowsSettings(_env_file=None).processrecall_env is Env.development
     assert (
         GraphKnowsSettings(
             _env_file=None,
             GRAPHKNOWS_ENV="production",
             GRAPHKNOWS_ARCADEDB_PASSWORD="not-the-default",
-        ).graphknows_env
+        ).processrecall_env
         is Env.production
     )
 

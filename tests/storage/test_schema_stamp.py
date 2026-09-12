@@ -10,9 +10,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from graphknows.exceptions import SchemaVersionMismatchError
-from graphknows.storage.arcadedb import _schema
-from graphknows.storage.arcadedb.graph_store import GraphStore
+from processrecall.exceptions import SchemaVersionMismatchError
+from processrecall.storage.arcadedb import _schema
+from processrecall.storage.arcadedb.graph_store import GraphStore
 
 
 def test_schema_version_changes_with_ddl_text_and_dims(

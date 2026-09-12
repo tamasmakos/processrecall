@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import graphknows.symbolic.ontology.loader as loader_module
-from graphknows.symbolic.ontology.loader import load_ontology_terms
+import processrecall.symbolic.ontology.loader as loader_module
+from processrecall.symbolic.ontology.loader import load_ontology_terms
 
 # Locate the bundled asset relative to the installed package, not the cwd.
 _PROFILE = Path(loader_module.__file__).parent / "assets" / "personal" / "personal-profile.json"

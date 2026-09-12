@@ -19,23 +19,23 @@ from types import SimpleNamespace
 
 import pytest
 
-from graphknows.models.symbols import ConceptRef, PredicateRef
-from graphknows.settings import GraphKnowsSettings
-from graphknows.storage.arcadedb import _schema
-from graphknows.symbolic.framenet import emitter
+from processrecall.models.symbols import ConceptRef, PredicateRef
+from processrecall.settings import GraphKnowsSettings
+from processrecall.storage.arcadedb import _schema
+from processrecall.symbolic.framenet import emitter
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 DROPPED_MODULES = (
-    "graphknows.symbolic.framenet.fe",
-    "graphknows.symbolic.framenet.framenet",
-    "graphknows.symbolic.framenet.index",
-    "graphknows.symbolic.framenet.relations",
-    "graphknows.symbolic.framenet.srl",
-    "graphknows.channels.frames",
-    "graphknows.channels.frame_facts",
-    "graphknows.ranking.frame_boost",
-    "graphknows.ingestion.extraction.relations.frame_srl",
+    "processrecall.symbolic.framenet.fe",
+    "processrecall.symbolic.framenet.framenet",
+    "processrecall.symbolic.framenet.index",
+    "processrecall.symbolic.framenet.relations",
+    "processrecall.symbolic.framenet.srl",
+    "processrecall.channels.frames",
+    "processrecall.channels.frame_facts",
+    "processrecall.ranking.frame_boost",
+    "processrecall.ingestion.extraction.relations.frame_srl",
 )
 
 # What a frame-specific type or a graph-ranking column is called in DDL. `FE` is
@@ -81,10 +81,10 @@ def test_frame_plane_modules_are_gone() -> None:
 
 
 def test_no_module_reaches_a_dropped_frame_module() -> None:
-    """Nothing under `graphknows/` imports what the plane left behind."""
+    """Nothing under `processrecall/` imports what the plane left behind."""
     importers = [
         path.relative_to(REPO_ROOT).as_posix()
-        for path in (REPO_ROOT / "graphknows").rglob("*.py")
+        for path in (REPO_ROOT / "processrecall").rglob("*.py")
         if any(module in path.read_text(encoding="utf-8") for module in DROPPED_MODULES)
     ]
     assert importers == []
@@ -118,7 +118,7 @@ def test_the_golden_schema_declares_no_frame_type_or_ranking_column() -> None:
 
 def test_no_writer_writes_a_frame_type_or_ranking_column() -> None:
     """The writing surface of the new core (T020's writers)."""
-    writers = (REPO_ROOT / "graphknows" / "storage" / "arcadedb" / "writers").rglob("*.py")
+    writers = (REPO_ROOT / "processrecall" / "storage" / "arcadedb" / "writers").rglob("*.py")
     offenders = [
         path.relative_to(REPO_ROOT).as_posix()
         for path in writers

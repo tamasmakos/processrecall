@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from graphknows.channels.base import Channel
+from processrecall.channels.base import Channel
 
 
 class _RecordingChannel(Channel):
@@ -39,8 +39,8 @@ async def test_default_populate_is_a_noop() -> None:
 
 
 def test_build_retriever_appends_caller_channels() -> None:
-    from graphknows.retrieval import build_retriever
-    from graphknows.settings import GraphKnowsSettings
+    from processrecall.retrieval import build_retriever
+    from processrecall.settings import GraphKnowsSettings
 
     ch = _RecordingChannel()
     retriever = build_retriever(GraphKnowsSettings(), store=MagicMock(), extra_channels=[ch])

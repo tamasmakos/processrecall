@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 import torch
 
-from graphknows.ingestion.extraction.relations._gliner2_verifier import (
+from processrecall.ingestion.extraction.relations._gliner2_verifier import (
     RelationVerifier,
     RelationVerifierModel,
     VerifierConfig,
@@ -65,7 +65,7 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_loads_a_bare_state_dict(
     checkpoint: Path, patched: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from graphknows.ingestion.extraction.relations import _gliner2_verifier
+    from processrecall.ingestion.extraction.relations import _gliner2_verifier
 
     monkeypatch.setattr(_gliner2_verifier, "hf_hub_download", lambda **_kw: str(checkpoint))
 
@@ -80,7 +80,7 @@ def test_falls_back_to_the_bin_filename(
     checkpoint: Path, patched: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Upstream ships either ``verifier.pt`` or ``pytorch_model.bin``."""
-    from graphknows.ingestion.extraction.relations import _gliner2_verifier
+    from processrecall.ingestion.extraction.relations import _gliner2_verifier
 
     asked: list[str] = []
 

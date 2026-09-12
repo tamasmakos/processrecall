@@ -14,9 +14,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from graphknows.exceptions import StoreError
-from graphknows.storage.arcadedb.graph_store import _VERTEX_TYPES, GraphStore
-from graphknows.storage.namespace import db_name
+from processrecall.exceptions import StoreError
+from processrecall.storage.arcadedb.graph_store import _VERTEX_TYPES, GraphStore
+from processrecall.storage.namespace import db_name
 
 
 def _mock_client(query_rows: list[dict] | None = None) -> MagicMock:
@@ -267,13 +267,13 @@ async def test_graph_store_round_trip_on_scratch_database(arcadedb_required: Non
     LIST param, both of which ArcadeDB's Cypher rejects (a T020 writer defect,
     not a read defect). The reads under test do not care who wrote the row.
     """
-    from graphknows.models.fact import Fact, Mention
-    from graphknows.models.segment import Segment, SegmentKind
-    from graphknows.models.symbols import PredicateRef
-    from graphknows.settings import GraphKnowsSettings
-    from graphknows.storage import build_arcadedb_client
-    from graphknows.storage.arcadedb._sql import vector_literal
-    from graphknows.storage.arcadedb.writers import (
+    from processrecall.models.fact import Fact, Mention
+    from processrecall.models.segment import Segment, SegmentKind
+    from processrecall.models.symbols import PredicateRef
+    from processrecall.settings import GraphKnowsSettings
+    from processrecall.storage import build_arcadedb_client
+    from processrecall.storage.arcadedb._sql import vector_literal
+    from processrecall.storage.arcadedb.writers import (
         EntityWriter,
         Evidence,
         FactWriter,

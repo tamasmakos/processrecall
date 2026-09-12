@@ -1,6 +1,6 @@
 # Contributing to GraphKnows
 
-GraphKnows is a single Python package (`graphknows/`) backed by ArcadeDB. There
+GraphKnows is a single Python package (`processrecall/`) backed by ArcadeDB. There
 is no monorepo, no web UI and no TypeScript. If you are looking for the shape of
 the system before changing it, read [docs/services.md](docs/services.md).
 
@@ -10,8 +10,8 @@ the system before changing it, read [docs/services.md](docs/services.md).
 Docker Compose v2.
 
 ```bash
-git clone https://github.com/your-org/graphknows.git
-cd graphknows
+git clone https://github.com/your-org/processrecall.git
+cd processrecall
 
 make setup          # copies .env.example → .env if missing
 uv sync             # install the package + dev tooling
@@ -43,15 +43,15 @@ narrower quick checks it supersedes:
 
 | Command | Checks |
 | --- | --- |
-| `make lint` | `ruff check graphknows tests` |
-| `make typecheck` | `mypy graphknows` |
+| `make lint` | `ruff check processrecall tests` |
+| `make typecheck` | `mypy processrecall` |
 | `make arch` | `lint-imports` — the layer contracts in `.importlinter` |
 | `make test` | unit suite (`pytest -m "not integration"`) |
 | `make build-wheel` | the wheel stays small and ships `py.typed` |
 
 `make gate` runs the pre-push hook exactly as the hook runs it, both locally
-and in CI: a wider ruff scope (`graphknows evaluation tests`, not just
-`graphknows tests`), plus `mypy --strict`, `bandit`, a dependency audit and a
+and in CI: a wider ruff scope (`processrecall evaluation tests`, not just
+`processrecall tests`), plus `mypy --strict`, `bandit`, a dependency audit and a
 65% coverage floor that `make lint` and `make test` above don't cover. `make
 lint` and `make test` are quick local checks, not a substitute for `make gate`
 before you push.
@@ -119,7 +119,7 @@ Adding a package means adding it to the stack in `.importlinter`. See
 ### Adding a document parser
 
 There is one parser — `PlainTextParser` in
-`graphknows/ingestion/parsers/text.py` — and it handles plain text and Markdown,
+`processrecall/ingestion/parsers/text.py` — and it handles plain text and Markdown,
 which is what the ingest path feeds it. It is a plain class, not a registered
 plugin: there is no `BaseParser` ABC, no extension registry and no
 auto-discovery, because one implementation never needed them.
@@ -135,9 +135,9 @@ chunk on the write path, `collect()` to contribute ranked candidates on the read
 path. A channel that only writes is dead weight — if nothing consumes it, do not
 add it.
 
-1. Implement the `Channel` protocol from `graphknows/channels/base.py`;
+1. Implement the `Channel` protocol from `processrecall/channels/base.py`;
    `collect(ctx, rt, top_k)` returns `{chunk_id: (score, info)}`.
-2. Register it in `graphknows/channels/registry.py::default_channels`, gated on
+2. Register it in `processrecall/channels/registry.py::default_channels`, gated on
    the setting that enables it. Insertion order defines fusion order.
 3. Measure it. Channels are added on evidence recall, not on principle — both the
    topic and PageRank channels were removed after measurement showed they did not
@@ -145,12 +145,12 @@ add it.
 
 ### Adding an MCP tool
 
-Tools live in `graphknows/server/mcp/tools/`, grouped by concern (`stm.py`,
+Tools live in `processrecall/server/mcp/tools/`, grouped by concern (`stm.py`,
 `query.py`, `ltm.py`, `corpus.py`, `admin.py`).
 
 1. Add an `async def` to the right module, decorated on the shared FastMCP app.
 2. Accept an optional `namespace` argument — every tool does — and resolve it
-   through the standard path in `graphknows/server/mcp/_state.py`.
+   through the standard path in `processrecall/server/mcp/_state.py`.
 3. Keep it a thin wrapper over one `Memory` method. Logic belongs in `memory` or
    below, never in the transport.
 4. Export it from `tools/__init__.py`, which is the authoritative inventory.
@@ -162,7 +162,7 @@ Tools live in `graphknows/server/mcp/tools/`, grouped by concern (`stm.py`,
 - **ArcadeDB**: Cypher has no DDL surface, so schema is SQL. Embedding values
   must be inline SQL literals — LIST params conflict with the `LSM_VECTOR`
   index — and openCypher has no `IN $list`, so **every interpolated string goes
-  through `graphknows/storage/arcadedb/_sql.py`**. Never hand-format a value
+  through `processrecall/storage/arcadedb/_sql.py`**. Never hand-format a value
   into a query.
 - **Async**: the public surface is async; `Memory` is an async context manager.
 - **Errors**: no silent fallbacks. A failing channel raises rather than quietly
@@ -174,4 +174,4 @@ Tools live in `graphknows/server/mcp/tools/`, grouped by concern (`stm.py`,
 Semver applies to the documented public surface only, and it is pinned by
 `tests/api/test_public_surface.py`. Read
 [docs/versioning.md](docs/versioning.md) before changing anything exported from
-`graphknows.__all__`, `graphknows.integrations.*`, or the MCP tool contract.
+`processrecall.__all__`, `processrecall.integrations.*`, or the MCP tool contract.

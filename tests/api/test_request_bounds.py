@@ -2,7 +2,7 @@
 
 ``Message.content``/document ``text``, each scope id, ``metadata``, ``top_k``
 and ``limit`` all reject an over-bound value with
-:class:`~graphknows.exceptions.ConfigurationError` — a ``GraphKnowsError``,
+:class:`~processrecall.exceptions.ConfigurationError` — a ``GraphKnowsError``,
 per the same "every failure escaping a public entry point" contract
 ``tests/api/test_public_errors.py`` pins. Every check below runs before any
 store or network call, so this stays hermetic.
@@ -14,11 +14,11 @@ import asyncio
 
 import pytest
 
-from graphknows import bounds
-from graphknows.exceptions import ConfigurationError
-from graphknows.memory import Memory
-from graphknows.models.message import Message
-from graphknows.retrieval.retriever import DETRetriever
+from processrecall import bounds
+from processrecall.exceptions import ConfigurationError
+from processrecall.memory import Memory
+from processrecall.models.message import Message
+from processrecall.retrieval.retriever import DETRetriever
 
 # ---------------------------------------------------------------------------
 # The bound checks themselves
@@ -82,7 +82,7 @@ def test_limit_over_the_bound_is_rejected() -> None:
 
 @pytest.mark.asyncio
 async def test_bounded_lets_a_call_finishing_in_time_through() -> None:
-    from graphknows.server.mcp._bounded import bounded
+    from processrecall.server.mcp._bounded import bounded
 
     @bounded
     async def _fast() -> str:
@@ -94,8 +94,8 @@ async def test_bounded_lets_a_call_finishing_in_time_through() -> None:
 @pytest.mark.asyncio
 async def test_bounded_rejects_a_call_over_the_per_call_timeout(monkeypatch) -> None:
     """The budget is read per call, from settings, so a deployment can raise it."""
-    from graphknows.server.mcp import _bounded
-    from graphknows.settings import GraphKnowsSettings
+    from processrecall.server.mcp import _bounded
+    from processrecall.settings import GraphKnowsSettings
 
     monkeypatch.setattr(
         _bounded, "get_settings", lambda: GraphKnowsSettings(mcp_call_timeout_s=0.01)
@@ -114,7 +114,7 @@ def test_the_memory_facade_is_not_timeout_bounded() -> None:
     *server-side*). An in-process caller owns its own deadline, and a first
     call that loads the extraction models legitimately outruns any fixed
     budget -- CI proved that on 2026-09-07."""
-    from graphknows.memory import Memory
+    from processrecall.memory import Memory
 
     for name in ("ingest_memory", "recall_memory", "ltm_entities"):
         fn = getattr(Memory, name)

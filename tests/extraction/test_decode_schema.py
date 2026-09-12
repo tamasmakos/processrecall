@@ -13,7 +13,7 @@ import dataclasses
 import pytest
 from pydantic import ValidationError
 
-from graphknows.ingestion.extraction.llm.schema import (
+from processrecall.ingestion.extraction.llm.schema import (
     DecodedEntity,
     DecodedFrameInstance,
     DecodedItems,

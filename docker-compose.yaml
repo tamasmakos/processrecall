@@ -6,7 +6,7 @@
 # Docker is dev-only: the PyPI wheel is the product, so there is no separate
 # deployment compose file and no shipped-image target to select.
 
-x-graphknows-env: &graphknows-env
+x-processrecall-env: &processrecall-env
   GRAPHKNOWS_ARCADEDB_URL: "${GRAPHKNOWS_ARCADEDB_URL:-http://arcadedb:2480}"
   GRAPHKNOWS_ARCADEDB_USER: "${GRAPHKNOWS_ARCADEDB_USER:-root}"
   GRAPHKNOWS_ARCADEDB_PASSWORD: "${GRAPHKNOWS_ARCADEDB_PASSWORD:-changeme}"
@@ -67,16 +67,16 @@ services:
   # on `restart` without a rebuild (PYTHONPATH=/app shadows the venv-installed
   # copy) — a pyproject/uv.lock change still needs `docker compose build mcp`.
   mcp:
-    container_name: graphknows-mcp
+    container_name: processrecall-mcp
     build:
       context: .
       dockerfile: Dockerfile
-    command: graphknows-mcp
+    command: processrecall-mcp
     volumes:
       - .:/app
       - model_cache:/opt/models
     environment:
-      <<: *graphknows-env
+      <<: *processrecall-env
       PYTHONPATH: /app
     depends_on:
       arcadedb:
@@ -85,7 +85,7 @@ services:
 
   # Dev container: mounts the repo, interactive shell, all tooling.
   workspace:
-    container_name: graphknows-workspace
+    container_name: processrecall-workspace
     build:
       context: .
       dockerfile: Dockerfile
@@ -111,7 +111,7 @@ services:
       # different lifetime.
       - model_cache:/opt/models
     environment:
-      <<: *graphknows-env
+      <<: *processrecall-env
       PYTHONPATH: /app
     tty: true
     stdin_open: true

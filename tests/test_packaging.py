@@ -8,7 +8,7 @@ runs locally:
     invisible because docker-compose bind-mounts the repo over the image, so
     live source ran against months-old site-packages.
   * `nltk` was imported by the default relation path but declared only in the
-    `eval` dependency-group, so `pip install graphknows` produced a broken
+    `eval` dependency-group, so `pip install processrecall` produced a broken
     install and only the Docker image (which installed dev+eval groups) worked.
   * Six of seven `MissingExtraError` call sites named extras that do not exist,
     so the remedy they printed installed nothing.
@@ -33,7 +33,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PKG_ROOT = REPO_ROOT / "graphknows"
+PKG_ROOT = REPO_ROOT / "processrecall"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 
 
@@ -87,7 +87,7 @@ def _top_level_imports(path: Path) -> set[str]:
 
 
 def _is_first_party(mod: str) -> bool:
-    return mod == "graphknows" or (PKG_ROOT / mod).exists()
+    return mod == "processrecall" or (PKG_ROOT / mod).exists()
 
 
 def test_missing_extra_call_sites_name_declared_extras() -> None:
@@ -148,11 +148,11 @@ def _missing_extra_call_sites() -> dict[str, set[str]]:
 #: core (ADR 0003) a missing dspy stopped being an extra to install and became a
 #: BrokenInstallError — so the decoder is deliberately absent from this table.
 ONTOLOGY_SPLIT_CALL_SITES = {
-    "graphknows/symbolic/ontology/rdf_io.py": "ontology",
-    "graphknows/symbolic/ontology/rdf/taxonomy.py": "ontology",
-    "graphknows/symbolic/ontology/rdf/projection.py": "ontology",
-    "graphknows/symbolic/ontology/rdf/prefixes.py": "ontology",
-    "graphknows/symbolic/ontology/digest.py": "ontology",
+    "processrecall/symbolic/ontology/rdf_io.py": "ontology",
+    "processrecall/symbolic/ontology/rdf/taxonomy.py": "ontology",
+    "processrecall/symbolic/ontology/rdf/projection.py": "ontology",
+    "processrecall/symbolic/ontology/rdf/prefixes.py": "ontology",
+    "processrecall/symbolic/ontology/digest.py": "ontology",
 }
 
 
@@ -175,14 +175,14 @@ def test_ontology_call_sites_name_the_ontology_extra() -> None:
     strays = {
         rel: sorted(extras)
         for rel, extras in found.items()
-        if rel.startswith("graphknows/symbolic/ontology/") and extras != {"ontology"}
+        if rel.startswith("processrecall/symbolic/ontology/") and extras != {"ontology"}
     }
     assert not strays, f"ontology modules naming an extra other than 'ontology': {strays}"
 
 
 def test_known_extras_constant_matches_pyproject() -> None:
     """MissingExtraError.KNOWN_EXTRAS must track the real extras."""
-    from graphknows.exceptions import MissingExtraError
+    from processrecall.exceptions import MissingExtraError
 
     declared = set(_pyproject()["project"].get("optional-dependencies", {}))
     assert set(MissingExtraError.KNOWN_EXTRAS) == declared
@@ -220,7 +220,7 @@ def test_ontology_extra_excludes_dspy() -> None:
 def test_default_path_dependencies_are_core(distribution: str) -> None:
     """Dependencies of the default (llm_free) path must be core, not extras.
 
-    `pip install graphknows` promises a working llm_free stack. A dependency of
+    `pip install processrecall` promises a working llm_free stack. A dependency of
     that path living in an extra or a dependency-group breaks the promise, and
     the Docker image hides it whenever the image happens to install that group.
     """
@@ -234,19 +234,19 @@ def test_default_path_dependencies_are_core(distribution: str) -> None:
 def test_bundled_default_ontology_ships_in_the_wheel() -> None:
     """The always-on ontology is a data file, and data files are easy to lose.
 
-    ``[tool.hatch.build.targets.wheel] packages = ["graphknows"]`` ships the
+    ``[tool.hatch.build.targets.wheel] packages = ["processrecall"]`` ships the
     package directory, but hatchling excludes anything the VCS ignores and
     honours any `exclude` entry — either would produce an installed package
     whose default ``ontology_source`` points at a file that is not there.
     """
-    from graphknows.settings import GraphKnowsSettings
+    from processrecall.settings import GraphKnowsSettings
 
     asset = Path(GraphKnowsSettings().ontology_source)
     assert asset.is_file(), f"bundled ontology missing: {asset}"
     assert asset.is_relative_to(PKG_ROOT), "asset must live inside the shipped package"
 
     build = _pyproject()["tool"]["hatch"]["build"]
-    assert build["targets"]["wheel"]["packages"] == ["graphknows"]
+    assert build["targets"]["wheel"]["packages"] == ["processrecall"]
     assert not build.get("exclude"), "a global exclude could drop the asset"
 
     # Not VCS-ignored: hatchling's default `ignore-vcs = false` drops such files
@@ -270,7 +270,7 @@ def test_built_wheel_ships_the_default_ontology_assets(tmp_path: Path) -> None:
     packaging config actually puts it in the wheel.
 
     These three archive paths mirror `_BUNDLED_ONTOLOGY`, `_BUNDLED_OVERLAY`
-    and `_BUNDLED_PERSONAL_PROFILE` in graphknows/settings.py. The first two
+    and `_BUNDLED_PERSONAL_PROFILE` in processrecall/settings.py. The first two
     are what `GraphKnowsSettings().ontology_source` / `overlay_source`
     resolve to by default; the personal profile is `_BUNDLED_RELATION_PROFILE`
     — the default relation vocabulary — and is also reached explicitly via
@@ -294,9 +294,9 @@ def test_built_wheel_ships_the_default_ontology_assets(tmp_path: Path) -> None:
 
     names = zipfile.ZipFile(wheels[0]).namelist()
     for expected in (
-        "graphknows/symbolic/ontology/assets/cco/cco.json",
-        "graphknows/symbolic/ontology/assets/cco/conversational.json",
-        "graphknows/symbolic/ontology/assets/personal/personal-profile.json",
+        "processrecall/symbolic/ontology/assets/cco/cco.json",
+        "processrecall/symbolic/ontology/assets/cco/conversational.json",
+        "processrecall/symbolic/ontology/assets/personal/personal-profile.json",
     ):
         assert expected in names, f"{wheels[0].name}: missing bundled ontology asset {expected!r}"
 
@@ -310,7 +310,7 @@ def test_pack_data_ships_in_the_wheel(tmp_path: Path) -> None:
     proves the declaration reaches the wheel.
     """
     wheel_target = _pyproject()["tool"]["hatch"]["build"]["targets"]["wheel"]
-    assert "graphknows/packs/data/**/*.json" in wheel_target.get("artifacts", []), (
+    assert "processrecall/packs/data/**/*.json" in wheel_target.get("artifacts", []), (
         "pack data is not declared to the build backend"
     )
 
@@ -339,7 +339,7 @@ def test_pack_data_ships_in_the_wheel(tmp_path: Path) -> None:
 
 
 def test_every_imported_third_party_module_is_declared() -> None:
-    """No graphknows module may import a distribution the package never declares.
+    """No processrecall module may import a distribution the package never declares.
 
     This is the check that would have caught `gliner`. It resolves each imported
     top-level module to its installed distribution and compares against the
@@ -391,7 +391,7 @@ def test_assisted_extra_removed_and_dspy_core() -> None:
     for distribution in ("dspy", "litellm"):
         assert distribution in core, (
             f"'{distribution}' is imported by the LLM decoder but is not a core "
-            f"dependency — `pip install graphknows` would not run llm_assisted"
+            f"dependency — `pip install processrecall` would not run llm_assisted"
         )
 
     specs = {
@@ -407,7 +407,7 @@ def test_assisted_extra_removed_and_dspy_core() -> None:
     named = {extra for extras_ in _missing_extra_call_sites().values() for extra in extras_}
     assert "assisted" not in named, (
         "a MissingExtraError call site still names `assisted`, so it sends the user "
-        "to `pip install graphknows[assisted]` — which now fails outright"
+        "to `pip install processrecall[assisted]` — which now fails outright"
     )
 
 
@@ -475,8 +475,8 @@ def test_bare_install_runs_decoder(tmp_path: Path) -> None:
 _BARE_DECODER_SCRIPT = """
 import json
 import dspy
-from graphknows.ingestion.extraction.llm.decoder import LLMDecoder
-from graphknows.settings import GraphKnowsSettings
+from processrecall.ingestion.extraction.llm.decoder import LLMDecoder
+from processrecall.settings import GraphKnowsSettings
 
 REPLY = json.dumps(
     {

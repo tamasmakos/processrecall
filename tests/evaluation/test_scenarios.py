@@ -15,8 +15,8 @@ from evaluation.scenarios import (
     schema_refusal,
     two_packs,
 )
-from graphknows.exceptions import SchemaVersionMismatchError
-from graphknows.models import SegmentKind
+from processrecall.exceptions import SchemaVersionMismatchError
+from processrecall.models import SegmentKind
 
 pytestmark = pytest.mark.unit
 

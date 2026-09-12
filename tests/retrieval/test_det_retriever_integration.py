@@ -15,13 +15,13 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from graphknows.storage.arcadedb.graph_store import GraphStore
+from processrecall.storage.arcadedb.graph_store import GraphStore
 
 
 @pytest.fixture
 async def scratch_store(arcadedb_required: None) -> AsyncIterator[GraphStore]:
-    from graphknows.settings import GraphKnowsSettings
-    from graphknows.storage import build_arcadedb_client
+    from processrecall.settings import GraphKnowsSettings
+    from processrecall.storage import build_arcadedb_client
 
     store = GraphStore(
         client=build_arcadedb_client(GraphKnowsSettings()), db=f"mem_test_{uuid.uuid4().hex[:8]}"
@@ -43,8 +43,8 @@ async def test_graph_store_ensure_schema_does_not_raise(scratch_store: GraphStor
     found", which made _get_retriever() fail on every call and forced every
     memory_query to return empty results.
     """
-    from graphknows.settings import GraphKnowsSettings
-    from graphknows.storage.embedder import embed_dim
+    from processrecall.settings import GraphKnowsSettings
+    from processrecall.storage.embedder import embed_dim
 
     s = GraphKnowsSettings()
     await scratch_store.ensure_schema(s.embed_dimensions or embed_dim())
@@ -59,13 +59,13 @@ async def test_det_retriever_returns_results_after_ingest(scratch_store: GraphSt
     session and asserts non-empty fused_results. The SOURCE is written with
     raw Cypher so this test fails on the retriever alone, never on a writer.
     """
-    from graphknows.models.segment import Segment, SegmentKind
-    from graphknows.models.source import session_uri
-    from graphknows.retrieval.retriever import DETRetriever
-    from graphknows.settings import GraphKnowsSettings
-    from graphknows.storage.arcadedb._sql import vector_literal
-    from graphknows.storage.arcadedb.writers import SegmentWriter
-    from graphknows.storage.embedder import embed_dim, embed_one
+    from processrecall.models.segment import Segment, SegmentKind
+    from processrecall.models.source import session_uri
+    from processrecall.retrieval.retriever import DETRetriever
+    from processrecall.settings import GraphKnowsSettings
+    from processrecall.storage.arcadedb._sql import vector_literal
+    from processrecall.storage.arcadedb.writers import SegmentWriter
+    from processrecall.storage.embedder import embed_dim, embed_one
 
     s = GraphKnowsSettings()
     store = scratch_store

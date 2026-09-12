@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from graphknows.exceptions import ConfigurationError
-from graphknows.settings import (
+from processrecall.exceptions import ConfigurationError
+from processrecall.settings import (
     Decoder,
     GraphKnowsSettings,
     MemoryMode,

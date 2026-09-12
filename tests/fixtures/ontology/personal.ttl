@@ -1,4 +1,4 @@
-@prefix : <https://graphknows.io/ontology/personal#> .
+@prefix : <https://processrecall.io/ontology/personal#> .
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
@@ -9,7 +9,7 @@
 # Ontology header
 # ============================================================
 
-<https://graphknows.io/ontology/personal>
+<https://processrecall.io/ontology/personal>
     a owl:Ontology ;
     rdfs:label "Personal Conversational Ontology" ;
     rdfs:comment "Lightweight ontology for extracting structured knowledge from personal dialogues, life narratives, and conversational text (e.g. LoCoMo-style datasets)." .

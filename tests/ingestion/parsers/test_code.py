@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from graphknows.ingestion.parsers.code import PythonCodeParser
-from graphknows.ingestion.parsers.registry import Parser
-from graphknows.models.segment import SegmentKind
-from graphknows.models.source import Source
+from processrecall.ingestion.parsers.code import PythonCodeParser
+from processrecall.ingestion.parsers.registry import Parser
+from processrecall.models.segment import SegmentKind
+from processrecall.models.source import Source
 
 SOURCE = Source(uri="pkg/store.py", content_hash="deadbeef", mime="text/x-python")
 

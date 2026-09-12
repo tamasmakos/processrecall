@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import numpy as np
 import pytest
 
-from graphknows.retrieval.retriever import DETRetriever
-from graphknows.settings import get_settings
+from processrecall.retrieval.retriever import DETRetriever
+from processrecall.settings import get_settings
 
 
 def _fake_embed(texts, model):
@@ -53,7 +53,7 @@ async def test_all_collectors_contribute():
         return_value=[{"id": "f1", "segment_id": "fact-g1", "text": "alice holds a policy"}]
     )
 
-    with patch("graphknows.retrieval.retriever.embed", side_effect=_fake_embed):
+    with patch("processrecall.retrieval.retriever.embed", side_effect=_fake_embed):
         ctx = await retriever.retrieve("alice policy", session_id="s1")
 
     ids = {fr["chunk_id"] for fr in ctx.fused_results}
@@ -66,7 +66,7 @@ async def test_session_scopes_every_collector_to_the_sessions_sources():
     """A session is a SOURCE: its id resolves through the uri, and every read is scoped."""
     retriever, store = _make_retriever()
 
-    with patch("graphknows.retrieval.retriever.embed", side_effect=_fake_embed):
+    with patch("processrecall.retrieval.retriever.embed", side_effect=_fake_embed):
         await retriever.retrieve("alice policy", session_id="s1")
 
     store.sources.assert_awaited_once_with(uri="session:s1")
@@ -79,7 +79,7 @@ async def test_session_scopes_every_collector_to_the_sessions_sources():
 async def test_no_session_is_namespace_wide():
     retriever, store = _make_retriever()
 
-    with patch("graphknows.retrieval.retriever.embed", side_effect=_fake_embed):
+    with patch("processrecall.retrieval.retriever.embed", side_effect=_fake_embed):
         await retriever.retrieve("alice policy", session_id="")
 
     store.sources.assert_not_awaited()
@@ -98,7 +98,7 @@ async def test_fact_context_attached_when_enabled(monkeypatch):
         ]
     )
 
-    with patch("graphknows.retrieval.retriever.embed", side_effect=_fake_embed):
+    with patch("processrecall.retrieval.retriever.embed", side_effect=_fake_embed):
         ctx = await retriever.retrieve("where did jon go", session_id="s1")
 
     assert ctx.facts == ["Jon visiting Rome"]
@@ -115,7 +115,7 @@ async def test_fact_context_disabled_by_flag(monkeypatch):
         return_value=[{"subject_name": "Jon", "predicate": "p:visiting", "object_name": "Rome"}]
     )
 
-    with patch("graphknows.retrieval.retriever.embed", side_effect=_fake_embed):
+    with patch("processrecall.retrieval.retriever.embed", side_effect=_fake_embed):
         ctx = await retriever.retrieve("where did jon go", session_id="s1")
 
     assert ctx.facts == []
@@ -136,7 +136,7 @@ async def test_multi_source_segment_ranks_higher():
     )
 
     # The fused RRF score IS the ranking now — no reranker to neutralise.
-    with patch("graphknows.retrieval.retriever.embed", side_effect=_fake_embed):
+    with patch("processrecall.retrieval.retriever.embed", side_effect=_fake_embed):
         ctx = await retriever.retrieve("alice", session_id="s1")
 
     by_id = {fr["chunk_id"]: fr for fr in ctx.fused_results}
@@ -150,7 +150,7 @@ async def test_top_k_is_respected():
         return_value=[{"id": f"e{i}", "text": f"entity {i}"} for i in range(8)]
     )
 
-    with patch("graphknows.retrieval.retriever.embed", side_effect=_fake_embed):
+    with patch("processrecall.retrieval.retriever.embed", side_effect=_fake_embed):
         ctx = await retriever.retrieve("query words here", session_id="s1", top_k=3)
 
     assert len(ctx.fused_results) <= 3
@@ -164,7 +164,7 @@ async def test_collector_failure_raises_loudly():
     store.segments_mentioning = AsyncMock(side_effect=RuntimeError("store down"))
 
     with (
-        patch("graphknows.retrieval.retriever.embed", side_effect=_fake_embed),
+        patch("processrecall.retrieval.retriever.embed", side_effect=_fake_embed),
         pytest.raises(RuntimeError, match="store down"),
     ):
         await retriever.retrieve("query text here", session_id="s1")
@@ -178,7 +178,7 @@ async def test_neighbor_expansion_merges_split_message_siblings(monkeypatch):
     keeps the same number of distinct seeds. Off by default (conversational
     context-rot).
     """
-    monkeypatch.setattr("graphknows.retrieval.retriever._NEIGHBOR_RADIUS", 1)
+    monkeypatch.setattr("processrecall.retrieval.retriever._NEIGHBOR_RADIUS", 1)
     retriever, store = _make_retriever()
     store.search_segments_ann = AsyncMock(
         return_value=[{"id": "g2", "text": "middle of a long message", "cosine_score": 0.9}]
@@ -192,7 +192,7 @@ async def test_neighbor_expansion_merges_split_message_siblings(monkeypatch):
         }
     )
 
-    with patch("graphknows.retrieval.retriever.embed", side_effect=_fake_embed):
+    with patch("processrecall.retrieval.retriever.embed", side_effect=_fake_embed):
         ctx = await retriever.retrieve("q", session_id="s1", top_k=5)
 
     # Siblings are NOT separate passages — the passage count is unchanged.
@@ -204,14 +204,14 @@ async def test_neighbor_expansion_merges_split_message_siblings(monkeypatch):
 
 
 async def test_neighbor_expansion_dedupes_and_survives_store_failure(monkeypatch):
-    monkeypatch.setattr("graphknows.retrieval.retriever._NEIGHBOR_RADIUS", 1)
+    monkeypatch.setattr("processrecall.retrieval.retriever._NEIGHBOR_RADIUS", 1)
     retriever, store = _make_retriever()
     store.search_segments_ann = AsyncMock(
         return_value=[{"id": "a", "text": "x", "cosine_score": 0.9}]
     )
     store.neighbor_segments = AsyncMock(side_effect=RuntimeError("boom"))
 
-    with patch("graphknows.retrieval.retriever.embed", side_effect=_fake_embed):
+    with patch("processrecall.retrieval.retriever.embed", side_effect=_fake_embed):
         ctx = await retriever.retrieve("q", session_id="s1", top_k=5)
 
     # Failure is non-fatal — the base results are still returned.
@@ -239,7 +239,7 @@ async def test_fused_hits_carry_role_and_observed_at_for_every_channel():
         }
     )
 
-    with patch("graphknows.retrieval.retriever.embed", side_effect=_fake_embed):
+    with patch("processrecall.retrieval.retriever.embed", side_effect=_fake_embed):
         ctx = await retriever.retrieve("When did Gina find that?", session_id="s1")
 
     by_id = {fr["chunk_id"]: fr for fr in ctx.fused_results}
@@ -269,7 +269,7 @@ async def test_a_hit_carries_the_segments_observed_at():
         ]
     )
 
-    with patch("graphknows.retrieval.retriever.embed", side_effect=_fake_embed):
+    with patch("processrecall.retrieval.retriever.embed", side_effect=_fake_embed):
         ctx = await retriever.retrieve("when did Jon lose his job", session_id="s1")
 
     hit = next(h for h in ctx.fused_results if h.get("chunk_id") == "g1")

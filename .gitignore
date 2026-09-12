@@ -94,9 +94,9 @@ prototypes
 # `GraphKnowsSettings.ontology_source` defaults to.
 # The path moved with the package (frames/ + ontology/ -> symbolic/). A stale
 # path here fails SILENTLY: the files simply stop being ignored, get swept in
-# by `git add graphknows/`, and the large-file hook then rejects the whole
+# by `git add processrecall/`, and the large-file hook then rejects the whole
 # commit on a 4.6 MB .owl that was never meant to be committed.
-graphknows/symbolic/ontology/assets/cco-extensions/candidates/
+processrecall/symbolic/ontology/assets/cco-extensions/candidates/
 # machine-written run reports; the rules beside runs/ stay tracked
 docs/agents/runs/
 docs\adr

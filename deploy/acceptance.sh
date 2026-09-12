@@ -32,8 +32,8 @@ docker compose -f "$(dirname "$0")/compose.yaml" exec -T app python - <<'PY'
 import asyncio
 import sys
 
-from graphknows.memory import Memory
-from graphknows.settings import GraphKnowsSettings
+from processrecall.memory import Memory
+from processrecall.settings import GraphKnowsSettings
 
 DOCUMENT = "Ada Lovelace wrote the first algorithm for the Analytical Engine in London."
 PHRASE = "Analytical Engine"

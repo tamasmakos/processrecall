@@ -1,7 +1,7 @@
 """The LoCoMo-specific decisions in the LangGraph agent.
 
 Rendering used to live here too and is now
-:func:`graphknows.models.hit.render_memories`, covered in
+:func:`processrecall.models.hit.render_memories`, covered in
 ``tests/models/test_hit.py`` — including the one behaviour both arms depend on:
 a hit with a ``ts`` renders dated and attributed, a hit without one (the
 ``--prefix`` arm) passes through carrying its own inline date.

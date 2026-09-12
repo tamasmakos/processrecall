@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from graphknows.models import ConceptRef, PredicateRef, SymbolKind
+from processrecall.models import ConceptRef, PredicateRef, SymbolKind
 
 
 def test_symbol_kinds_are_concept_predicate_and_episode() -> None:

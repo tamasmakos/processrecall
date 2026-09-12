@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from graphknows.memory import Memory
+from processrecall.memory import Memory
 
 
 def _memory() -> Memory:

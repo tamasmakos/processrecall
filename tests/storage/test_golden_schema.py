@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from graphknows.storage.arcadedb._schema import _CORE_DDL, schema_version
+from processrecall.storage.arcadedb._schema import _CORE_DDL, schema_version
 
 _STATEMENTS = [stmt for _lang, stmt in _CORE_DDL]
 

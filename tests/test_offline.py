@@ -44,7 +44,7 @@ DEPLOY_DOCKERFILE = REPO_ROOT / "deploy" / "Dockerfile"
 DEPLOY_COMPOSE = REPO_ROOT / "deploy" / "compose.yaml"
 DEPLOY_ACCEPTANCE = REPO_ROOT / "deploy" / "acceptance.sh"
 ENTRYPOINT = REPO_ROOT / "scripts" / "docker-entrypoint.sh"
-VERSION_FILE = REPO_ROOT / "graphknows" / "_version.py"
+VERSION_FILE = REPO_ROOT / "processrecall" / "_version.py"
 
 Instruction = tuple[str, str]
 
@@ -105,9 +105,9 @@ def test_release_image_is_pinned_offline_and_self_contained() -> None:
     )
 
     # Exact filename, never a glob: `[ontology]` is a glob character class, so
-    # `graphknows-*.whl[ontology]` expands to nothing and pip silently installs
+    # `processrecall-*.whl[ontology]` expands to nothing and pip silently installs
     # neither the wheel nor the extra (research.md R9).
-    wheel = f"graphknows-{_package_version()}-py3-none-any.whl[ontology]"
+    wheel = f"processrecall-{_package_version()}-py3-none-any.whl[ontology]"
     install = instructions[_index_of(instructions, "RUN", "pip install")][1]
     assert wheel in install, (
         f"{DEPLOY_DOCKERFILE}: the pip install does not name {wheel!r} — the image installs the "
@@ -115,7 +115,7 @@ def test_release_image_is_pinned_offline_and_self_contained() -> None:
     )
     assert "*" not in install, f"{DEPLOY_DOCKERFILE}: globbed pip install: {install!r}"
 
-    # Not in the wheel — it ships only the `graphknows` package (research.md R1).
+    # Not in the wheel — it ships only the `processrecall` package (research.md R1).
     copied = " ".join(arg for keyword, arg in instructions if keyword == "COPY")
     for script in ("bake_models.py", "preflight.py", "docker-entrypoint.sh"):
         assert f"scripts/{script}" in copied, (
@@ -415,8 +415,8 @@ async def test_llm_free_ingest_and_recall_attempt_no_egress(
         monkeypatch.setenv(name, "1")
     monkeypatch.setenv("GRAPHKNOWS_MODE", "llm_free")
 
-    from graphknows.memory import Memory
-    from graphknows.settings import GraphKnowsSettings, MemoryMode
+    from processrecall.memory import Memory
+    from processrecall.settings import GraphKnowsSettings, MemoryMode
 
     settings = GraphKnowsSettings()
     assert settings.mode is MemoryMode.llm_free, (
@@ -467,7 +467,7 @@ async def test_llm_free_ingest_and_recall_attempt_no_egress(
 
 DEPLOYMENT_DOC = REPO_ROOT / "docs" / "deployment.md"
 DOCS_INDEX = REPO_ROOT / "docs" / "README.md"
-SETTINGS = REPO_ROOT / "graphknows" / "settings.py"
+SETTINGS = REPO_ROOT / "processrecall" / "settings.py"
 
 # Each requirement is checked against one `##` section rather than the whole
 # page: an operator reads the section a heading sent them to, and three facts
@@ -514,6 +514,6 @@ def test_deployment_doc_states_the_guarantee_boundaries() -> None:
     )
     for name in sorted(set(re.findall(r"GRAPHKNOWS_[A-Z_]+", doc))):
         assert name in declared, (
-            f"{DEPLOYMENT_DOC}: names {name}, which neither graphknows/settings.py nor the "
+            f"{DEPLOYMENT_DOC}: names {name}, which neither processrecall/settings.py nor the "
             "deploy recipe declares — an operator would set it and change nothing"
         )

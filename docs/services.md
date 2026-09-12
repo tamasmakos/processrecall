@@ -90,14 +90,14 @@ Each path is traced statement by statement, with diagrams, in
 
 ## Entry points
 
-**Library** — `from graphknows import Memory`. An async context manager; the
+**Library** — `from processrecall import Memory`. An async context manager; the
 single in-process entry point.
 
 **Console scripts**
 
 | Command | Does |
 | --- | --- |
-| `graphknows-mcp` | Runs the MCP stdio server. |
+| `processrecall-mcp` | Runs the MCP stdio server. |
 
 **MCP tools** — ten, each taking an optional `namespace`:
 
@@ -107,7 +107,7 @@ single in-process entry point.
 | Read | `memory_query`, `ltm_entity`, `ltm_entities` |
 | Admin | `memory_stats`, `memory_doctor`, `memory_purge`, `memory_drop_namespace` |
 
-There is **no HTTP API**. `graphknows/server/` contains only `mcp/`; MCP stdio
+There is **no HTTP API**. `processrecall/server/` contains only `mcp/`; MCP stdio
 and the in-process facade are the two ways in.
 
 ## Storage shape in one paragraph

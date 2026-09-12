@@ -5,7 +5,7 @@
 # Shell:      make shell SVC=workspace
 # ──────────────────────────────────────────────────────────────────
 COMPOSE := docker compose
-CONTAINER ?= graphknows-workspace
+CONTAINER ?= processrecall-workspace
 SVC     ?= workspace   # service `make shell`/`logs`/`restart`/`stop`/`build` targets
 
 .PHONY: up down restart stop build rebuild ps logs shell infra-up infra-down setup clean prune \
@@ -72,10 +72,10 @@ test-integration: ## Run integration tests (needs a live ArcadeDB — make infra
 	pytest -q -m integration
 
 lint: ## Ruff lint the package + tests
-	ruff check graphknows tests
+	ruff check processrecall tests
 
 typecheck: ## Mypy the package
-	mypy graphknows
+	mypy processrecall
 
 arch: ## Enforce module boundaries (import-linter)
 	lint-imports
@@ -87,7 +87,7 @@ build-wheel: ## Build the wheel and assert it stays small + ships py.typed
 	  kb=os.path.getsize(w)/1024; assert kb < 1024, f'wheel too large: {kb:.0f} KB'; \
 	  print(f'wheel OK: {os.path.basename(w)} ({kb:.0f} KB, py.typed present)')"
 
-smoke: ## Core-only import smoke: import graphknows + client with no heavy deps
+smoke: ## Core-only import smoke: import processrecall + client with no heavy deps
 	pytest -q tests/api/test_lazy_core.py tests/api/test_public_surface.py
 
 ci: gate build-wheel ## Run the full local CI gate (scripts/gate.sh + the wheel checks)
@@ -99,12 +99,12 @@ gate: ## Run the pre-push gate exactly as the hook runs it
 # methods and lazy __getattr__, so it is a sweep a human reads, never a gate.
 # Its job is the one thing no gate catches: code that is wired to nothing.
 sweep: ## Dead-code sweep (report only, run every few weeks)
-	docker exec $(CONTAINER) sh -c "cd /app && uvx vulture graphknows \
+	docker exec $(CONTAINER) sh -c "cd /app && uvx vulture processrecall \
 	  --min-confidence 60"
 
 # ── Model prep ─────────────────────────────────────────────────────
 # Run once after `make up` on a fresh model_cache volume, or after adding/
-# changing a model in graphknows/settings.py — populates model_cache so the
+# changing a model in processrecall/settings.py — populates model_cache so the
 # first real ingest doesn't pay the multi-GB download inline.
 bake: ## Pre-warm the GLiNER/sentence-transformers/spaCy/NLTK model cache
 	docker exec $(CONTAINER) sh -c "cd /app && python scripts/bake_models.py"

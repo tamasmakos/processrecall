@@ -18,7 +18,7 @@ exactly one `docker-compose*.y*ml` may exist at the repo root.
 The client runs air-gapped. Nothing in that shape reaches them, and three guarantees the
 delivery needs do not exist:
 
-- `[tool.hatch.build.targets.wheel] packages = ["graphknows"]` is the only inclusion rule,
+- `[tool.hatch.build.targets.wheel] packages = ["processrecall"]` is the only inclusion rule,
   so `scripts/` is in no wheel by any install path (`tests/test_readme_install.py` pins that
   fact and must not be relaxed).
 - `scripts/docker-entrypoint.sh` runs only `preflight.py`, which early-returns when there is

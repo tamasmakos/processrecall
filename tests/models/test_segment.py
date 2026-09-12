@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from graphknows.models import Segment, SegmentKind
+from processrecall.models import Segment, SegmentKind
 
 
 def _segment(**overrides: object) -> Segment:

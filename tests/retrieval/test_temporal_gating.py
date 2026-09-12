@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from graphknows.temporal import asks_for_a_date
+from processrecall.temporal import asks_for_a_date
 
 
 class TestAsksForADate:

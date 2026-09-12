@@ -10,30 +10,30 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-from graphknows.memory import Memory
-from graphknows.server.mcp import tools
+from processrecall.memory import Memory
+from processrecall.server.mcp import tools
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 DROPPED_PATHS = (
-    "graphknows/topics",
-    "graphknows/cli/topics.py",
-    "graphknows/server/mcp/tools/topics.py",
+    "processrecall/topics",
+    "processrecall/cli/topics.py",
+    "processrecall/server/mcp/tools/topics.py",
 )
 
 
 def test_topic_modules_are_gone() -> None:
     for relative in DROPPED_PATHS:
         assert not (REPO_ROOT / relative).exists(), f"{relative} still exists"
-    assert importlib.util.find_spec("graphknows.topics") is None
+    assert importlib.util.find_spec("processrecall.topics") is None
 
 
 def test_no_module_imports_the_topic_package() -> None:
-    """Nothing under `graphknows/` reaches for the deleted package."""
+    """Nothing under `processrecall/` reaches for the deleted package."""
     importers = [
         path.relative_to(REPO_ROOT).as_posix()
-        for path in (REPO_ROOT / "graphknows").rglob("*.py")
-        if "graphknows.topics" in path.read_text(encoding="utf-8")
+        for path in (REPO_ROOT / "processrecall").rglob("*.py")
+        if "processrecall.topics" in path.read_text(encoding="utf-8")
     ]
     assert importers == []
 
@@ -49,4 +49,4 @@ def test_memory_exposes_no_topic_verb() -> None:
 
 def test_no_topic_console_script() -> None:
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert "graphknows-topics" not in pyproject
+    assert "processrecall-topics" not in pyproject

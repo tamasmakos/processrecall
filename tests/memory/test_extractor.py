@@ -21,7 +21,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from graphknows.ingestion.extraction.entities.extractor import (
+from processrecall.ingestion.extraction.entities.extractor import (
     _BASE_ENTITY_LABELS,
     ExtractionResult,
     GLiNER2EntityExtractor,
@@ -430,7 +430,7 @@ def test_relation_threshold_admits_a_correct_ontology_labelled_relation():
     the model's own in-distribution label vocabulary, not for injected ontology
     property names, which score markedly lower.
     """
-    from graphknows.ingestion.extraction.entities.extractor import _RELATION_THRESHOLD
+    from processrecall.ingestion.extraction.entities.extractor import _RELATION_THRESHOLD
 
     assert _RELATION_THRESHOLD <= 0.437, "the measured score of a CORRECT relation"
     assert _RELATION_THRESHOLD >= 0.3, "at 0.1 sub-span noise appears; at 0.0 it explodes"
@@ -514,7 +514,7 @@ class TestRelationEndpointGuards:
         relation endpoints. The referent of such a span is the speaker, exactly as
         for the "Caroline: Thanks, Melanie" shape this reduction already handles.
         """
-        from graphknows.ingestion.extraction.entities.extractor import _reduce_speaker_span
+        from processrecall.ingestion.extraction.entities.extractor import _reduce_speaker_span
 
         speakers = frozenset({"gina", "jon"})
         assert _reduce_speaker_span("Gina is over the moon because", speakers) == "Gina"
@@ -760,7 +760,7 @@ class TestSurfaceCleaning:
     """
 
     def test_clean_surface_strips_enclosing_quotes(self) -> None:
-        from graphknows.ingestion.extraction.entities.extractor import _clean_surface
+        from processrecall.ingestion.extraction.entities.extractor import _clean_surface
 
         assert _clean_surface('"Becoming Nicole"') == "Becoming Nicole"
         assert _clean_surface("'Charlotte's Web'") == "Charlotte's Web"
@@ -771,7 +771,7 @@ class TestSurfaceCleaning:
         assert _clean_surface('""') == ""
 
     def test_clean_surface_keeps_internal_punctuation(self) -> None:
-        from graphknows.ingestion.extraction.entities.extractor import _clean_surface
+        from processrecall.ingestion.extraction.entities.extractor import _clean_surface
 
         assert _clean_surface("Charlotte's Web") == "Charlotte's Web"
         assert _clean_surface("me-time") == "me-time"
@@ -813,7 +813,7 @@ class TestSharedModelThreadSafety:
         import threading
         from unittest.mock import MagicMock
 
-        from graphknows.ingestion.extraction.entities.gliner_model import _SerialInference
+        from processrecall.ingestion.extraction.entities.gliner_model import _SerialInference
 
         inner = MagicMock()
         overlap = {"max": 0, "cur": 0}
@@ -847,7 +847,7 @@ class TestSharedModelThreadSafety:
     def test_non_inference_attributes_pass_through(self) -> None:
         from unittest.mock import MagicMock
 
-        from graphknows.ingestion.extraction.entities.gliner_model import _SerialInference
+        from processrecall.ingestion.extraction.entities.gliner_model import _SerialInference
 
         inner = MagicMock()
         inner.some_attr = 42
@@ -866,11 +866,11 @@ class TestExtractorLifetime:
     """
 
     def test_builder_returns_the_same_instance(self) -> None:
-        from graphknows.ingestion.extraction.entities import (
+        from processrecall.ingestion.extraction.entities import (
             build_decoder,
             reset_entity_extractor,
         )
-        from graphknows.settings import GraphKnowsSettings
+        from processrecall.settings import GraphKnowsSettings
 
         reset_entity_extractor()
         try:
@@ -882,11 +882,11 @@ class TestExtractorLifetime:
     def test_shared_across_namespaces(self) -> None:
         """Memory is cached PER NAMESPACE; a per-namespace model multiplies the
         footprint by the number of conversations in flight."""
-        from graphknows.ingestion.extraction.entities import (
+        from processrecall.ingestion.extraction.entities import (
             build_decoder,
             reset_entity_extractor,
         )
-        from graphknows.settings import GraphKnowsSettings
+        from processrecall.settings import GraphKnowsSettings
 
         reset_entity_extractor()
         try:
@@ -897,11 +897,11 @@ class TestExtractorLifetime:
             reset_entity_extractor()
 
     def test_reset_releases_it(self) -> None:
-        from graphknows.ingestion.extraction.entities import (
+        from processrecall.ingestion.extraction.entities import (
             build_decoder,
             reset_entity_extractor,
         )
-        from graphknows.settings import GraphKnowsSettings
+        from processrecall.settings import GraphKnowsSettings
 
         reset_entity_extractor()
         first = build_decoder(GraphKnowsSettings())
@@ -913,11 +913,11 @@ class TestExtractorLifetime:
         """Double-checked locking: a race here would build two 2.5GB models."""
         import threading
 
-        from graphknows.ingestion.extraction.entities import (
+        from processrecall.ingestion.extraction.entities import (
             build_decoder,
             reset_entity_extractor,
         )
-        from graphknows.settings import GraphKnowsSettings
+        from processrecall.settings import GraphKnowsSettings
 
         reset_entity_extractor()
         try:

@@ -1,6 +1,6 @@
 # GraphKnows release image: built once with network, run with none.
 #
-#   docker build -f deploy/Dockerfile -t graphknows:2.0.0 .
+#   docker build -f deploy/Dockerfile -t processrecall:2.0.0 .
 #
 # The build context is the release bundle — `deploy/`, `scripts/` and the wheel
 # at its root — whose layout mirrors the repository, so the relative paths below
@@ -20,30 +20,30 @@ ENV PYTHONUNBUFFERED=1 \
     HF_HOME=/opt/models/huggingface \
     NLTK_DATA=/opt/models/nltk_data
 
-COPY graphknows-2.0.0-py3-none-any.whl /tmp/
+COPY processrecall-2.0.0-py3-none-any.whl /tmp/
 
 # Exact filename, never a glob: `[ontology]` is a glob character class, so
-# `graphknows-*.whl[ontology]` matches nothing and pip is handed the literal
+# `processrecall-*.whl[ontology]` matches nothing and pip is handed the literal
 # string — a silent build failure that reads as a typo (research.md R9). The
-# version here is pinned to graphknows/_version.py by tests/test_offline.py.
+# version here is pinned to processrecall/_version.py by tests/test_offline.py.
 # en_core_web_lg is not a wheel dependency and spacy.load() never downloads it,
 # so the bake's spacy step needs it installed here.
 RUN pip install --no-cache-dir \
-    "/tmp/graphknows-2.0.0-py3-none-any.whl[ontology]" \
+    "/tmp/processrecall-2.0.0-py3-none-any.whl[ontology]" \
     "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl" \
-    && rm /tmp/graphknows-2.0.0-py3-none-any.whl
+    && rm /tmp/processrecall-2.0.0-py3-none-any.whl
 
 WORKDIR /app
 
-# The wheel ships only the `graphknows` package, so these three are not in it
+# The wheel ships only the `processrecall` package, so these three are not in it
 # and come from the build context instead (research.md R1).
 COPY scripts/bake_models.py scripts/preflight.py scripts/docker-entrypoint.sh ./scripts/
 
-RUN useradd -m -u 1000 graphknows \
+RUN useradd -m -u 1000 processrecall \
     && mkdir -p /opt/models \
-    && chown graphknows:graphknows /opt/models
+    && chown processrecall:processrecall /opt/models
 
-USER graphknows
+USER processrecall
 
 # The one step permitted to use the network, which is why the air-gap is a
 # runtime guarantee and not a build-time one. Run as the runtime user so the
@@ -61,4 +61,4 @@ ENV HF_HUB_OFFLINE=1 \
 # `sh <script>`: the +x bit does not survive a checkout on every host, and a
 # non-executable entrypoint fails with an opaque "exec format" error.
 ENTRYPOINT ["/bin/sh", "/app/scripts/docker-entrypoint.sh"]
-CMD ["graphknows-mcp"]
+CMD ["processrecall-mcp"]

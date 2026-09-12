@@ -1,1 +1,1 @@
-"""Tests for the graphknows.integrations sub-package."""
+"""Tests for the processrecall.integrations sub-package."""

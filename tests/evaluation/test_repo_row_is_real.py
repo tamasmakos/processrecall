@@ -91,7 +91,7 @@ class TestSessionsAreReadAtRunTime:
                     "transcript": "live.jsonl",
                     "kind": "decision_location",
                     "question": "Where does the decoder live?",
-                    "answer": "graphknows/ingestion/extraction/llm/decoder.py",
+                    "answer": "processrecall/ingestion/extraction/llm/decoder.py",
                 }
             ),
             encoding="utf-8",

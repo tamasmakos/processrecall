@@ -1,7 +1,7 @@
 """Snapshot of the public API surface.
 
-The documented public surface of ``graphknows`` is exactly ``graphknows.__all__``
-plus one subpackage per integration under ``graphknows.integrations.*``, the two
+The documented public surface of ``processrecall`` is exactly ``processrecall.__all__``
+plus one subpackage per integration under ``processrecall.integrations.*``, the two
 CLI entry points, and the MCP tool contract. This test pins the top-level export
 set so an accidental addition or removal is a deliberate, reviewed change (bump
 the snapshot in the same commit).
@@ -9,7 +9,7 @@ the snapshot in the same commit).
 
 from __future__ import annotations
 
-import graphknows
+import processrecall
 
 EXPECTED_PUBLIC_API = {
     "MAX_CONTEXT_CHARS",
@@ -39,15 +39,15 @@ EXPECTED_PUBLIC_API = {
 
 
 def test_public_all_matches_snapshot() -> None:
-    assert set(graphknows.__all__) == EXPECTED_PUBLIC_API
+    assert set(processrecall.__all__) == EXPECTED_PUBLIC_API
 
 
 def test_every_exported_name_is_importable() -> None:
-    for name in graphknows.__all__:
-        assert hasattr(graphknows, name), f"{name} is in __all__ but not importable"
+    for name in processrecall.__all__:
+        assert hasattr(processrecall, name), f"{name} is in __all__ but not importable"
 
 
 def test_memory_is_the_facade() -> None:
-    from graphknows.memory import Memory as RuntimeMemory
+    from processrecall.memory import Memory as RuntimeMemory
 
-    assert graphknows.Memory is RuntimeMemory
+    assert processrecall.Memory is RuntimeMemory

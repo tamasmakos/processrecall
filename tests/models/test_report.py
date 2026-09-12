@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from graphknows.models import (
+from processrecall.models import (
     Counters,
     Evidence,
     Fact,

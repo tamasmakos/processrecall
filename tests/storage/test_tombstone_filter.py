@@ -12,9 +12,9 @@ from __future__ import annotations
 import inspect
 import re
 
-from graphknows.storage.arcadedb._schema import _CORE_DDL
-from graphknows.storage.arcadedb._sql import not_forgotten
-from graphknows.storage.arcadedb.graph_store import GraphStore
+from processrecall.storage.arcadedb._schema import _CORE_DDL
+from processrecall.storage.arcadedb._sql import not_forgotten
+from processrecall.storage.arcadedb.graph_store import GraphStore
 
 # Types whose golden DDL declares the lifecycle ``state`` a tombstone lives in.
 TOMBSTONED_TYPES = frozenset(

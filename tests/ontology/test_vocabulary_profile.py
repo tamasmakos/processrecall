@@ -18,7 +18,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from graphknows.symbolic.ontology.skos import (
+from processrecall.symbolic.ontology.skos import (
     Concept,
     _is_upper_ontology_property,
     vocabulary_profile,
@@ -26,7 +26,7 @@ from graphknows.symbolic.ontology.skos import (
 
 CCO_DIGEST = (
     Path(__file__).resolve().parents[2]
-    / "graphknows"
+    / "processrecall"
     / "symbolic"
     / "ontology"
     / "assets"

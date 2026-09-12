@@ -8,7 +8,7 @@ import pytest
 @pytest.mark.parametrize(
     "module_path, attr",
     [
-        ("graphknows.symbolic.ontology.skos", "_lemmatise"),
+        ("processrecall.symbolic.ontology.skos", "_lemmatise"),
     ],
 )
 def test_missing_model_names_model_and_install_command(
@@ -18,7 +18,7 @@ def test_missing_model_names_model_and_install_command(
 
     import importlib
 
-    from graphknows.exceptions import MissingModelError
+    from processrecall.exceptions import MissingModelError
 
     module = importlib.import_module(module_path)
 
@@ -36,8 +36,8 @@ def test_missing_model_names_model_and_install_command(
 def test_load_spacy_model_raises_missing_model_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GRAPHKNOWS_SPACY_MODEL", "gk_no_such_model")
 
-    from graphknows.exceptions import MissingModelError
-    from graphknows.nlp import load_spacy_model
+    from processrecall.exceptions import MissingModelError
+    from processrecall.nlp import load_spacy_model
 
     with pytest.raises(MissingModelError) as exc_info:
         load_spacy_model("gk_no_such_model")

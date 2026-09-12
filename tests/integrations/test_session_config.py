@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import pytest
 
-from graphknows.exceptions import ConfigurationError
-from graphknows.integrations.langgraph import GraphKnowsMemory
-from graphknows.settings import GraphKnowsSettings
+from processrecall.exceptions import ConfigurationError
+from processrecall.integrations.langgraph import GraphKnowsMemory
+from processrecall.settings import GraphKnowsSettings
 from tests.fixtures.memory import FakeMemory as _FakeMemory
 
 
@@ -28,7 +28,7 @@ def test_settings_reach_the_memory_it_builds() -> None:
 def test_channels_reach_the_memory_it_builds() -> None:
     """The extension seam has to be reachable from the integration, not only
     from ``Memory`` — an agent framework is exactly the caller that wants it."""
-    from graphknows.channels.base import Channel
+    from processrecall.channels.base import Channel
 
     channel = Channel()
 

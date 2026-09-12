@@ -17,7 +17,7 @@ offsets, so overlap is resolved on the offsets themselves.
 
 from __future__ import annotations
 
-from graphknows.ingestion.extraction.entities.extractor import _dedupe_entities
+from processrecall.ingestion.extraction.entities.extractor import _dedupe_entities
 
 _PERSON = {"person": "PERSON"}
 _PRODUCT = {"person": "PERSON", "product": "PRODUCT"}

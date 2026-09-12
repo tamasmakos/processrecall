@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from graphknows.symbolic.ontology.skos import (
+from processrecall.symbolic.ontology.skos import (
     Concept,
     _is_upper_ontology_property,
     ancestors,
@@ -30,7 +30,7 @@ from graphknows.symbolic.ontology.skos import (
 
 CCO_DIGEST = (
     Path(__file__).resolve().parents[2]
-    / "graphknows"
+    / "processrecall"
     / "symbolic"
     / "ontology"
     / "assets"

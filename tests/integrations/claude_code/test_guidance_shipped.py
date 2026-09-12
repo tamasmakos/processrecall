@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import graphknows.integrations.claude_code as claude_code
-from graphknows.integrations.claude_code import guidance, settings_block
+import processrecall.integrations.claude_code as claude_code
+from processrecall.integrations.claude_code import guidance, settings_block
 
 _VERB_FOR_EVENT = {
     "SessionStart": "context",
@@ -43,7 +43,7 @@ def test_settings_block_wires_every_hook_verb() -> None:
 
 def test_every_hook_command_is_runnable() -> None:
     """The command a user copies must name a module that exists."""
-    module = "graphknows.integrations.claude_code"
+    module = "processrecall.integrations.claude_code"
     for matchers in settings_block()["hooks"].values():
         for matcher in matchers:
             for hook in matcher["hooks"]:

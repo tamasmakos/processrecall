@@ -10,8 +10,8 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-from graphknows.retrieval.retriever import SymbolRecall
-from graphknows.storage.arcadedb._base import ArcadeStoreBase
+from processrecall.retrieval.retriever import SymbolRecall
+from processrecall.storage.arcadedb._base import ArcadeStoreBase
 
 _CONCEPTS = [{"uri": "demo:Person", "label": "Person"}]
 

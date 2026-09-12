@@ -15,9 +15,9 @@ from unittest.mock import patch
 
 import pytest
 
-from graphknows.exceptions import ConfigurationError
-from graphknows.models.hit import Hit
-from graphknows.server.mcp.tools.query import memory_query
+from processrecall.exceptions import ConfigurationError
+from processrecall.models.hit import Hit
+from processrecall.server.mcp.tools.query import memory_query
 
 
 class _FakeRuntime:
@@ -77,7 +77,7 @@ def runtime() -> _FakeRuntime:
     async def _get_runtime(namespace: str = "") -> _FakeRuntime:
         return fake
 
-    with patch("graphknows.server.mcp.tools.query.get_runtime", _get_runtime):
+    with patch("processrecall.server.mcp.tools.query.get_runtime", _get_runtime):
         yield fake
 
 

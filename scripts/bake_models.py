@@ -5,7 +5,7 @@ serve requests with the network cut and with no per-call download latency, and
 at **boot** (`--check`) as a preflight that fails fast instead of discovering a
 missing model on a customer's first ingest.
 
-The model set is read from ``graphknows.settings`` and the module-level defaults
+The model set is read from ``processrecall.settings`` and the module-level defaults
 that own each choice, so this file cannot drift from the code the way a
 hand-maintained list in a Dockerfile does. Adding a model to the app without
 adding it here makes ``--check`` fail, which is the point.
@@ -36,7 +36,7 @@ VERIFIER_ENCODER = "microsoft/deberta-v3-base"
 
 def _model_ids() -> dict[str, str]:
     """Resolve every model id from the code that owns it — never hardcoded here."""
-    from graphknows.settings import GraphKnowsSettings
+    from processrecall.settings import GraphKnowsSettings
 
     s = GraphKnowsSettings()
     return {

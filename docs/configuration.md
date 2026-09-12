@@ -3,10 +3,10 @@
 All configuration is read from `GRAPHKNOWS_*` environment variables, or from a
 `.env` file in the current working directory. Precedence is standard: constructor
 arguments > environment variables > `.env` file. Settings are defined in
-[`graphknows/settings.py`](../graphknows/settings.py) (`GraphKnowsSettings`).
+[`processrecall/settings.py`](../processrecall/settings.py) (`GraphKnowsSettings`).
 
 ```python
-from graphknows import GraphKnowsSettings, Memory
+from processrecall import GraphKnowsSettings, Memory
 
 # From environment / .env:
 async with Memory() as mem:
@@ -76,9 +76,9 @@ python -m spacy download en_core_web_lg
 ```
 
 Unlike the models above, this one isn't distributed on PyPI, so neither `pip install
-graphknows` nor any extra can pull it — it has to be downloaded manually, once. Use
+processrecall` nor any extra can pull it — it has to be downloaded manually, once. Use
 the model named by `GRAPHKNOWS_SPACY_MODEL` if you've changed it from the default. A
-missing model raises `graphknows.exceptions.MissingModelError`, naming the model and
+missing model raises `processrecall.exceptions.MissingModelError`, naming the model and
 this command.
 
 ## Choosing a provider (llm_assisted)

@@ -22,10 +22,10 @@ import litellm
 import pytest
 from dspy.utils.exceptions import AdapterParseError
 
-from graphknows.ingestion.extraction.llm import retry as retry_module
-from graphknows.ingestion.extraction.llm.decoder import LLMDecoder
-from graphknows.ingestion.extraction.llm.retry import RetryBudget, is_retryable, retry_after_s
-from graphknows.settings import GraphKnowsSettings
+from processrecall.ingestion.extraction.llm import retry as retry_module
+from processrecall.ingestion.extraction.llm.decoder import LLMDecoder
+from processrecall.ingestion.extraction.llm.retry import RetryBudget, is_retryable, retry_after_s
+from processrecall.settings import GraphKnowsSettings
 
 MODEL = "openrouter/stub/decoder-v1"
 

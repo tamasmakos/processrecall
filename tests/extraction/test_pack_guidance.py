@@ -6,12 +6,12 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from graphknows.ingestion.extraction.entities.extractor import ExtractionResult
-from graphknows.ingestion.extraction.llm import decoder as llm_decoder
-from graphknows.ingestion.extraction.llm.schema import DecodeRequest
-from graphknows.ingestion.extraction.protocol import LLMExtractor, LocalExtractor, PackGuidance
-from graphknows.models import PredicateRef
-from graphknows.models.segment import Segment, SegmentKind
+from processrecall.ingestion.extraction.entities.extractor import ExtractionResult
+from processrecall.ingestion.extraction.llm import decoder as llm_decoder
+from processrecall.ingestion.extraction.llm.schema import DecodeRequest
+from processrecall.ingestion.extraction.protocol import LLMExtractor, LocalExtractor, PackGuidance
+from processrecall.models import PredicateRef
+from processrecall.models.segment import Segment, SegmentKind
 
 
 @dataclass(frozen=True)

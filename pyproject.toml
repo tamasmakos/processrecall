@@ -1,5 +1,5 @@
 [project]
-name = "graphknows"
+name = "processrecall"
 description = "Agentic memory: knowledge-graph ingestion + hybrid retrieval, llm-free or ontology-guided"
 requires-python = ">=3.11"
 readme = "README.md"
@@ -26,7 +26,7 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-    # Batteries-included: `pip install graphknows` gives a fully working memory
+    # Batteries-included: `pip install processrecall` gives a fully working memory
     # service (local extraction, embeddings, analytics, parsers) that also serves
     # MCP out of the box — and, with a key and `Memory(mode="llm_assisted")`, the
     # LLM decoder too. Both modes are the contract surface, so neither sits behind
@@ -74,7 +74,7 @@ dependencies = [
     # which does not catch the ModuleNotFoundError raised by a missing *package*.
     "nltk>=3.10.2",  # PYSEC-2026-3726 fixed in 3.10.2
     # plug-and-play MCP server. Capped below 2.0: that release removed
-    # `mcp.server.fastmcp`, which graphknows.server.mcp imports, so the server
+    # `mcp.server.fastmcp`, which processrecall.server.mcp imports, so the server
     # raises BrokenInstallError on import. The cap is here rather than in the
     # lock because the image installs with `uv pip install ".[assisted]"` — it
     # resolves from THESE constraints and never reads uv.lock, so a lock pin is
@@ -96,7 +96,7 @@ dependencies = [
 # (`deploy/Dockerfile`), what the dev image and CI sync, and what the five
 # ontology MissingExtraError call sites name.
 #
-# `networkx` sits beside rdflib for graphknows.symbolic.ontology.rdf: projecting a
+# `networkx` sits beside rdflib for processrecall.symbolic.ontology.rdf: projecting a
 # folder of RDF needs a multigraph with parallel predicate-keyed edges, and the
 # label-keyed taxonomy needs cycle detection and a topological order. Both are
 # imported inside functions behind a MissingExtraError guard, so a base install
@@ -104,7 +104,7 @@ dependencies = [
 #
 # The `assisted` extra is GONE (ADR 0003): dspy and litellm are core, because
 # `llm_assisted` is part of the contract surface. `pip install
-# 'graphknows[assisted]'` now fails; RDF users want `graphknows[ontology]`.
+# 'processrecall[assisted]'` now fails; RDF users want `processrecall[ontology]`.
 ontology = ["rdflib>=7.0.0", "networkx>=3.0"]
 # Framework adapter. Genuinely optional — nothing in the core paths imports it,
 # and it is lazily imported behind a MissingExtraError guard. The `langchain`
@@ -128,24 +128,24 @@ observability = ["langfuse>=3.0", "langchain>=1.0"]
 # extra to install, and suggesting one is a dead end.
 
 [project.urls]
-Homepage = "https://github.com/tamasmakos/graphknows"
-Repository = "https://github.com/tamasmakos/graphknows"
-Issues = "https://github.com/tamasmakos/graphknows/issues"
-Changelog = "https://github.com/tamasmakos/graphknows/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/tamasmakos/processrecall"
+Repository = "https://github.com/tamasmakos/processrecall"
+Issues = "https://github.com/tamasmakos/processrecall/issues"
+Changelog = "https://github.com/tamasmakos/processrecall/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
-path = "graphknows/_version.py"
+path = "processrecall/_version.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["graphknows"]
+packages = ["processrecall"]
 # Domain packs are data, not code. `packages` ships the directory, but hatchling
 # drops anything the VCS ignores — an ignore rule matching *.json would silently
 # produce an installed package with no packs. `artifacts` force-includes them.
-artifacts = ["graphknows/packs/data/**/*.json"]
+artifacts = ["processrecall/packs/data/**/*.json"]
 
 [tool.hatch.build.targets.sdist]
 # `.claude` is the agent harness (skills, workflows, hooks) — version controlled so the
@@ -155,8 +155,8 @@ artifacts = ["graphknows/packs/data/**/*.json"]
 exclude = ["evaluation", "examples", "tests", "research", ".scratch", ".claude", "CLAUDE.md"]
 
 [project.scripts]
-graphknows = "graphknows.cli.memory:main"
-graphknows-mcp = "graphknows.server.mcp.stdio_server:main"
+processrecall = "processrecall.cli.memory:main"
+processrecall-mcp = "processrecall.server.mcp.stdio_server:main"
 
 # ── Dev tooling ────────────────────────────────────────────────────────────────
 
@@ -193,7 +193,7 @@ eval = [
 [tool.uv]
 # Floors on TRANSITIVE packages, to clear advisories the dependency audit
 # (`scripts/gate.sh`, `.pip-audit-ignore`) reports against the resolved runtime
-# set. They are constraints, not dependencies: graphknows imports neither, so
+# set. They are constraints, not dependencies: processrecall imports neither, so
 # declaring them in [project.dependencies] would be a lie deptry rightly flags —
 # a constraint only says "if something pulls this in, not below this version".
 #
@@ -208,22 +208,22 @@ constraint-dependencies = [
 [tool.deptry]
 # `known_first_party`: deptry guesses local modules by iterating the *contents*
 # of the scanned root, so when the root passed on the command line is the
-# package directory itself (`deptry graphknows`, required below to keep
+# package directory itself (`deptry processrecall`, required below to keep
 # evaluation/'s legitimate eval-group imports out of scope) it never adds
-# "graphknows" itself to that guessed set — every internal `import graphknows`
-# / `from graphknows import ...` line then reads as DEP003 (a transitive
+# "processrecall" itself to that guessed set — every internal `import processrecall`
+# / `from processrecall import ...` line then reads as DEP003 (a transitive
 # dependency). Declaring it here is the documented escape hatch, not a
 # workaround for a real drift.
-known_first_party = ["graphknows"]
+known_first_party = ["processrecall"]
 
-# First run (27 Aug 2026) of `uv run deptry graphknows --config pyproject.toml`
+# First run (27 Aug 2026) of `uv run deptry processrecall --config pyproject.toml`
 # on this environment (`uv sync --group dev`, no optional extras installed)
 # reported exactly four DEP002 (unused dependency) findings and nothing else:
 #   - python-dotenv  ([project.dependencies] — genuinely unimported anywhere
-#     under graphknows/; removed (#218) — pydantic-settings already requires
+#     under processrecall/; removed (#218) — pydantic-settings already requires
 #     it unconditionally for env_file loading)
 #   - scipy          ([project.dependencies] — zero references under
-#     graphknows/ despite the dependency comment claiming a direct import;
+#     processrecall/ despite the dependency comment claiming a direct import;
 #     removed (#218))
 #   - langfuse        (`observability` extra — deliberate, ignored below)
 #   - langchain       (`observability` extra — deliberate, ignored below)
@@ -240,8 +240,8 @@ known_first_party = ["graphknows"]
 # writing it would be a no-op on a deprecated option. This is what makes
 # DEP004 (a dev-group package that a shipped module imports) fire out of the
 # box, which is the actual class of defect this gate exists to catch: nltk
-# sat in the `eval` group while graphknows/ imported it, breaking a plain
-# `pip install graphknows` while the container stayed green because
+# sat in the `eval` group while processrecall/ imported it, breaking a plain
+# `pip install processrecall` while the container stayed green because
 # Dockerfile installs `--group dev --group eval` (see #204).
 
 [tool.deptry.per_rule_ignores]
@@ -249,8 +249,8 @@ DEP002 = [
     # 27 Aug 2026: `observability` extra. [project.optional-dependencies]'s own
     # comment says it: nothing in the library imports langfuse/langchain, the
     # LangGraph example builds the tracing callback only when LANGFUSE_* env
-    # vars are set. Deliberately unused by graphknows/ itself. Remove this
-    # entry once the extra is either imported somewhere in graphknows/ or
+    # vars are set. Deliberately unused by processrecall/ itself. Remove this
+    # entry once the extra is either imported somewhere in processrecall/ or
     # dropped.
     "langfuse",   # 27 Aug 2026
     "langchain",  # 27 Aug 2026
@@ -278,8 +278,8 @@ line-length = 100
 target-version = "py311"
 # The agent harness is tracked (so its rules survive a clone) but it is not this
 # package's code: these are vendored skill helpers, and scripts/gate.sh lints
-# `graphknows evaluation tests` only. Without this the pre-commit hook — which has no
-# path scope of its own — holds a third-party skill to graphknows' docstring rules.
+# `processrecall evaluation tests` only. Without this the pre-commit hook — which has no
+# path scope of its own — holds a third-party skill to processrecall' docstring rules.
 extend-exclude = [".claude"]
 
 [tool.ruff.lint]
@@ -364,7 +364,7 @@ line-ending = "auto"
 
 [[tool.mypy.overrides]]
 module = [
-    "graphknows.settings",
+    "processrecall.settings",
 ]
 disable_error_code = ["misc"]
 
@@ -377,12 +377,12 @@ disable_error_code = ["misc"]
 # re-enabling them would be a day of `dict[str, Any]` edits for no defect caught.
 [[tool.mypy.overrides]]
 module = [
-    "graphknows.retrieval.*",
-    "graphknows.storage.*",
-    "graphknows.server.mcp.*",
-    "graphknows.ingestion.*",
-    "graphknows.channels.*",
-    "graphknows.symbolic.*",
-    "graphknows.temporal",
+    "processrecall.retrieval.*",
+    "processrecall.storage.*",
+    "processrecall.server.mcp.*",
+    "processrecall.ingestion.*",
+    "processrecall.channels.*",
+    "processrecall.symbolic.*",
+    "processrecall.temporal",
 ]
 disable_error_code = ["no-any-return", "type-arg"]

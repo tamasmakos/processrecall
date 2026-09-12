@@ -27,11 +27,11 @@ pytestmark = pytest.mark.unit
 
 def test_rerank_module_is_gone() -> None:
     with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("graphknows.ranking.rerank")
+        importlib.import_module("processrecall.ranking.rerank")
 
 
 def test_retriever_does_not_reference_a_cross_encoder() -> None:
-    from graphknows.retrieval import retriever
+    from processrecall.retrieval import retriever
 
     assert not hasattr(retriever, "_ce_rerank"), (
         "a re-introduced reranker must come with an A/B, not a deduction"

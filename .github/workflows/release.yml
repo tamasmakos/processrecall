@@ -93,13 +93,13 @@ jobs:
         # file: automation reads it, it does not restate it.
         run: |
           tag="${GITHUB_REF_NAME#v}"
-          packaged=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' graphknows/_version.py)
+          packaged=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' processrecall/_version.py)
           if [ -z "$packaged" ]; then
-            echo "::error::no __version__ literal found in graphknows/_version.py"
+            echo "::error::no __version__ literal found in processrecall/_version.py"
             exit 1
           fi
           if [ "$tag" != "$packaged" ]; then
-            echo "::error::tag ${GITHUB_REF_NAME} carries version ${tag}, graphknows/_version.py says ${packaged}"
+            echo "::error::tag ${GITHUB_REF_NAME} carries version ${tag}, processrecall/_version.py says ${packaged}"
             exit 1
           fi
           echo "tag ${GITHUB_REF_NAME} matches packaged version ${packaged}"
@@ -123,7 +123,7 @@ jobs:
         # is nothing to keep in sync if only one copy exists.
         run: |
           set -eu
-          bundle="graphknows-deploy-${GITHUB_REF_NAME#v}"
+          bundle="processrecall-deploy-${GITHUB_REF_NAME#v}"
           mkdir -p "${bundle}/deploy" "${bundle}/scripts"
           cp deploy/Dockerfile deploy/compose.yaml deploy/acceptance.sh "${bundle}/deploy/"
           cp scripts/bake_models.py scripts/preflight.py scripts/docker-entrypoint.sh "${bundle}/scripts/"
@@ -139,7 +139,7 @@ jobs:
         with:
           path: dist
           format: spdx-json
-          output-file: dist/graphknows-sbom.spdx.json
+          output-file: dist/processrecall-sbom.spdx.json
           # Attached to the release explicitly below, alongside the wheel and
           # the bundle, instead of relying on this action's own release
           # detection — the trigger here is a tag push, not a `release` event.
@@ -155,7 +155,7 @@ jobs:
         # Publisher that used to need one).
         run: |
           set -eu
-          python3 - dist/*.whl "$BUNDLE" dist/graphknows-sbom.spdx.json <<'PY'
+          python3 - dist/*.whl "$BUNDLE" dist/processrecall-sbom.spdx.json <<'PY'
           import hashlib
           import json
           import os
@@ -174,7 +174,7 @@ jobs:
               "sourceRef": os.environ["GITHUB_REF_NAME"],
               "subjects": [{"name": os.path.basename(p), "sha256": sha256(p)} for p in sys.argv[1:]],
           }
-          with open("dist/graphknows-provenance.json", "w") as handle:
+          with open("dist/processrecall-provenance.json", "w") as handle:
               json.dump(provenance, handle, indent=2)
           PY
 
@@ -187,4 +187,4 @@ jobs:
           set -eu
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1             || gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
           gh release upload "$GITHUB_REF_NAME" dist/*.whl "$BUNDLE" \
-            dist/graphknows-sbom.spdx.json dist/graphknows-provenance.json --clobber
+            dist/processrecall-sbom.spdx.json dist/processrecall-provenance.json --clobber

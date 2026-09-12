@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from graphknows.exceptions import MissingExtraError
-from graphknows.symbolic.ontology import digest
+from processrecall.exceptions import MissingExtraError
+from processrecall.symbolic.ontology import digest
 
 
 def test_module_imports_without_rdflib() -> None:

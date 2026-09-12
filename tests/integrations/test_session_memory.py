@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from graphknows.integrations.langgraph import GraphKnowsMemory
+from processrecall.integrations.langgraph import GraphKnowsMemory
 from tests.fixtures.memory import FakeMemory as _FakeMemory
 
 

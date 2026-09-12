@@ -21,9 +21,9 @@ import dspy
 import litellm
 import pytest
 
-from graphknows.ingestion.extraction.llm.decoder import LLMDecoder
-from graphknows.ingestion.extraction.llm.schema import FrameCandidate
-from graphknows.settings import GraphKnowsSettings
+from processrecall.ingestion.extraction.llm.decoder import LLMDecoder
+from processrecall.ingestion.extraction.llm.schema import FrameCandidate
+from processrecall.settings import GraphKnowsSettings
 
 TEXT = "Melanie works for Acme. Priya works for Acme too."
 ENTITY_LABELS = ("person", "organization")
@@ -160,7 +160,7 @@ def test_a_section_with_no_input_is_not_requested_and_the_omission_logged(
     provider = _StubProvider(reply=json.dumps({"entities": ENTITIES}))
     decoder = _decoder(provider)
 
-    with caplog.at_level(logging.DEBUG, logger="graphknows.ingestion.extraction.llm.decoder"):
+    with caplog.at_level(logging.DEBUG, logger="processrecall.ingestion.extraction.llm.decoder"):
         result = decoder.extract(TEXT, ENTITY_LABELS)
 
     assert sorted(entity["name"] for entity in result.entities) == ["Acme", "Melanie"]

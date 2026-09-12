@@ -23,7 +23,7 @@ PYSEC-2026-249        # starlette
 # PyPI's copy of the advisory lists no fix version; OSV's own record disagrees
 # and marks 3.10.3 as already fixed). The path traversal is in TransitionParser,
 # AveragedPerceptron, PerceptronTagger and the maxent parameter APIs - none of
-# which graphknows imports (corpus readers, PorterStemmer, WordNetLemmatizer only).
+# which processrecall imports (corpus readers, PorterStemmer, WordNetLemmatizer only).
 # 7 Sep 2026: restored after T043 removed it by reading OSV alone - pip-audit
 # resolves against PyPI, so it still reports this one. Check both records before
 # deleting this line again.

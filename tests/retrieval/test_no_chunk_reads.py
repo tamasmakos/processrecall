@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 
-import graphknows.retrieval.retriever as retriever
+import processrecall.retrieval.retriever as retriever
 
 _OLD_READS = (
     "search_chunks_ann",

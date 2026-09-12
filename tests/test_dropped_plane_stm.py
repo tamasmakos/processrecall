@@ -11,29 +11,29 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-from graphknows import ingestion
-from graphknows.memory import Memory
-from graphknows.models import message
-from graphknows.models.segment import SegmentKind
-from graphknows.models.source import Source
-from graphknows.settings import GraphKnowsSettings
+from processrecall import ingestion
+from processrecall.memory import Memory
+from processrecall.models import message
+from processrecall.models.segment import SegmentKind
+from processrecall.models.source import Source
+from processrecall.settings import GraphKnowsSettings
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_the_stm_package_is_gone() -> None:
-    assert not (REPO_ROOT / "graphknows" / "ingestion" / "stm").exists()
-    assert importlib.util.find_spec("graphknows.ingestion.stm") is None
+    assert not (REPO_ROOT / "processrecall" / "ingestion" / "stm").exists()
+    assert importlib.util.find_spec("processrecall.ingestion.stm") is None
 
 
 def test_no_module_reaches_the_stm_package_or_its_factory() -> None:
-    """Nothing under `graphknows/` imports the package or builds its service."""
+    """Nothing under `processrecall/` imports the package or builds its service."""
     importers = [
         path.relative_to(REPO_ROOT).as_posix()
-        for path in (REPO_ROOT / "graphknows").rglob("*.py")
+        for path in (REPO_ROOT / "processrecall").rglob("*.py")
         if any(
             reached in path.read_text(encoding="utf-8")
-            for reached in ("graphknows.ingestion.stm", "build_stm_service")
+            for reached in ("processrecall.ingestion.stm", "build_stm_service")
         )
     ]
     assert importers == []

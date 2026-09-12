@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 
-from graphknows.ingestion.extraction.protocol import Extractor
-from graphknows.models.fact import Fact, FactState
-from graphknows.models.segment import Segment, SegmentKind
-from graphknows.packs import DomainPack, load_packs
-from graphknows.packs.agent import AgentExtractor, AgentPack, open_decisions
+from processrecall.ingestion.extraction.protocol import Extractor
+from processrecall.models.fact import Fact, FactState
+from processrecall.models.segment import Segment, SegmentKind
+from processrecall.packs import DomainPack, load_packs
+from processrecall.packs.agent import AgentExtractor, AgentPack, open_decisions
 
 
 def _tool_call(name: str, arguments: dict[str, object]) -> Segment:

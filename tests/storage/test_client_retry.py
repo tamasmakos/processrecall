@@ -16,8 +16,8 @@ from collections.abc import Awaitable, Callable
 import httpx
 import pytest
 
-from graphknows.exceptions import StoreError
-from graphknows.storage.arcadedb.client import SESSION_HEADER, ArcadeDBClient
+from processrecall.exceptions import StoreError
+from processrecall.storage.arcadedb.client import SESSION_HEADER, ArcadeDBClient
 
 Handler = Callable[[httpx.Request], Awaitable[httpx.Response]]
 
