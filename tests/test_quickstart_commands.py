@@ -18,8 +18,8 @@ QUICKSTART = REPO_ROOT / ".claude" / "specs" / "004-neurosymbolic-memory-core" /
 _DISPATCHERS = {
     "evaluation": "evaluation/__main__.py",
     "evaluation scenario": "evaluation/scenarios.py",
-    "graphknows.cli.memory": "graphknows/cli/memory.py",
-    "graphknows.integrations.claude_code.hooks": "graphknows/integrations/claude_code/hooks.py",
+    "processrecall.cli.memory": "processrecall/cli/memory.py",
+    "processrecall.integrations.claude_code.hooks": "processrecall/integrations/claude_code/hooks.py",
 }
 # Tools outside this repository: their existence is the image's business, not ours.
 _EXTERNAL = {"git", "echo", "lint-imports"}

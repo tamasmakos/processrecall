@@ -41,7 +41,7 @@ def _reset_settings_singletons():
     under one environment would leak into the next test, and tests would go back
     to poking module globals to get a fresh one.
     """
-    from graphknows.settings import get_settings
+    from processrecall.settings import get_settings
 
     get_settings.cache_clear()
     yield
@@ -57,7 +57,7 @@ def _arcadedb_reachable() -> bool:
     """Return True when ArcadeDB answers at the configured URL."""
     import httpx
 
-    from graphknows.settings import GraphKnowsSettings
+    from processrecall.settings import GraphKnowsSettings
 
     try:
         s = GraphKnowsSettings()

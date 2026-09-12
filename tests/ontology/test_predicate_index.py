@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from graphknows.models import PredicateRef
-from graphknows.symbolic.predicates import PredicateIndex
+from processrecall.models import PredicateRef
+from processrecall.symbolic.predicates import PredicateIndex
 
 
 def _predicate(predicate_id: str, label: str) -> PredicateRef:

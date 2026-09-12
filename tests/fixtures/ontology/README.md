@@ -2,7 +2,7 @@
 
 Small, fully-annotated ontologies used ONLY as test fixtures. They are not
 shipped: the single bundled ontology is the CCO digest at
-`graphknows/ontology/assets/cco/cco.json`.
+`processrecall/ontology/assets/cco/cco.json`.
 
 They live here because the behaviours they exercise — SKOS definition parsing,
 the domain/range conformance gate, injection quality, predicate mapping — are

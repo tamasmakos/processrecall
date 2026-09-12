@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from graphknows.models import Fact, FactState, Mention, Modality, Polarity, Validity
+from processrecall.models import Fact, FactState, Mention, Modality, Polarity, Validity
 
 
 def _fact(**overrides: object) -> Fact:

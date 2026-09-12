@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-import graphknows.nlp as nlp_module
+import processrecall.nlp as nlp_module
 
 pytestmark = pytest.mark.unit
 
@@ -50,7 +50,7 @@ def _install_fake_load(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict[
 def test_identical_config_shares_one_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _install_fake_load(monkeypatch)
 
-    from graphknows.nlp import load_spacy_model
+    from processrecall.nlp import load_spacy_model
 
     first = load_spacy_model("gk_fake_model")
     second = load_spacy_model("gk_fake_model")
@@ -62,7 +62,7 @@ def test_identical_config_shares_one_pipeline(monkeypatch: pytest.MonkeyPatch) -
 def test_distinct_options_get_distinct_pipelines(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _install_fake_load(monkeypatch)
 
-    from graphknows.nlp import load_spacy_model
+    from processrecall.nlp import load_spacy_model
 
     plain = load_spacy_model("gk_fake_model")
     disabled_first = load_spacy_model("gk_fake_model", disable=["ner"])
@@ -88,9 +88,9 @@ def test_call_sites_share_one_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _install_fake_load(monkeypatch)
     monkeypatch.setenv("GRAPHKNOWS_SPACY_MODEL", "gk_fake_model")
 
-    from graphknows.ingestion.extraction.entities.extractor import _SpacySchemaMiner
-    from graphknows.ingestion.extraction.entities.hygiene import _parser
-    from graphknows.symbolic.ontology.skos import _lemmatise
+    from processrecall.ingestion.extraction.entities.extractor import _SpacySchemaMiner
+    from processrecall.ingestion.extraction.entities.hygiene import _parser
+    from processrecall.symbolic.ontology.skos import _lemmatise
 
     hygiene_pipeline = _parser()
     miner_pipeline = _SpacySchemaMiner(model_name="gk_fake_model").nlp
@@ -125,7 +125,7 @@ def test_concurrent_loads_build_one_model(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setattr(spacy, "load", slow_fake)
 
-    from graphknows.nlp import load_spacy_model
+    from processrecall.nlp import load_spacy_model
 
     n_threads = 8
     barrier = threading.Barrier(n_threads)

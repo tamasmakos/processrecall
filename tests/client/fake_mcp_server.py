@@ -1,8 +1,8 @@
 """Stdlib-only stdio JSON-RPC stub server for the client round-trip test.
 
-Speaks the same newline-delimited JSON-RPC framing as ``graphknows-mcp``
+Speaks the same newline-delimited JSON-RPC framing as ``processrecall-mcp``
 (initialize, notifications/initialized, tools/list, tools/call) without
-importing anything from graphknows — the real server pulls in the ML/
+importing anything from processrecall — the real server pulls in the ML/
 extraction stack, and ``integrations.client`` must stay usable without it.
 
 A "boom" tool call replies with a JSON-RPC error, and an ``echo`` call with

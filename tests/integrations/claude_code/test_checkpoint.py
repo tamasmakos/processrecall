@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from graphknows.integrations.claude_code.hooks import Checkpoints
+from processrecall.integrations.claude_code.hooks import Checkpoints
 
 
 def _write(transcript: Path, *records: dict[str, object]) -> None:

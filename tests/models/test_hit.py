@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from graphknows.models.hit import Hit, render_memories
+from processrecall.models.hit import Hit, render_memories
 
 
 class TestHitWhen:

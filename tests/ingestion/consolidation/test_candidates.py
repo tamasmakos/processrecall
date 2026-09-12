@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from graphknows.ingestion.consolidation.candidates import (
+from processrecall.ingestion.consolidation.candidates import (
     MAX_CANDIDATES,
     bounded_candidates,
 )

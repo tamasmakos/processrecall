@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from graphknows.integrations.claude_code import settings_block
-from graphknows.packs.protocol import DomainPack
+from processrecall.integrations.claude_code import settings_block
+from processrecall.packs.protocol import DomainPack
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

@@ -4,7 +4,7 @@
 # developer's workspace container. Same checks, same thresholds, same order:
 #   ruff -> mypy -> import-linter -> bandit -> pytest+coverage
 #
-# Why not just run gate.sh? It requires the graphknows-workspace container and
+# Why not just run gate.sh? It requires the processrecall-workspace container and
 # refuses to degrade to a host run — correct for a pre-push hook on a machine
 # whose host venv cannot collect the suite, wrong for a runner that has no
 # container and a clean environment. The thresholds that matter (coverage floor
@@ -93,10 +93,10 @@ jobs:
           path: |
             .cache/huggingface
             .cache/nltk_data
-            .cache/graphknows
+            .cache/processrecall
           # Model ids are resolved from settings.py and the modules that own
           # them, so those files decide what the cache holds.
-          key: models-${{ hashFiles('uv.lock', 'scripts/bake_models.py', 'graphknows/settings.py') }}
+          key: models-${{ hashFiles('uv.lock', 'scripts/bake_models.py', 'processrecall/settings.py') }}
           restore-keys: models-
 
       - name: bake models
@@ -108,16 +108,16 @@ jobs:
 
       - name: ruff check
         if: ${{ !cancelled() }}
-        run: uv run ruff check --no-fix graphknows evaluation tests
+        run: uv run ruff check --no-fix processrecall evaluation tests
 
       - name: ruff format
         if: ${{ !cancelled() }}
-        run: uv run ruff format --check graphknows evaluation tests
+        run: uv run ruff format --check processrecall evaluation tests
 
       - name: mypy
         if: ${{ !cancelled() }}
         run: >-
-          uv run mypy graphknows --strict --ignore-missing-imports
+          uv run mypy processrecall --strict --ignore-missing-imports
           --allow-untyped-decorators --no-warn-unused-ignores
 
       - name: import-linter
@@ -126,7 +126,7 @@ jobs:
 
       - name: bandit
         if: ${{ !cancelled() }}
-        run: uv run bandit -r graphknows --skip B101,B104,B105,B110,B112
+        run: uv run bandit -r processrecall --skip B101,B104,B105,B110,B112
 
       - name: dependency drift (report-only)
         # Catches what nothing else here does: DEP002 a declared dependency no
@@ -139,7 +139,7 @@ jobs:
         # [tool.deptry.per_rule_ignores] in pyproject.toml, not here.
         if: ${{ !cancelled() }}
         continue-on-error: true
-        run: uv run deptry graphknows
+        run: uv run deptry processrecall
 
       - name: pytest + coverage floor
         if: ${{ !cancelled() }}
@@ -149,15 +149,15 @@ jobs:
           # silent multi-GB download mid-test.
           HF_HUB_OFFLINE: "1"
           # Definition-embedding matrices (FrameNet's ~1200 frames, the ontology
-          # vocabularies). Defaults to ~/.cache/graphknows, which is OUTSIDE the
+          # vocabularies). Defaults to ~/.cache/processrecall, which is OUTSIDE the
           # workspace and so was never preserved by the cache step above: every
           # run re-embedded every vocabulary from scratch.
-          GRAPHKNOWS_CACHE_DIR: .cache/graphknows
+          GRAPHKNOWS_CACHE_DIR: .cache/processrecall
         # 65 is scripts/gate.sh's COVERAGE_FLOOR_MIN — a ratchet against
         # backsliding. The diff-scoped number is the separate step below.
         run: >-
           uv run python -m pytest -q -m "not integration"
-          --cov=graphknows --cov-report=xml:coverage.xml
+          --cov=processrecall --cov-report=xml:coverage.xml
           --cov-report=term:skip-covered --cov-fail-under=65
 
       - name: diff coverage (report-only)
@@ -253,8 +253,8 @@ jobs:
           path: |
             .cache/huggingface
             .cache/nltk_data
-            .cache/graphknows
-          key: models-${{ hashFiles('uv.lock', 'scripts/bake_models.py', 'graphknows/settings.py') }}
+            .cache/processrecall
+          key: models-${{ hashFiles('uv.lock', 'scripts/bake_models.py', 'processrecall/settings.py') }}
           restore-keys: models-
 
       - name: bake models
@@ -263,7 +263,7 @@ jobs:
       - name: pytest -m integration against live ArcadeDB
         env:
           HF_HUB_OFFLINE: "1"
-          GRAPHKNOWS_CACHE_DIR: .cache/graphknows
+          GRAPHKNOWS_CACHE_DIR: .cache/processrecall
           # CI's promise that the service container above is up: a container
           # that never started must fail the job, not report a suite that
           # skipped past every test as green.
@@ -353,9 +353,9 @@ jobs:
           names = zipfile.ZipFile(wheel).namelist()
           assert any("py.typed" in n for n in names), "py.typed missing from the wheel"
           ontology_assets = [
-              "graphknows/symbolic/ontology/assets/cco/cco.json",
-              "graphknows/symbolic/ontology/assets/cco/conversational.json",
-              "graphknows/symbolic/ontology/assets/personal/personal-profile.json",
+              "processrecall/symbolic/ontology/assets/cco/cco.json",
+              "processrecall/symbolic/ontology/assets/cco/conversational.json",
+              "processrecall/symbolic/ontology/assets/personal/personal-profile.json",
           ]
           for asset in ontology_assets:
               assert asset in names, f"bundled ontology asset missing from the wheel: {asset}"
@@ -368,9 +368,9 @@ jobs:
           sdist = sdists[0]
           members = tarfile.open(sdist).getnames()
           assert any(m.endswith("pyproject.toml") for m in members), "pyproject.toml missing from the sdist"
-          assert any("graphknows/" in m for m in members), "graphknows/ source missing from the sdist"
+          assert any("processrecall/" in m for m in members), "processrecall/ source missing from the sdist"
           sdist_kb = os.path.getsize(sdist) / 1024
-          print(f"sdist OK: {os.path.basename(sdist)} ({sdist_kb:.0f} KB, pyproject.toml + graphknows/ present)")
+          print(f"sdist OK: {os.path.basename(sdist)} ({sdist_kb:.0f} KB, pyproject.toml + processrecall/ present)")
           PY
 
       - name: upload the distribution
@@ -402,7 +402,7 @@ jobs:
     steps:
       # Deliberately no actions/checkout. The whole point of this job is an
       # environment that has never seen the source tree — a checkout would
-      # let `import graphknows` resolve against the flat repo layout instead
+      # let `import processrecall` resolve against the flat repo layout instead
       # of the installed wheel, and a packaging regression would stay
       # invisible exactly the way it is today.
       - name: download the built distribution
@@ -425,10 +425,10 @@ jobs:
         run: |
           uv venv
           uv pip install dist/*.whl
-          .venv/bin/python -c "import graphknows; print(graphknows.__version__)"
+          .venv/bin/python -c "import processrecall; print(processrecall.__version__)"
 
       # A first RED run here may be a genuine incompatibility rather than a
-      # bug in this job: the top-level import in graphknows/__init__.py pulls
-      # in graphknows.memory and its heavy transitive modules, so an install
+      # bug in this job: the top-level import in processrecall/__init__.py pulls
+      # in processrecall.memory and its heavy transitive modules, so an install
       # or import failure on one of these interpreters is the gate working as
       # designed, not a false alarm to silence.

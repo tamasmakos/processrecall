@@ -24,8 +24,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from graphknows.exceptions import ConfigurationError
-from graphknows.storage import embedder
+from processrecall.exceptions import ConfigurationError
+from processrecall.storage import embedder
 
 
 @pytest.fixture(autouse=True)

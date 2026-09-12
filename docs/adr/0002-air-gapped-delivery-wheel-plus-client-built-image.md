@@ -14,7 +14,7 @@ shipped runtime image") and `docker-compose.yaml` is documented as the only comp
 in the root Dockerfile, exactly one root-level `docker-compose*.y*ml`.
 
 Four guarantees the delivery needs do not exist. `scripts/` ships in no wheel (hatch includes
-only `packages = ["graphknows"]`). `scripts/docker-entrypoint.sh` runs only `preflight.py`,
+only `packages = ["processrecall"]`). `scripts/docker-entrypoint.sh` runs only `preflight.py`,
 which early-returns without a bind mount — i.e. always in an image — so a missing weight
 fails at first use, not at boot. `HF_HUB_OFFLINE` appears nowhere as image ENV or setting.
 `GraphStore.ensure_schema` applies `_CORE_DDL` and stamps nothing, so a graph written by an
@@ -47,7 +47,7 @@ We will **split an `ontology` extra (rdflib, networkx) out of `assisted` (dspy)*
 the five RDF call sites at it.
 
 Upgrades are **re-ingest, never migration**. `ensure_schema` — the one seam every runtime path
-crosses (`graphknows/memory.py:155`) — writes a `SCHEMA_STAMP` singleton carrying a hash of
+crosses (`processrecall/memory.py:155`) — writes a `SCHEMA_STAMP` singleton carrying a hash of
 `_CORE_DDL`, and refuses a namespace whose stamp differs, or which pre-existed unstamped, with
 an error naming the mismatch and `--reset`. The singleton is backed by a UNIQUE index and a
 duplicate-key rejection is read as "a concurrent connect stamped it first", per the throwaway

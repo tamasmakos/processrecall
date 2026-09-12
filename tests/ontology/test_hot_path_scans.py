@@ -15,17 +15,17 @@ from __future__ import annotations
 from datetime import datetime
 from unittest.mock import MagicMock
 
-from graphknows.ingestion.extraction.entities.extractor import (
+from processrecall.ingestion.extraction.entities.extractor import (
     GLiNER2EntityExtractor,
     _SpacySchemaMiner,
 )
-from graphknows.symbolic.ontology.skos import (
+from processrecall.symbolic.ontology.skos import (
     Concept,
     _casefold_index,
     _casefold_index_cache,
     ancestors,
 )
-from graphknows.temporal import _parser_for, resolve_temporal
+from processrecall.temporal import _parser_for, resolve_temporal
 
 
 def _scheme(parents: dict[str, tuple[str, ...]]) -> dict[str, Concept]:

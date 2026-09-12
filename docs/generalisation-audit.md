@@ -117,7 +117,7 @@ Keep as the seam: `LLMDecoder` + `DecodeRequest` + `ResponseGates` are already o
 | # | S | Issue | Evidence |
 |---|---|---|---|
 | R1 | B | LongMemEval and BEAM are never turn-fed; speaker/STM/temporal paths dead for them; no results committed | `evaluation/longmem/dataset.py:84-101`; `evaluation/beam/dataset.py:128`; `evaluation/results/` |
-| R2 | B | No retrieval-time abstention signal; abstention is a generation-prompt sentence | `grep abstention graphknows/` hits only ingest; `longmem/prompts.py` stage 5 |
+| R2 | B | No retrieval-time abstention signal; abstention is a generation-prompt sentence | `grep abstention processrecall/` hits only ingest; `longmem/prompts.py` stage 5 |
 | R3 | M | Every knob pinned on conv-26/conv-30; `neighbor_radius` is proven to pull opposite ways per corpus | `retriever.py:127-138, 556-562`; `settings.py:344-361, 426-438`; `evaluation/common/config.py:39-45`; `frame_boost.py:92-95` |
 | R4 | M | Top-down symbolic expansion only re-ranks an already-fused pool; cannot recover a candidate no channel found | `retriever.py:248-286` |
 | R5 | M | No query planning: multi-hop, aggregation, before/after, "where is X defined", "what method" | `retriever.py:97-120, 176-246` |
@@ -282,14 +282,14 @@ Settings block:
 
 ```json
 {"hooks": {
-  "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "python -m graphknows.integrations.claude_code.hooks recall"}]}],
-  "PostToolUse":      [{"matcher": "Edit|Write|Bash", "hooks": [{"type": "command", "command": "python -m graphknows.integrations.claude_code.hooks observe", "async": true}]}],
-  "Stop":             [{"hooks": [{"type": "command", "command": "python -m graphknows.integrations.claude_code.hooks remember"}]}],
-  "PreCompact":       [{"hooks": [{"type": "command", "command": "python -m graphknows.integrations.claude_code.hooks catchup"}]}]
+  "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "python -m processrecall.integrations.claude_code.hooks recall"}]}],
+  "PostToolUse":      [{"matcher": "Edit|Write|Bash", "hooks": [{"type": "command", "command": "python -m processrecall.integrations.claude_code.hooks observe", "async": true}]}],
+  "Stop":             [{"hooks": [{"type": "command", "command": "python -m processrecall.integrations.claude_code.hooks remember"}]}],
+  "PreCompact":       [{"hooks": [{"type": "command", "command": "python -m processrecall.integrations.claude_code.hooks catchup"}]}]
 }}
 ```
 
-`.mcp.json`: `{"mcpServers": {"graphknows": {"command": "graphknows-mcp", "env": {"GRAPHKNOWS_MODE": "llm_free", "GRAPHKNOWS_NAMESPACE": "claude-code"}}}}`.
+`.mcp.json`: `{"mcpServers": {"processrecall": {"command": "processrecall-mcp", "env": {"GRAPHKNOWS_MODE": "llm_free", "GRAPHKNOWS_NAMESPACE": "claude-code"}}}}`.
 
 Packaging: move torch/spacy/gliner behind a `local` extra so the hook and client install stays small.
 

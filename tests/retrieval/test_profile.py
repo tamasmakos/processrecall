@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from graphknows.retrieval.profile import CORE_PROFILE, RetrievalProfile
+from processrecall.retrieval.profile import CORE_PROFILE, RetrievalProfile
 
 
 def test_core_defaults_match_the_current_read_path() -> None:

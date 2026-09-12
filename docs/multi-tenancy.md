@@ -1,6 +1,6 @@
 # Multi-tenancy & scaling
 
-graphknows isolates tenants with **namespaces**. A namespace maps to its own
+processrecall isolates tenants with **namespaces**. A namespace maps to its own
 physical ArcadeDB database — `mem_<ns>` — so a query in one namespace
 **physically cannot** read another namespace's data. There is no shared
 row-level tenant column to get wrong: isolation is by construction.
@@ -16,7 +16,7 @@ single-tenant deployment needs no changes and existing data is untouched.
 Short-term and long-term memory are **not** separate databases. They are a
 `state` lifecycle (`raw` → `consolidated`) on one graph, flipped in place by
 flush. See [architecture.md](architecture.md); the resolution rules live in
-`graphknows/storage/namespace.py`.
+`processrecall/storage/namespace.py`.
 
 ## The two levels of scope
 
@@ -53,7 +53,7 @@ memory tool then operates on that namespace; none of them takes a `namespace`
 argument.
 
 ```bash
-GRAPHKNOWS_NAMESPACE=acme python -m graphknows.server.mcp   # serves acme, only acme
+GRAPHKNOWS_NAMESPACE=acme python -m processrecall.server.mcp   # serves acme, only acme
 ```
 
 ```jsonc

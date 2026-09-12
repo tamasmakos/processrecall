@@ -39,7 +39,7 @@ Tensor Brain (Tresp & Li, 2024) is the model GraphKnows is built after.
   bridge.
 - **The embedding *is* the connection weight**, not a side-car store. A concept's embedding
   is its "DNA": the vector that makes it retrievable is what the symbol means.
-  `graphknows/symbolic/index.py` is exactly this — a term is indexed by the embedding of its
+  `processrecall/symbolic/index.py` is exactly this — a term is indexed by the embedding of its
   definition.
 - **Bottom-up decodes, top-down encodes.** Ingest labels raw input with symbols; retrieval
   runs the other way — an activated symbol re-activates the state and pulls back everything

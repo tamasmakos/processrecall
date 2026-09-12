@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 
-import graphknows.memory as memory
+import processrecall.memory as memory
 
 _OLD_PATHS = (
     "write_turn",

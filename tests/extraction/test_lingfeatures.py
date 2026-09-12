@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from graphknows.ingestion.extraction.relations._lingfeatures import (
+from processrecall.ingestion.extraction.relations._lingfeatures import (
     _resolve,
     noun_supersense,
     parse_speaker,

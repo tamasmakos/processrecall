@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from graphknows.ingestion.extraction.entities.extractor import GLiNER2EntityExtractor
+from processrecall.ingestion.extraction.entities.extractor import GLiNER2EntityExtractor
 
 pytestmark = pytest.mark.unit
 

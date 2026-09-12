@@ -1,12 +1,12 @@
-"""Unit tests for graphknows.integrations.client — stdlib-only, no live MCP server."""
+"""Unit tests for processrecall.integrations.client — stdlib-only, no live MCP server."""
 
 from __future__ import annotations
 
-from graphknows.exceptions import GraphKnowsError
-from graphknows.integrations.client import MCPClientError, normalize_tool_result
+from processrecall.exceptions import GraphKnowsError
+from processrecall.integrations.client import MCPClientError, normalize_tool_result
 
 
-def test_mcp_client_error_is_graphknows_error() -> None:
+def test_mcp_client_error_is_processrecall_error() -> None:
     assert issubclass(MCPClientError, GraphKnowsError)
 
 

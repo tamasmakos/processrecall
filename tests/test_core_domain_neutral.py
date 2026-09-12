@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-CORE = Path(__file__).resolve().parents[1] / "graphknows"
+CORE = Path(__file__).resolve().parents[1] / "processrecall"
 
 DOMAIN_TERM = re.compile(
     r"benchmark|dialogue|speaker|utterance|locomo|longmem|turn_(id|index|span|regex)",

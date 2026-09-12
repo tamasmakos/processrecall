@@ -11,8 +11,8 @@ import importlib.util
 
 import pytest
 
-from graphknows.exceptions import MissingExtraError
-from graphknows.integrations.langgraph import recall, remember
+from processrecall.exceptions import MissingExtraError
+from processrecall.integrations.langgraph import recall, remember
 from tests.fixtures.memory import FakeMemory as _FakeMemory
 
 _HAS_LANGGRAPH = importlib.util.find_spec("langgraph") is not None
@@ -76,7 +76,7 @@ async def test_recall_says_so_when_a_result_is_not_a_hit(
             return {"hits": [{"text": "a dict, not a Hit"}], "facts": []}
 
     mem = _WrongShape()
-    with caplog.at_level("WARNING", logger="graphknows.integrations.langgraph._hooks"):
+    with caplog.at_level("WARNING", logger="processrecall.integrations.langgraph._hooks"):
         update = await recall(
             {"messages": [{"role": "user", "content": "q"}]}, memory=mem, session_id="s1"
         )
@@ -122,7 +122,7 @@ async def test_store_search_returns_constructible_search_items() -> None:
     """
     from langgraph.store.base import SearchOp
 
-    from graphknows.integrations.langgraph import GraphKnowsStore
+    from processrecall.integrations.langgraph import GraphKnowsStore
 
     store = GraphKnowsStore(_FakeMemory())
     items = await store._search(SearchOp(namespace_prefix=("s1",), query="cat", limit=5))
@@ -140,5 +140,5 @@ async def test_store_search_returns_constructible_search_items() -> None:
 @pytest.mark.skipif(_HAS_LANGGRAPH, reason="langgraph installed — guard not exercised")
 def test_store_import_without_langgraph_raises_missing_extra() -> None:
     with pytest.raises(MissingExtraError) as exc:
-        from graphknows.integrations.langgraph import GraphKnowsStore  # noqa: F401
+        from processrecall.integrations.langgraph import GraphKnowsStore  # noqa: F401
     assert exc.value.extra == "langgraph"

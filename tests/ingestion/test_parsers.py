@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from graphknows.ingestion.parsers.text import PlainTextParser
+from processrecall.ingestion.parsers.text import PlainTextParser
 
 
 class TestPlainTextParser:

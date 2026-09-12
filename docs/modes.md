@@ -2,7 +2,7 @@
 
 `GRAPHKNOWS_MODE` is a **preset**, not a switch. It expands into independent
 capability knobs; the topic layer can be overridden on its own. The preset
-table lives in [`graphknows/settings.py`](../graphknows/settings.py) (`_PRESETS`).
+table lives in [`processrecall/settings.py`](../processrecall/settings.py) (`_PRESETS`).
 
 | Knob | Env var | `llm_free` (default) | `llm_assisted` |
 |---|---|---|---|
@@ -63,7 +63,7 @@ construction. See `GraphKnowsSettings.uses_llm`.
 ## llm_free
 
 ```python
-from graphknows import Memory  # GRAPHKNOWS_MODE defaults to llm_free
+from processrecall import Memory  # GRAPHKNOWS_MODE defaults to llm_free
 
 async with Memory() as mem:
     await mem.ingest_memory("Maria moved to Berlin in 2021.", session_id="s1")
@@ -83,7 +83,7 @@ export GRAPHKNOWS_ONTOLOGY=/path/to/ontology.ttl
 ```
 
 ```python
-from graphknows import Memory
+from processrecall import Memory
 
 async with Memory(mode="llm_assisted") as mem:
     await mem.ingest_memory(conversation, session_id="s1")

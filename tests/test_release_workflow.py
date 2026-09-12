@@ -14,7 +14,7 @@ reuse it, but no caller exists yet:
     build a second time — it consumes the `dist` artifact CI already built
     and uploaded, so what ships is exactly what CI tested.
   * The tag/version check must read the literal out of
-    `graphknows/_version.py` as text, never `import graphknows` — importing
+    `processrecall/_version.py` as text, never `import processrecall` — importing
     the package to release it is exactly backwards (it may not even be
     installable yet) and the version must never be hand-restated in the
     workflow, or the two will eventually disagree.
@@ -29,8 +29,8 @@ reuse it, but no caller exists yet:
     run cancelling the actual publish.
 
 A second, real defect rides along: docs/versioning.md claims the version is
-single-sourced from `graphknows/__init__.py`, while
-`[tool.hatch.version] path = "graphknows/_version.py"` is what the build
+single-sourced from `processrecall/__init__.py`, while
+`[tool.hatch.version] path = "processrecall/_version.py"` is what the build
 backend actually reads (`__init__.py` merely re-exports it). Anyone
 automating a release from that sentence automates the wrong file.
 
@@ -50,7 +50,7 @@ pytestmark = pytest.mark.unit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RELEASE = REPO_ROOT / ".github" / "workflows" / "release.yml"
-VERSION_MODULE = REPO_ROOT / "graphknows" / "_version.py"
+VERSION_MODULE = REPO_ROOT / "processrecall" / "_version.py"
 VERSIONING_DOC = REPO_ROOT / "docs" / "versioning.md"
 
 
@@ -130,24 +130,24 @@ def test_publish_builds_nothing_and_consumes_cis_artifact() -> None:
 
 def test_version_check_reads_source_text_not_the_import() -> None:
     """The tag/version assertion must read the literal out of
-    `graphknows/_version.py` as text — importing the package to release it
+    `processrecall/_version.py` as text — importing the package to release it
     is exactly backwards."""
     text = _release_text()
     assert "_version.py" in text, (
-        f"{RELEASE}: does not reference `graphknows/_version.py` / `_version.py`"
+        f"{RELEASE}: does not reference `processrecall/_version.py` / `_version.py`"
     )
-    assert "import graphknows" not in text, (
-        f"{RELEASE}: contains `import graphknows` — the version check must "
+    assert "import processrecall" not in text, (
+        f"{RELEASE}: contains `import processrecall` — the version check must "
         "read source text, not import the package"
     )
-    assert "from graphknows" not in text, (
-        f"{RELEASE}: contains `from graphknows` — the version check must "
+    assert "from processrecall" not in text, (
+        f"{RELEASE}: contains `from processrecall` — the version check must "
         "read source text, not import the package"
     )
 
 
 def test_version_is_never_hand_restated_in_the_workflow() -> None:
-    """The literal version string from `graphknows/_version.py` must not
+    """The literal version string from `processrecall/_version.py` must not
     appear in the workflow — restating it invites drift."""
     version_text = VERSION_MODULE.read_text(encoding="utf-8")
     match = re.search(r'^__version__ = "([^"]+)"', version_text, re.MULTILINE)
@@ -286,17 +286,17 @@ def test_has_its_own_non_cancelling_concurrency_group() -> None:
 
 
 def test_docs_name_the_module_the_build_backend_actually_reads() -> None:
-    """docs/versioning.md must name `graphknows/_version.py` — the file
+    """docs/versioning.md must name `processrecall/_version.py` — the file
     `[tool.hatch.version]` actually reads — and stop claiming the version is
-    single-sourced from `graphknows/__init__.py`, which only re-exports it."""
+    single-sourced from `processrecall/__init__.py`, which only re-exports it."""
     text = VERSIONING_DOC.read_text(encoding="utf-8")
-    assert "graphknows/_version.py" in text, (
-        f"{VERSIONING_DOC}: does not name `graphknows/_version.py`, the file "
+    assert "processrecall/_version.py" in text, (
+        f"{VERSIONING_DOC}: does not name `processrecall/_version.py`, the file "
         "the build backend actually reads"
     )
-    assert "single-sourced from `graphknows/__init__.py`" not in text, (
+    assert "single-sourced from `processrecall/__init__.py`" not in text, (
         f"{VERSIONING_DOC}: still claims the version is single-sourced from "
-        "`graphknows/__init__.py` — hatch reads `graphknows/_version.py`, and "
+        "`processrecall/__init__.py` — hatch reads `processrecall/_version.py`, and "
         "automating a release from this sentence bumps the wrong file"
     )
 

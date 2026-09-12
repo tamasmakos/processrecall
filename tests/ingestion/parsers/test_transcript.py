@@ -6,10 +6,10 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from graphknows.ingestion.parsers.registry import Parser
-from graphknows.ingestion.parsers.transcript import TranscriptParser
-from graphknows.models.segment import SegmentKind
-from graphknows.models.source import Source
+from processrecall.ingestion.parsers.registry import Parser
+from processrecall.ingestion.parsers.transcript import TranscriptParser
+from processrecall.models.segment import SegmentKind
+from processrecall.models.source import Source
 
 SOURCE = Source(uri="session.jsonl", content_hash="abc", mime="application/x-ndjson")
 

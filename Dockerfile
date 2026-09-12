@@ -1,10 +1,10 @@
 # GraphKnows dev workspace image. Docker is dev-only: the PyPI wheel is the
 # product, there is no shipped runtime image, so this is one stage.
 #
-#   docker build -t graphknows:dev .                                  # CPU
-#   docker build --build-arg TORCH_BACKEND=cu126 -t graphknows:dev .  # GPU
+#   docker build -t processrecall:dev .                                  # CPU
+#   docker build --build-arg TORCH_BACKEND=cu126 -t processrecall:dev .  # GPU
 #
-# Measured: 10.1GB (`docker images graphknows:dev`). The old four-stage `dev`
+# Measured: 10.1GB (`docker images processrecall:dev`). The old four-stage `dev`
 # target additionally baked every model into the image on top of the same
 # torch/transformers/spaCy install this stage carries, so this is not larger.
 
@@ -55,7 +55,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     UV_LINK_MODE=copy uv sync --locked --no-install-project \
         --extra ontology --group dev --group eval
 
-COPY graphknows ./graphknows
+COPY processrecall ./processrecall
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     UV_LINK_MODE=copy uv sync --locked \
@@ -104,7 +104,7 @@ RUN uv pip \
 # is not listed because it is no longer an extra — it is core.
 ENV GRAPHKNOWS_IMAGE_EXTRAS="ontology"
 
-RUN useradd -m -u 1000 graphknows
+RUN useradd -m -u 1000 processrecall
 
 USER root
 RUN apt-get update \
@@ -127,16 +127,16 @@ WORKDIR /app
 # container start — a different lifetime from the BuildKit `uv` cache mount
 # above. Create + chown it now so the non-root user below can write model
 # downloads into it on first load.
-RUN mkdir -p /opt/models && chown graphknows:graphknows /opt/models
+RUN mkdir -p /opt/models && chown processrecall:processrecall /opt/models
 
 # The compose bind mount normally supplies these, but nothing else does when
-# the image runs standalone (`docker run graphknows:dev`). pyproject.toml is
+# the image runs standalone (`docker run processrecall:dev`). pyproject.toml is
 # what preflight.py reads its declared dependencies/extras from; harmlessly
 # shadowed by the bind mount's own copy under compose.
-COPY --chown=graphknows:graphknows scripts/docker-entrypoint.sh scripts/preflight.py ./scripts/
-COPY --chown=graphknows:graphknows pyproject.toml ./
+COPY --chown=processrecall:processrecall scripts/docker-entrypoint.sh scripts/preflight.py ./scripts/
+COPY --chown=processrecall:processrecall pyproject.toml ./
 
-USER graphknows
+USER processrecall
 
 # Invoked via `sh <script>` rather than as an executable: the +x bit does not
 # survive a checkout on every host, and a non-executable entrypoint fails

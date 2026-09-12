@@ -12,13 +12,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from graphknows.exceptions import StoreError
-from graphknows.models.fact import Fact, Mention
-from graphknows.models.segment import Segment, SegmentKind
-from graphknows.models.source import Source
-from graphknows.models.symbols import ConceptRef, PredicateRef
-from graphknows.storage.arcadedb._base import ArcadeStoreBase
-from graphknows.storage.arcadedb.writers import (
+from processrecall.exceptions import StoreError
+from processrecall.models.fact import Fact, Mention
+from processrecall.models.segment import Segment, SegmentKind
+from processrecall.models.source import Source
+from processrecall.models.symbols import ConceptRef, PredicateRef
+from processrecall.storage.arcadedb._base import ArcadeStoreBase
+from processrecall.storage.arcadedb.writers import (
     EntityWrite,
     EntityWriter,
     Evidence,

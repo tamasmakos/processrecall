@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from evaluation.scenarios import SCENARIOS
-from graphknows.ingestion.consolidation.entity_resolution import (
+from processrecall.ingestion.consolidation.entity_resolution import (
     EntityView,
     Layer,
     Link,

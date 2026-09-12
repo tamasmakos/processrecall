@@ -6,16 +6,16 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from graphknows.ingestion.extraction.entities.extractor import ExtractionResult
-from graphknows.ingestion.extraction.protocol import (
+from processrecall.ingestion.extraction.entities.extractor import ExtractionResult
+from processrecall.ingestion.extraction.protocol import (
     Extractor,
     LLMExtractor,
     LocalExtractor,
     PackGuidance,
 )
-from graphknows.models import ConceptRef, PredicateRef
-from graphknows.models.segment import Segment, SegmentKind
-from graphknows.packs import DomainPack
+from processrecall.models import ConceptRef, PredicateRef
+from processrecall.models.segment import Segment, SegmentKind
+from processrecall.packs import DomainPack
 
 
 @dataclass(frozen=True)

@@ -10,16 +10,16 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`llm_assisted` is now a replacement decoder, not a sidecar.** In that mode the
   LLM is the sole producer of a chunk's entities, relations and frame roles; no
   local extraction model is loaded. DSPy moved to a core dependency and the
-  `assisted` extra is **removed** — installing `graphknows[assisted]` now warns
+  `assisted` extra is **removed** — installing `processrecall[assisted]` now warns
   about an unknown extra. It also pulled in `rdflib` and `networkx` as a side
   effect, so anyone who relied on that for RDF should install
-  `graphknows[ontology]`, which is unchanged.
+  `processrecall[ontology]`, which is unchanged.
 
 ### Added
 - **Tag-triggered release workflow** (`.github/workflows/release.yml`). Pushing
   a `vX.Y.Z` tag reuses `ci.yml` by reference (Sonar skipped, since a tag has
   no PR context), then refuses to publish unless the tag matches the
-  `__version__` literal in `graphknows/_version.py`, and attaches the wheel CI
+  `__version__` literal in `processrecall/_version.py`, and attaches the wheel CI
   itself built, plus a deployment bundle, as assets on this private
   repository's GitHub Release for the tag — nowhere public, no PyPI publish,
   no Trusted Publisher OIDC, no stored API token; see `docs/versioning.md`.
@@ -36,25 +36,25 @@ wrong the code was kept (`IN_TOPIC` is written by `topics/persist.py` and read b
 without a deprecation window; the package version is unchanged at `2.0.0`, so
 that decision is still open:
 
-- `graphknows.integrations.client.RemoteMemory` — a wrapper mirroring `Memory`'s
+- `processrecall.integrations.client.RemoteMemory` — a wrapper mirroring `Memory`'s
   verbs over MCP. Zero importers outside its own test; `GraphKnowsMCPClient` is
   the transport and now the whole surface. Call tools by name
   (`memory_ingest`, `memory_query`, …) via `client.call_tool`.
-- `graphknows.retrieval.BaseGraphRetriever` — an ABC with one implementation,
+- `processrecall.retrieval.BaseGraphRetriever` — an ABC with one implementation,
   whose docstring still promised the long-deleted `AgenticRetriever`. Use
   `DETRetriever` (or `build_retriever`) directly.
-- `graphknows.ingestion.BaseParser` — an ABC with one implementation, and the
+- `processrecall.ingestion.BaseParser` — an ABC with one implementation, and the
   inheritance ran backwards: all the chunking logic lived in the "abstract" base
   while `PlainTextParser` contributed only the heading split. The two modules are
-  merged into `graphknows/ingestion/parsers/text.py`; `ParsedFile`, `TextSegment`,
+  merged into `processrecall/ingestion/parsers/text.py`; `ParsedFile`, `TextSegment`,
   `search_surface` and `strip_content_heading` moved there with it.
-- `graphknows.storage.base` — the `IGraphStore` / `IEmbedder` Protocols. One
+- `processrecall.storage.base` — the `IGraphStore` / `IEmbedder` Protocols. One
   implementation existed (`GraphStore`) and `IEmbedder` had none at all. Custom
   backends should target `GraphStore` directly.
-- `graphknows.integrations.langchain` (`GraphKnowsRetriever`) and the
+- `processrecall.integrations.langchain` (`GraphKnowsRetriever`) and the
   `langchain` extra. Zero importers; it raised a bare `ImportError` rather than
   `MissingExtraError`, so the extra it named guarded nothing.
-- `IngestError`, `RetrievalError`, `ExtractionError` from `graphknows.__all__` —
+- `IngestError`, `RetrievalError`, `ExtractionError` from `processrecall.__all__` —
   never raised, never caught. `StoreError` / `ConfigurationError` /
   `BrokenInstallError` / `MissingExtraError` are unaffected.
 - MCP tool contract: the `memory_recall` alias (a pure re-forward to
@@ -108,9 +108,9 @@ Also removed, from a second audit pass over the same tree:
   entry points disagreed. `min_size` is now the only knob, which is honest:
   ArcadeDB's Louvain ignores its parameter map. node2vec itself still runs at
   flush — nothing reads it, which is a wiring gap, not dead code.
-- `graphknows.retrieval.query` — a package whose entire content was a docstring
+- `processrecall.retrieval.query` — a package whose entire content was a docstring
   for query decomposition that does not exist.
-- `graphknows.ingestion.models` and `graphknows.ingestion.normalization` — a
+- `processrecall.ingestion.models` and `processrecall.ingestion.normalization` — a
   package re-exporting one 6-line function; `standardize_label` now lives in its
   only caller.
 - The `python-json-logger` dependency, which nothing imported.
@@ -130,7 +130,7 @@ Also removed, from a second audit pass over the same tree:
   `_embed_local` appends it. A no-op for models that declare none — `bge-small`
   output is bit-identical — so only opt-in models like zembed-1 are affected.
   - **Requires re-embedding if you use a suffix-declaring model.** Vectors
-    already persisted in ArcadeDB, and any `~/.cache/graphknows` index, were
+    already persisted in ArcadeDB, and any `~/.cache/processrecall` index, were
     computed the old way. Same constraint as changing `GRAPHKNOWS_EMBED_MODEL`.
 - **Embedding cache keys ignored *how* text is encoded.** The ontology-catalog
   and frame-index disk caches keyed on model + dimension + content, so the fix
@@ -160,7 +160,7 @@ Also removed, from a second audit pass over the same tree:
 - **`nltk` was imported by default-mode code but declared only in the `eval`
   dependency-group** (`relations/svo.py`, `channels/_framenet.py`). Those call
   sites catch `LookupError` (a missing *corpus*), which does not catch the
-  `ModuleNotFoundError` from a missing *package*, so `pip install graphknows`
+  `ModuleNotFoundError` from a missing *package*, so `pip install processrecall`
   produced a hard crash. Only the Docker image worked, because it installed the
   eval group. `nltk` is now a core dependency.
 - **`torch`, `transformers` and `huggingface-hub` are now declared.** All three
@@ -237,7 +237,7 @@ Also removed, from a second audit pass over the same tree:
 - **The manifest/registry/router ontology stack.** `OntologyRouter`,
   `OntologyRegistry`, `OntologyProvider`, `ManifestOntologyProvider`,
   `OntologyLabelExtractor` / `extract_ontology_labels`, `OntologyManifest`,
-  `OntologyLoader`, and `graphknows/ontology/assets/registry.json`, plus
+  `OntologyLoader`, and `processrecall/ontology/assets/registry.json`, plus
   `RelationOntologyFilter`, `build_relation_filter` and
   `build_predicate_mapper`. None had a production caller: an ontology is
   addressed by path (`GRAPHKNOWS_ONTOLOGY`) and loaded via
@@ -245,7 +245,7 @@ Also removed, from a second audit pass over the same tree:
   never served. The bundled ontologies under `assets/` are unchanged and are
   still referenced by path. `OntologyPredicateMapper` and `RdfOntologyManifest`
   are unaffected.
-- As a side effect, `graphknows.ontology` no longer requires `rdflib` to
+- As a side effect, `processrecall.ontology` no longer requires `rdflib` to
   *import*: the removed `rdf_parser` raised `ImportError` at module scope, which
   the package's `__init__` triggered eagerly, defeating the lazy imports the
   term loader uses everywhere else.
@@ -253,7 +253,7 @@ Also removed, from a second audit pass over the same tree:
 ### Added
 - **The container refuses to start when its dependencies are stale.**
   `scripts/preflight.py` runs from the image `ENTRYPOINT`, so it wraps every
-  command — `graphknows-mcp`, `graphknows-web` and the dev shell alike. It fails
+  command — `processrecall-mcp`, `processrecall-web` and the dev shell alike. It fails
   the boot when a dependency declared in the mounted `pyproject.toml` is not
   installed, or when the mounted `uv.lock` differs from the one the venv was
   resolved from (its hash is baked to `/opt/venv/.lock-hash` at build time).
@@ -289,8 +289,8 @@ Also removed, from a second audit pass over the same tree:
   summaries led by the member chunk nearest the community centroid — so the
   layer is available under `llm_free`. `topics=llm` keeps prose summaries.
   Previously topic summarisation was dead in *both* modes.
-- **Topics as a re-runnable stage** (`graphknows/topics/`). `Memory.build_topics()`,
-  the `memory_topics` MCP tool and `python -m graphknows.topics` rebuild the
+- **Topics as a re-runnable stage** (`processrecall/topics/`). `Memory.build_topics()`,
+  the `memory_topics` MCP tool and `python -m processrecall.topics` rebuild the
   topic layer at new settings over an unchanged graph — no re-ingest, and none
   of the flush's entity resolution / PageRank / consolidation. `--sweep` compares
   settings and prints the metric table. `flush_memory` calls the same stage, so a
@@ -320,8 +320,8 @@ Also removed, from a second audit pass over the same tree:
 - The production API-key guard follows the resolved capability rather than the
   mode label: agentic retrieval requires a key even under `llm_free`, and
   `llm_assisted` with every LLM capability off does not.
-- Ontology code moved from `graphknows/ingestion/extraction/relations/llm_assisted/ontology/`
-  to **`graphknows/ontology/`**, a shared leaf now used by both ingestion and
+- Ontology code moved from `processrecall/ingestion/extraction/relations/llm_assisted/ontology/`
+  to **`processrecall/ontology/`**, a shared leaf now used by both ingestion and
   retrieval.
 - `GRAPHKNOWS_ONTOLOGY_FILE` → `GRAPHKNOWS_ONTOLOGY` (old name still honoured as
   a deprecated alias, single file only).
@@ -352,10 +352,10 @@ Also removed, from a second audit pass over the same tree:
   concurrent recalls with different sessions overwrote each other's evidence.
 - A partially failed `delete_session` reported success, leaving orphaned nodes;
   it now raises `StoreError` (a missing vertex type is still a no-op).
-- Documented import paths that did not exist: `graphknows.adapters.langgraph`
-  (→ `graphknows.integrations.langgraph`), `graphknows.client`
-  (→ `graphknows.integrations.client`), `graphknows.ports`
-  (→ `graphknows.storage.base`), and install extras that were folded into the
+- Documented import paths that did not exist: `processrecall.adapters.langgraph`
+  (→ `processrecall.integrations.langgraph`), `processrecall.client`
+  (→ `processrecall.integrations.client`), `processrecall.ports`
+  (→ `processrecall.storage.base`), and install extras that were folded into the
   base package in 2.0.0.
 - `GRAPHKNOWS_CHUNK_SIZE` / `GRAPHKNOWS_CHUNK_OVERLAP` were documented and
   settable but never read; they now reach the chunker (defaults realigned to the
@@ -373,14 +373,14 @@ Also removed, from a second audit pass over the same tree:
   `66619ab` and later deleted without updating the `Jenkinsfile`, so the Lint
   stage errored before reaching anything useful. `tests/test_packaging.py` now
   covers what it was for.
-- The STM→LTM promotion pipeline (`graphknows.ingestion.promotion`,
+- The STM→LTM promotion pipeline (`processrecall.ingestion.promotion`,
   `PromotionStep`, `default_promotion_steps`) and the corpus-ingest workflow —
   both were superseded by in-place consolidation in 2.0.0 and had no remaining
   caller.
 - `ArcadeDBVectorStore` — embeddings live on the graph vertices; the separate
   vector store was unreachable.
 - Unwired ranking levers `pagerank_boost` / `idf_weight`, and the unused
-  `graphknows.llm` helpers `get_model_name` / `get_temperature`.
+  `processrecall.llm` helpers `get_model_name` / `get_temperature`.
 
 ## [2.0.0] — 2026-07-13
 
@@ -395,16 +395,16 @@ were removed.
 - **Namespace-first SDK** on `Memory`: `add` / `search` / `flush` take
   `user_id` / `agent_id` / `run_id` scope kwargs (mem0-style). The `*_memory`
   verbs remain as the MCP/web transport handlers.
-- **`graphknows.channels`** — the plugin axis. One `Channel` class implements the
+- **`processrecall.channels`** — the plugin axis. One `Channel` class implements the
   symmetric contract (`ingest`/`promote` write hooks + `collect` read hook);
   `register(name, cls)` adds a signal to both the ingestion and retrieval paths
   at once.
 - **Promotion step pipeline** — STM→LTM flush is now an ordered list of
-  `PromotionStep` objects (`graphknows.ingestion.promotion`); insert a stage with
+  `PromotionStep` objects (`processrecall.ingestion.promotion`); insert a stage with
   `default_promotion_steps()` + a list edit. `NullRelationExtractor` removes the
   llm_free bool-branching.
-- **`graphknows.integrations.langchain`** — a LangChain retriever adapter
-  alongside the existing LangGraph one; both live under `graphknows.integrations`.
+- **`processrecall.integrations.langchain`** — a LangChain retriever adapter
+  alongside the existing LangGraph one; both live under `processrecall.integrations`.
 
 ### Changed
 - **Modules** recut into `settings`, `models`, `storage`, `channels`,
@@ -413,29 +413,29 @@ were removed.
   and `server` (`mcp` + `web`). Mode selection lives in three factories
   (`build_relation_extractor`, `build_retriever`, `default_channels`); the
   `MemoryProfile`/`get_profile` seam is gone.
-- **Install**: `pip install graphknows` is now batteries-included (extraction,
+- **Install**: `pip install processrecall` is now batteries-included (extraction,
   embeddings, analytics, parsers, MCP + web server) and works out of the box in
-  `llm_free` mode. The only extra is `graphknows[assisted]` (dspy + rdflib).
+  `llm_free` mode. The only extra is `processrecall[assisted]` (dspy + rdflib).
 
 ### Removed
-- Deprecated `GraphKnowsRuntime` alias, the `graphknows.ports` package
-  (protocols now in `graphknows.storage.base` + `…relations.base`), and the
+- Deprecated `GraphKnowsRuntime` alias, the `processrecall.ports` package
+  (protocols now in `processrecall.storage.base` + `…relations.base`), and the
   `IVectorDb` alias.
 - The `local-embeddings`, `extraction`, `analytics`, `parsers`, `server`, `web`,
   `langgraph`, and `all` extras (folded into the base install).
 
 ### Migration (old → new import paths)
-- `graphknows.runtime` / `graphknows.GraphKnowsRuntime` → `graphknows.Memory`
-- `graphknows.config` → `graphknows.settings`
-- `graphknows.ports` → `graphknows.storage.base` (+ `…extraction.relations.base`)
-- `graphknows.memory.query.*` → `graphknows.retrieval.*`
-- `graphknows.memory.stores.*` → `graphknows.storage.*`
-- `graphknows.memory.stm.*` / `flush` / `workflows` → `graphknows.ingestion.*`
-- `graphknows.extraction.*` → `graphknows.ingestion.extraction.*` / `graphknows.channels.*`
-- `graphknows.memory.channels.*` → `graphknows.channels.*`
-- `graphknows.mcp` / `graphknows.web` → `graphknows.server.mcp` / `graphknows.server.web`
-- `graphknows.client` → `graphknows.integrations.client`
-- `graphknows.adapters.langgraph` → `graphknows.integrations.langgraph`
+- `processrecall.runtime` / `processrecall.GraphKnowsRuntime` → `processrecall.Memory`
+- `processrecall.config` → `processrecall.settings`
+- `processrecall.ports` → `processrecall.storage.base` (+ `…extraction.relations.base`)
+- `processrecall.memory.query.*` → `processrecall.retrieval.*`
+- `processrecall.memory.stores.*` → `processrecall.storage.*`
+- `processrecall.memory.stm.*` / `flush` / `workflows` → `processrecall.ingestion.*`
+- `processrecall.extraction.*` → `processrecall.ingestion.extraction.*` / `processrecall.channels.*`
+- `processrecall.memory.channels.*` → `processrecall.channels.*`
+- `processrecall.mcp` / `processrecall.web` → `processrecall.server.mcp` / `processrecall.server.web`
+- `processrecall.client` → `processrecall.integrations.client`
+- `processrecall.adapters.langgraph` → `processrecall.integrations.langgraph`
 
 ## [1.0.0] — 2026-07-07
 
@@ -445,12 +445,12 @@ pip-installable, framework-agnostic library with a first-class server story.
 ### Added
 - **`Memory`** — the single transport-neutral facade (async context manager).
   `GraphKnowsRuntime` is kept as a deprecated alias for the 1.x line.
-- **`graphknows.client`** — a stdlib-only out-of-process SDK: `RemoteMemory`
+- **`processrecall.client`** — a stdlib-only out-of-process SDK: `RemoteMemory`
   (mirrors the `Memory` verbs over MCP) and `GraphKnowsMCPClient`. No ML deps.
-- **`graphknows.ports`** — public store protocols (`ISTMStore`, `IVectorStore`,
+- **`processrecall.ports`** — public store protocols (`ISTMStore`, `IVectorStore`,
   `ILTMStore`) plus `IEmbedder`/`IRelationExtractor`, so a backend is swappable
   in principle (ArcadeDB is the shipped implementation).
-- **`graphknows.adapters.langgraph`** — a reference framework adapter
+- **`processrecall.adapters.langgraph`** — a reference framework adapter
   (`GraphKnowsStore`, `recall`/`remember` node helpers) + a generic integration
   recipe (`docs/integrations.md`).
 - **Extras-based install**: a small core (no ML), with `local-embeddings`,
@@ -467,13 +467,13 @@ pip-installable, framework-agnostic library with a first-class server story.
   `GRAPHKNOWS_EMBED_API_BASE`.
 - Provider-neutral LLM configuration: `GRAPHKNOWS_LLM_MODEL` is a litellm model
   string (any provider), with optional `GRAPHKNOWS_LLM_API_BASE`.
-- `assisted` extra for `llm_assisted` mode: `pip install "graphknows[assisted]"`.
+- `assisted` extra for `llm_assisted` mode: `pip install "processrecall[assisted]"`.
 - Documentation: `README.md`, `docs/` (architecture, modes, ontology,
   configuration), `CHANGELOG.md`.
 
 ### Changed
 - The core install is now small: heavy ML/NLP and transport dependencies moved
-  behind extras (`import graphknows` and `graphknows.client` pull no ML deps).
+  behind extras (`import processrecall` and `processrecall.client` pull no ML deps).
 - Ingestion is async-first: `Memory.ingest_memory` and the STM service run store
   I/O on the caller's event loop; the background-thread bridge is gone from the
   ingest path.

@@ -85,7 +85,7 @@ class TestDockerfile:
         occurrences = list(re.finditer(r"uv sync", self.text))
         assert len(occurrences) >= 2, (
             f"{DOCKERFILE}: expected `uv sync` at least twice (a manifests-only "
-            "pass, then a pass after `COPY graphknows`), found "
+            "pass, then a pass after `COPY processrecall`), found "
             f"{len(occurrences)} — this ordering is what lets the dependency "
             "layer cache independently of source changes"
         )
@@ -143,8 +143,8 @@ class TestDockerfile:
         )
 
     def test_non_root_user_survives(self) -> None:
-        assert "USER graphknows" in self.text, (
-            f"{DOCKERFILE}: `USER graphknows` is gone — the existing non-root "
+        assert "USER processrecall" in self.text, (
+            f"{DOCKERFILE}: `USER processrecall` is gone — the existing non-root "
             "user must survive the collapse to one stage"
         )
         useradd_lines = re.findall(r"^RUN .*useradd", self.text, re.MULTILINE)
@@ -271,7 +271,7 @@ class TestGateScript:
 # ─── Library code never provisions its own environment ──────────────────────
 
 
-# Sites in graphknows/ that fetch a corpus at runtime, on the failure path of a lookup.
+# Sites in processrecall/ that fetch a corpus at runtime, on the failure path of a lookup.
 # This is a LEDGER THAT MUST SHRINK, not a list of blessed exceptions: every entry is a
 # package installed from PyPI reaching the network mid-ingest, which fails offline and
 # degrades silently. The provisioning step already exists in scripts/bake_models.py.
@@ -313,7 +313,7 @@ class TestNoRuntimeDownloads:
 
     def _offenders(self) -> set[str]:
         found = set()
-        for path in (REPO_ROOT / "graphknows").rglob("*.py"):
+        for path in (REPO_ROOT / "processrecall").rglob("*.py"):
             if _downloads_at_runtime(path.read_text(encoding="utf-8")):
                 found.add(path.relative_to(REPO_ROOT).as_posix())
         return found

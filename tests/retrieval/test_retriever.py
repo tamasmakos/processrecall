@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from graphknows.ranking.rrf import RRF_K
-from graphknows.retrieval.retriever import DETRetriever
+from processrecall.ranking.rrf import RRF_K
+from processrecall.retrieval.retriever import DETRetriever
 
 
 def _make_retriever():

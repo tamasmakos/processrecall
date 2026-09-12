@@ -31,9 +31,9 @@ def test_packs_layer_sits_between_memory_and_the_pipelines(
     config: configparser.ConfigParser,
 ) -> None:
     layers = _modules(config, "layers", "layers")
-    assert "graphknows.packs" in layers, "the packs layer is undeclared"
-    assert layers.index("graphknows.memory") < layers.index("graphknows.packs")
-    assert layers.index("graphknows.packs") < layers.index("graphknows.ingestion")
+    assert "processrecall.packs" in layers, "the packs layer is undeclared"
+    assert layers.index("processrecall.memory") < layers.index("processrecall.packs")
+    assert layers.index("processrecall.packs") < layers.index("processrecall.ingestion")
 
 
 def test_core_knows_no_domain_forbids_packs_to_every_core_package(
@@ -41,20 +41,20 @@ def test_core_knows_no_domain_forbids_packs_to_every_core_package(
 ) -> None:
     sources = _modules(config, "core-knows-no-domain", "source_modules")
     assert sources == [
-        "graphknows.ingestion",
-        "graphknows.retrieval",
-        "graphknows.channels",
-        "graphknows.symbolic",
-        "graphknows.storage",
+        "processrecall.ingestion",
+        "processrecall.retrieval",
+        "processrecall.channels",
+        "processrecall.symbolic",
+        "processrecall.storage",
     ]
-    assert _modules(config, "core-knows-no-domain", "forbidden_modules") == ["graphknows.packs"]
+    assert _modules(config, "core-knows-no-domain", "forbidden_modules") == ["processrecall.packs"]
 
 
 def test_claude_code_hooks_are_held_to_the_stdlib_only_contract(
     config: configparser.ConfigParser,
 ) -> None:
     sources = _modules(config, "client-stdlib-only", "source_modules")
-    assert "graphknows.integrations.claude_code" in sources
+    assert "processrecall.integrations.claude_code" in sources
 
 
 def test_lint_imports_passes() -> None:

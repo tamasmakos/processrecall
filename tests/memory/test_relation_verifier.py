@@ -8,7 +8,7 @@ deterministically.
 
 from __future__ import annotations
 
-from graphknows.ingestion.extraction.relations.verifier import (
+from processrecall.ingestion.extraction.relations.verifier import (
     NullRelationVerifier,
     RelationVerifierGate,
     build_relation_verifier,

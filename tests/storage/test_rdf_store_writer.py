@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from graphknows.symbolic.ontology.rdf import store
+from processrecall.symbolic.ontology.rdf import store
 
 
 def _client(command_side_effect=None) -> MagicMock:
@@ -144,7 +144,7 @@ class TestSchema:
         # CREATE INDEX ON ONTOLOGY_CLASS(key) UNIQUE against a pre-existing
         # namespace whose rows have no `key` is a migration hazard, so only this
         # tool applies it.
-        from graphknows.storage.arcadedb._schema import _CORE_DDL
+        from processrecall.storage.arcadedb._schema import _CORE_DDL
 
         core = "\n".join(stmt for _, stmt in _CORE_DDL)
         assert "ONODE" not in core

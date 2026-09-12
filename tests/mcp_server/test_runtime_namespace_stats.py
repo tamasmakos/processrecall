@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from graphknows.memory import Memory
+from processrecall.memory import Memory
 
 
 def _client_recording(query_dbs: list[str], exists_dbs: list[str]) -> MagicMock:
@@ -33,7 +33,7 @@ async def test_stats_targets_namespaced_database() -> None:
     query_dbs: list[str] = []
     client = _client_recording(query_dbs, [])
 
-    with patch("graphknows.storage.build_arcadedb_client", return_value=client):
+    with patch("processrecall.storage.build_arcadedb_client", return_value=client):
         await Memory(namespace="acme").stats(session_id="s1")
 
     # Every query goes to the namespace's single golden database.
@@ -45,7 +45,7 @@ async def test_doctor_checks_namespaced_database() -> None:
     exists_dbs: list[str] = []
     client = _client_recording([], exists_dbs)
 
-    with patch("graphknows.storage.build_arcadedb_client", return_value=client):
+    with patch("processrecall.storage.build_arcadedb_client", return_value=client):
         result = await Memory(namespace="acme").doctor()
 
     assert exists_dbs == ["mem_acme"]

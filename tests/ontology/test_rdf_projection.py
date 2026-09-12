@@ -15,7 +15,7 @@ import pytest
 pytest.importorskip("rdflib")
 pytest.importorskip("networkx")
 
-from graphknows.symbolic.ontology.rdf.projection import project
+from processrecall.symbolic.ontology.rdf.projection import project
 
 CCO = "http://www.ontologyrepository.com/CommonCoreOntologies/"
 CCO2 = "https://www.commoncoreontologies.org/"

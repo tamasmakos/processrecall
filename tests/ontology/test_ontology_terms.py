@@ -12,12 +12,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from graphknows.symbolic.ontology.catalog import (
+from processrecall.symbolic.ontology.catalog import (
     OntologyIndex,
     load_ontology_index,
     reset_ontology_indexes,
 )
-from graphknows.symbolic.ontology.loader import OntologyTerm, load_ontology, load_ontology_terms
+from processrecall.symbolic.ontology.loader import OntologyTerm, load_ontology, load_ontology_terms
 
 ASSETS = Path(__file__).resolve().parents[1] / "fixtures" / "ontology"
 PERSONAL_TTL = ASSETS / "personal.ttl"
@@ -110,7 +110,7 @@ class TestOntologyIndex:
 
     def test_empty_source_disables_injection_loudly(self, caplog: pytest.LogCaptureFixture) -> None:
         """Injection is always on by default, so "off" must announce itself."""
-        with caplog.at_level("WARNING", logger="graphknows.symbolic.ontology.catalog"):
+        with caplog.at_level("WARNING", logger="processrecall.symbolic.ontology.catalog"):
             assert load_ontology_index("") is None
         assert "Ontology injection is OFF" in caplog.text
 
@@ -170,7 +170,7 @@ class TestOntologyIndex:
     def test_match_is_ranked_and_top_k_bounded(self) -> None:
         idx = load_ontology_index(str(PERSONAL_TTL))
         assert idx is not None
-        from graphknows.storage.embedder import embed_one
+        from processrecall.storage.embedder import embed_one
 
         hits = idx.match_classes(embed_one("We met at the concert last night."), top_k=3)
         assert len(hits) <= 3
@@ -191,7 +191,7 @@ class TestOntologyIndex:
         cache validated only the row COUNT. A cached matrix then paired with a
         differently-ordered term list, returning cosine 1.0 for the wrong label.
         """
-        from graphknows.storage.embedder import embed_one
+        from processrecall.storage.embedder import embed_one
 
         idx = load_ontology_index(str(PERSONAL_TTL))
         assert idx is not None

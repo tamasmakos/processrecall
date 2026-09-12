@@ -13,15 +13,15 @@ from unittest.mock import patch
 
 import pytest
 
-from graphknows.models.fact import Fact
-from graphknows.models.report import (
+from processrecall.models.fact import Fact
+from processrecall.models.report import (
     Counters,
     Evidence,
     FactWithEvidence,
     RecallBudget,
     RecallResult,
 )
-from graphknows.server.mcp.tools.recall import memory_recall
+from processrecall.server.mcp.tools.recall import memory_recall
 
 SLICE = RecallResult(
     facts=[
@@ -58,7 +58,7 @@ def runtime() -> Any:
     async def _get_runtime() -> _FakeRuntime:
         return fake
 
-    with patch("graphknows.server.mcp.tools.recall.get_runtime", _get_runtime):
+    with patch("processrecall.server.mcp.tools.recall.get_runtime", _get_runtime):
         yield fake
 
 
@@ -98,8 +98,8 @@ async def test_nothing_known_is_stated_not_implied(runtime: _FakeRuntime) -> Non
 
 @pytest.mark.asyncio
 async def test_the_tool_is_registered_and_takes_no_namespace() -> None:
-    from graphknows.server.mcp import tools
-    from graphknows.server.mcp._app import app
+    from processrecall.server.mcp import tools
+    from processrecall.server.mcp._app import app
 
     tool = next(t for t in await app.list_tools() if t.name == "memory_recall")
     assert "memory_recall" in tools.__all__

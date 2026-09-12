@@ -56,7 +56,7 @@ visible in the ingest report and recoverable, instead of silently thinning the g
 
 Bad: **DSPy becomes a core dependency** — every install carries it, including air-gapped
 ones that will never call a provider — and the **`[assisted]` extra is removed**, so
-`pip install 'graphknows[assisted]'` breaks; users who installed it for the RDF/OWL stack
+`pip install 'processrecall[assisted]'` breaks; users who installed it for the RDF/OWL stack
 move to **`[ontology]`**, which is unchanged. `llm_assisted` **joins the contract surface**,
 so it is held to the release gate from here on and can no longer be changed as an
 experiment. **Per-chunk fallback is forbidden in every code path**, which means a provider

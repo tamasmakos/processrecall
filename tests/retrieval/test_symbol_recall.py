@@ -12,9 +12,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from graphknows.models.report import RecallBudget
-from graphknows.retrieval.retriever import SymbolRecall
-from graphknows.storage.arcadedb._base import ArcadeStoreBase
+from processrecall.models.report import RecallBudget
+from processrecall.retrieval.retriever import SymbolRecall
+from processrecall.storage.arcadedb._base import ArcadeStoreBase
 
 _CONCEPTS = [{"uri": "demo:Person", "label": "Person"}]
 

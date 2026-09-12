@@ -7,7 +7,7 @@ production-secret check (FR-005), and the retirement of the per-capability
 
 from __future__ import annotations
 
-from graphknows.settings import Decoder, GraphKnowsSettings, MemoryMode, TopicMode
+from processrecall.settings import Decoder, GraphKnowsSettings, MemoryMode, TopicMode
 
 
 class TestPresetExpansion:

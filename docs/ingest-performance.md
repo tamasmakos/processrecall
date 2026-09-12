@@ -44,7 +44,7 @@ ways. **That is the single highest-value unmeasured question**, and it is cheap 
 
 The real finding. Three instances of one pattern, each filed.
 
-### 3.1 Neither decoder passes relation labels ([#413](https://github.com/tamasmakos/graphknows/issues/413))
+### 3.1 Neither decoder passes relation labels ([#413](https://github.com/tamasmakos/processrecall/issues/413))
 
 `_DecoderExtractor._decode` (`ingestion/extraction/protocol.py:132-138`) and
 `LLMExtractor._decode` (`:203-210`) both forward `entity_labels` and never
@@ -59,9 +59,9 @@ since the atom of recall is a fact with evidence, recall over that content retur
 two shipped packs mask this: both carry deterministic extractors. The dialogue pack, the next
 spec, would land straight on this path.
 
-### 3.2 Identity resolution is never called ([#415](https://github.com/tamasmakos/graphknows/issues/415))
+### 3.2 Identity resolution is never called ([#415](https://github.com/tamasmakos/processrecall/issues/415))
 
-Nothing in `graphknows/` imports `ingestion/consolidation/`. The only importer in the repository
+Nothing in `processrecall/` imports `ingestion/consolidation/`. The only importer in the repository
 is `evaluation/scenarios.py`. A live ingest writes entities on a normalised-name upsert and
 never merges, never proposes a candidate, never writes the merge log.
 

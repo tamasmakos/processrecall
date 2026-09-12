@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from graphknows.ingestion.parsers.transcript import TOOL_RESULT_MIME, TranscriptParser
-from graphknows.models.source import Source
-from graphknows.retrieval.retriever import _facts_with_evidence
+from processrecall.ingestion.parsers.transcript import TOOL_RESULT_MIME, TranscriptParser
+from processrecall.models.source import Source
+from processrecall.retrieval.retriever import _facts_with_evidence
 
 SOURCE = Source(
     uri="session.jsonl", content_hash="abc", mime="application/x-ndjson", namespace="agent"

@@ -1,6 +1,6 @@
 """The six hook verbs against a fake memory service.
 
-The service is a recorder, not the real ``graphknows-mcp``: what is under test
+The service is a recorder, not the real ``processrecall-mcp``: what is under test
 is the verbs' payload → tool-call → output-block mapping, above all the rule
 that nothing is injected when no symbol resolves (FR-031, SC-009).
 """
@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from graphknows.integrations.claude_code import hooks
+from processrecall.integrations.claude_code import hooks
 
 
 class FakeService:

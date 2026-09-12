@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from graphknows.linguistics import analyse
+from processrecall.linguistics import analyse
 
 pytestmark = pytest.mark.unit
 

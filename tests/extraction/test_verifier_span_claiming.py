@@ -28,13 +28,13 @@ from typing import Any
 import pytest
 import torch
 
-from graphknows.ingestion.extraction.relations._gliner2_verifier import (
+from processrecall.ingestion.extraction.relations._gliner2_verifier import (
     RelationVerifier,
     RelationVerifierModel,
     VerifierConfig,
 )
-from graphknows.ingestion.extraction.relations._lingfeatures import noun_supersense
-from graphknows.ingestion.extraction.relations.verifier import RelationVerifierGate
+from processrecall.ingestion.extraction.relations._lingfeatures import noun_supersense
+from processrecall.ingestion.extraction.relations.verifier import RelationVerifierGate
 
 pytestmark = pytest.mark.unit
 

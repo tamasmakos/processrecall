@@ -10,7 +10,7 @@ from evaluation.scenarios import (
     SCENARIOS,
     transcript_drift,
 )
-from graphknows.models.report import Counters
+from processrecall.models.report import Counters
 
 pytestmark = pytest.mark.unit
 

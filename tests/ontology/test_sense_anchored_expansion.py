@@ -18,10 +18,10 @@ from __future__ import annotations
 import pytest
 import spacy
 
-from graphknows.settings import GraphKnowsSettings
-from graphknows.symbolic.ontology import entity_labels, relation_labels
-from graphknows.symbolic.ontology.scheme import load_scheme
-from graphknows.symbolic.ontology.skos import Concept, lexical_index, lexicalize
+from processrecall.settings import GraphKnowsSettings
+from processrecall.symbolic.ontology import entity_labels, relation_labels
+from processrecall.symbolic.ontology.scheme import load_scheme
+from processrecall.symbolic.ontology.skos import Concept, lexical_index, lexicalize
 
 
 @pytest.fixture(scope="module")

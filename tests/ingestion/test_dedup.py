@@ -10,11 +10,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from unittest.mock import AsyncMock, MagicMock
 
-from graphknows.ingestion.pipeline import IngestPipeline
-from graphknows.models.fact import Fact, Mention
-from graphknows.models.segment import Segment, SegmentKind
-from graphknows.models.source import Source
-from graphknows.storage.arcadedb._base import ArcadeStoreBase
+from processrecall.ingestion.pipeline import IngestPipeline
+from processrecall.models.fact import Fact, Mention
+from processrecall.models.segment import Segment, SegmentKind
+from processrecall.models.source import Source
+from processrecall.storage.arcadedb._base import ArcadeStoreBase
 
 
 def _no_model(texts: Sequence[str]) -> list[list[float]]:

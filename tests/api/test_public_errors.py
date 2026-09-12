@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import pytest
 
-from graphknows.exceptions import ConfigurationError, GraphKnowsError, StoreError
-from graphknows.memory import Memory
-from graphknows.models.scope import MemoryScope
-from graphknows.settings import GraphKnowsSettings
+from processrecall.exceptions import ConfigurationError, GraphKnowsError, StoreError
+from processrecall.memory import Memory
+from processrecall.models.scope import MemoryScope
+from processrecall.settings import GraphKnowsSettings
 
 
-async def test_store_transport_failure_out_of_memory_is_graphknows_error() -> None:
+async def test_store_transport_failure_out_of_memory_is_processrecall_error() -> None:
     """A transport failure reaching ArcadeDB surfaces as StoreError, not httpx.
 
     Port 1 refuses the connection immediately (no service listens there), so
@@ -30,18 +30,18 @@ async def test_store_transport_failure_out_of_memory_is_graphknows_error() -> No
         await memory.stats()
 
 
-def test_bad_scope_out_of_memory_scope_is_graphknows_error() -> None:
+def test_bad_scope_out_of_memory_scope_is_processrecall_error() -> None:
     """MemoryScope's "at least one" validator escapes as ConfigurationError."""
     with pytest.raises(ConfigurationError):
         MemoryScope()
 
 
-def test_bad_mode_out_of_memory_init_is_graphknows_error() -> None:
+def test_bad_mode_out_of_memory_init_is_processrecall_error() -> None:
     """An unrecognised mode string escapes ``Memory.__init__`` as ConfigurationError."""
     with pytest.raises(ConfigurationError):
         Memory(mode="not-a-real-mode")
 
 
 @pytest.mark.parametrize("error_cls", [StoreError, ConfigurationError])
-def test_each_escaping_type_is_a_graphknows_error(error_cls: type[Exception]) -> None:
+def test_each_escaping_type_is_a_processrecall_error(error_cls: type[Exception]) -> None:
     assert issubclass(error_cls, GraphKnowsError)

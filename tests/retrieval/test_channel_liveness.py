@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import pytest
 
-from graphknows.retrieval.retriever import _bm25_rank
+from processrecall.retrieval.retriever import _bm25_rank
 
 pytestmark = pytest.mark.unit
 

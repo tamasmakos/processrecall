@@ -8,8 +8,8 @@ predicate each passed their own gate — and counted (FR-011, SC-009).
 
 from __future__ import annotations
 
-from graphknows.ingestion.extraction.llm.anchor import UNANCHORABLE_EVIDENCE, ResponseGates
-from graphknows.ingestion.extraction.llm.schema import (
+from processrecall.ingestion.extraction.llm.anchor import UNANCHORABLE_EVIDENCE, ResponseGates
+from processrecall.ingestion.extraction.llm.schema import (
     DecodedItems,
     DecodedRelation,
     DecodeRequest,

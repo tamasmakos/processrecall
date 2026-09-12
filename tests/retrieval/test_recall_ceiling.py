@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-from graphknows import memory as gk_memory
+from processrecall import memory as gk_memory
 
 pytestmark = pytest.mark.unit
 

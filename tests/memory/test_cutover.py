@@ -13,19 +13,19 @@ from pathlib import Path
 
 import pytest
 
-import graphknows
-from graphknows.ingestion.extraction.entities import hygiene
+import processrecall
+from processrecall.ingestion.extraction.entities import hygiene
 
 pytestmark = pytest.mark.unit
 
-CORE = Path(graphknows.__file__).resolve().parent
+CORE = Path(processrecall.__file__).resolve().parent
 
 DELETED_MODULES = (
-    "graphknows.symbolic.wordnet",
-    "graphknows.worth",
+    "processrecall.symbolic.wordnet",
+    "processrecall.worth",
 )
 
-KEPT_MODULES = ("graphknows.bounds", "graphknows.nlp", "graphknows.linguistics")
+KEPT_MODULES = ("processrecall.bounds", "processrecall.nlp", "processrecall.linguistics")
 
 
 @pytest.mark.parametrize("module_path", DELETED_MODULES)
@@ -42,8 +42,8 @@ def test_kept_module_survives(module_path: str) -> None:
 def test_no_module_still_imports_the_deleted_core() -> None:
     """A shim would keep the old names alive somewhere; nothing may name them."""
     dead_names = (
-        "graphknows.worth",
-        "graphknows.symbolic.wordnet",
+        "processrecall.worth",
+        "processrecall.symbolic.wordnet",
         "worth_extracting",
     )
     offenders = {
@@ -56,7 +56,7 @@ def test_no_module_still_imports_the_deleted_core() -> None:
 
 
 def test_worth_gate_left_the_public_surface() -> None:
-    assert "worth_extracting" not in graphknows.__all__
+    assert "worth_extracting" not in processrecall.__all__
 
 
 def test_hygiene_keeps_no_dialogue_only_rules() -> None:

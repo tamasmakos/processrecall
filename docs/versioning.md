@@ -1,22 +1,22 @@
 # Versioning & deprecation policy
 
-graphknows follows [Semantic Versioning](https://semver.org). From 1.0.0 the
-version is single-sourced from `graphknows/_version.py` (`__version__`) — the
+processrecall follows [Semantic Versioning](https://semver.org). From 1.0.0 the
+version is single-sourced from `processrecall/_version.py` (`__version__`) — the
 file `[tool.hatch.version]` in `pyproject.toml` points the build backend at,
-and the only place the version is written by hand. `graphknows/__init__.py`
+and the only place the version is written by hand. `processrecall/__init__.py`
 merely re-exports it.
 
 ## What "public" means
 
 Semver applies to the **documented public surface** only:
 
-- the names in `graphknows.__all__` (the package root);
-- `graphknows.integrations.client` (the out-of-process SDK);
-- `graphknows.integrations.*` (framework adapters);
-- the `graphknows-mcp` CLI entry point and the MCP tool contract.
+- the names in `processrecall.__all__` (the package root);
+- `processrecall.integrations.client` (the out-of-process SDK);
+- `processrecall.integrations.*` (framework adapters);
+- the `processrecall-mcp` CLI entry point and the MCP tool contract.
 
 Everything else — including underscore-free names inside internal modules such
-as `graphknows.memory.*`, `graphknows.runtime` internals, and the ArcadeDB
+as `processrecall.memory.*`, `processrecall.runtime` internals, and the ArcadeDB
 store classes — is implementation detail and may change in any release. The
 public surface is pinned by `tests/api/test_public_surface.py`.
 
@@ -30,13 +30,13 @@ next major. There are no current deprecations.
 
 | Removed | Use instead |
 | --- | --- |
-| `graphknows.GraphKnowsRuntime` | `graphknows.Memory` |
-| `graphknows.ports.*` | `graphknows.storage.arcadedb.graph_store` (`GraphStore`) |
-| `graphknows.llm._get_openrouter_api_key` | `graphknows.llm.get_openrouter_api_key` |
+| `processrecall.GraphKnowsRuntime` | `processrecall.Memory` |
+| `processrecall.ports.*` | `processrecall.storage.arcadedb.graph_store` (`GraphStore`) |
+| `processrecall.llm._get_openrouter_api_key` | `processrecall.llm.get_openrouter_api_key` |
 
 ## Releasing
 
-1. Bump `__version__` in `graphknows/_version.py`.
+1. Bump `__version__` in `processrecall/_version.py`.
 2. Update `CHANGELOG.md` (Keep a Changelog format) with an entry for the new version.
 3. `make ci` (the pre-push gate — ruff, `mypy --strict`, import-linter, bandit,
    unit tests at the coverage floor, dependency audit — plus wheel size + py.typed).
@@ -46,7 +46,7 @@ next major. There are no current deprecations.
 Pushing the tag is what triggers `.github/workflows/release.yml` — the rest is
 automated. It reruns the full CI gate (`ci.yml`, called by reference), then
 asserts that the pushed tag
-matches the `__version__` literal in `graphknows/_version.py`. If they
+matches the `__version__` literal in `processrecall/_version.py`. If they
 disagree, the run fails before any upload, reporting both values. Only then
 does it attach the wheel that CI itself built — no separate build step, no
 hand-run `uv build` from a laptop.
@@ -62,8 +62,8 @@ Two assets are attached:
 
 | Asset | What it is |
 | --- | --- |
-| `graphknows-<version>-py3-none-any.whl` | the library, the same bytes CI tested |
-| `graphknows-deploy-<version>.tar.gz` | the deployment bundle: `deploy/` and `scripts/` beside the wheel, in the repository's own layout, so `deploy/Dockerfile` builds identically from the unpacked bundle or from a checkout |
+| `processrecall-<version>-py3-none-any.whl` | the library, the same bytes CI tested |
+| `processrecall-deploy-<version>.tar.gz` | the deployment bundle: `deploy/` and `scripts/` beside the wheel, in the repository's own layout, so `deploy/Dockerfile` builds identically from the unpacked bundle or from a checkout |
 
 The bundle exists because a recipient must be able to build the deployment
 without access to this repository. `scripts/` ships in no wheel, so the bundle

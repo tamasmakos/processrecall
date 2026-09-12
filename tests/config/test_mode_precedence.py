@@ -12,9 +12,9 @@ from typing import Any
 
 import pytest
 
-from graphknows.exceptions import ConfigurationError
-from graphknows.memory import Memory
-from graphknows.settings import Decoder, GraphKnowsSettings, MemoryMode
+from processrecall.exceptions import ConfigurationError
+from processrecall.memory import Memory
+from processrecall.settings import Decoder, GraphKnowsSettings, MemoryMode
 
 
 def _settings(**kwargs: Any) -> GraphKnowsSettings:

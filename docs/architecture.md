@@ -1,17 +1,17 @@
 # Architecture
 
-graphknows is an agentic memory system. It ingests conversations and documents,
+processrecall is an agentic memory system. It ingests conversations and documents,
 builds a knowledge graph over [ArcadeDB](https://arcadedb.com), and serves hybrid
 retrieval to an agent. This document traces the moving parts and where each lives.
 
 ## Public entry point
 
-Everything is reached through `Memory` (`graphknows/memory.py`), a
+Everything is reached through `Memory` (`processrecall/memory.py`), a
 transport-neutral, async facade. It is wrapped by the MCP stdio server
-(`graphknows/server/mcp/`), but the class is usable directly:
+(`processrecall/server/mcp/`), but the class is usable directly:
 
 ```python
-from graphknows import Memory
+from processrecall import Memory
 
 async with Memory() as mem:
     await mem.ingest_memory(messages, session_id="s1")
@@ -39,7 +39,7 @@ mem0-style `user_id` / `agent_id` / `run_id` scoping (`Memory._scoped_session_id
 
 ## Configuration and modes
 
-Config is `GraphKnowsSettings` (`graphknows/settings.py`), a `pydantic-settings`
+Config is `GraphKnowsSettings` (`processrecall/settings.py`), a `pydantic-settings`
 model. Every field maps to a `GRAPHKNOWS_`-prefixed environment variable (also
 read from a `.env` file). Key ones: `GRAPHKNOWS_MODE`, `GRAPHKNOWS_NAMESPACE`,
 `GRAPHKNOWS_ARCADEDB_URL`, `GRAPHKNOWS_LLM_MODEL`, `GRAPHKNOWS_LLM_API_KEY`,
@@ -48,9 +48,9 @@ read from a `.env` file). Key ones: `GRAPHKNOWS_MODE`, `GRAPHKNOWS_NAMESPACE`,
 
 `GRAPHKNOWS_MODE` (enum `MemoryMode`) governs extraction. There is no separate
 profile object: the mode fork lives in exactly one factory, `build_decoder`
-(`graphknows/ingestion/extraction/entities/__init__.py`), on the write path.
+(`processrecall/ingestion/extraction/entities/__init__.py`), on the write path.
 Retrieval does not fork — `build_retriever`
-(`graphknows/retrieval/__init__.py`) always returns `DETRetriever`.
+(`processrecall/retrieval/__init__.py`) always returns `DETRetriever`.
 
 | Mode | Extra extraction | Retrieval | API keys |
 | --- | --- | --- | --- |
@@ -63,9 +63,9 @@ with zero API keys.
 ## Memory model: one golden-layer database
 
 There is **one physical ArcadeDB database per namespace** — `mem` for the default
-namespace, `mem_<ns>` otherwise (`graphknows/storage/namespace.py`, `db_name`).
+namespace, `mem_<ns>` otherwise (`processrecall/storage/namespace.py`, `db_name`).
 The old three-store split (separate `stm` / `ltm` databases plus a vector store)
-is gone: `GraphStore` (`graphknows/storage/arcadedb/graph_store.py`) absorbs all
+is gone: `GraphStore` (`processrecall/storage/arcadedb/graph_store.py`) absorbs all
 of it, including embeddings, which live directly on `CHUNK` / `ENTITY` / `TOPIC` /
 `FRAME` vertices behind `LSM_VECTOR` indexes.
 
@@ -73,13 +73,13 @@ Short-term versus long-term is a **lifecycle property, not a database**. A `stat
 in `{raw, consolidated}` sits on `SESSION` / `CHUNK` / `ENTITY` and on relation
 edges; every write lands `raw`, and flush flips a session to `consolidated` in
 place. Retrieval scope maps onto that filter (`_scope_to_state` in
-`graphknows/retrieval/retriever.py`): `stm` → `raw`, `ltm` → `consolidated`,
+`processrecall/retrieval/retriever.py`): `stm` → `raw`, `ltm` → `consolidated`,
 `both` → no filter.
 
 ### Schema
 
 The DDL is a pure ordered statement list, `_CORE_DDL`
-(`graphknows/storage/arcadedb/_schema.py`), applied idempotently by
+(`processrecall/storage/arcadedb/_schema.py`), applied idempotently by
 `GraphStore.ensure_schema(dims)` — `dims` is substituted into the vector indexes so
 they match the configured embedder.
 
@@ -152,22 +152,22 @@ tombstones the existing current edge via `GraphStore._supersede_edge`: it sets
 ### Ingest
 
 `ingest_memory` builds an `STMService` through `build_stm_service`
-(`graphknows/ingestion/__init__.py`) and routes on input shape
-(`graphknows/ingestion/stm/service.py`):
+(`processrecall/ingestion/__init__.py`) and routes on input shape
+(`processrecall/ingestion/stm/service.py`):
 
 - A structured message list goes through `ingest_messages`, writing one `CHUNK`
   per message with `kind='turn'`.
 - Plain text goes through `ingest` → `_STMIngestHandler`
-  (`graphknows/ingestion/stm/ingest.py`): the text is parsed
-  (`graphknows/ingestion/parsers/`) and chunked into `FILE` + `CHUNK` nodes.
+  (`processrecall/ingestion/stm/ingest.py`): the text is parsed
+  (`processrecall/ingestion/parsers/`) and chunked into `FILE` + `CHUNK` nodes.
 
 Both paths converge on the same write helper, which per chunk:
 
 1. embeds the text and writes it onto the `CHUNK` vertex;
 2. runs `GLiNER2EntityExtractor`
-   (`graphknows/ingestion/extraction/entities/extractor.py`) and writes `ENTITY`
+   (`processrecall/ingestion/extraction/entities/extractor.py`) and writes `ENTITY`
    nodes plus `MENTIONS` edges — `is_graph_entity_name`
-   (`graphknows/ingestion/extraction/entities/hygiene.py`) is the gate every
+   (`processrecall/ingestion/extraction/entities/hygiene.py`) is the gate every
    minting path routes through, and rejects a span of three or more tokens
    whose syntactic root is a verb (e.g. "make the dance studio look awesome")
    as a predication rather than a name; the ingest result's `abstentions`
@@ -187,9 +187,9 @@ Both paths converge on the same write helper, which per chunk:
 5. in `llm_assisted`, additionally runs the injected DSPy relation extractor and
    writes its triplets as `REL` edges with `source='dspy'`;
 6. when `enable_frames` is on, matches FrameNet frames by embedding
-   (`graphknows/frames/index.py`) into `FRAME` / `EVOKED_BY`, and
+   (`processrecall/frames/index.py`) into `FRAME` / `EVOKED_BY`, and
    role-fills `FRAME_INSTANCE` / `PLAYS_ROLE` via
-   `graphknows/ingestion/extraction/relations/frame_srl.py`. A chunk can evoke
+   `processrecall/ingestion/extraction/relations/frame_srl.py`. A chunk can evoke
    more than one frame: each clause's main verb(s), each nominalisation with
    argument structure ("the acquisition of X by Y"), and each light-verb
    construction ("made a decision") is its own trigger and can produce its own
@@ -202,7 +202,7 @@ Both paths converge on the same write helper, which per chunk:
    role fillers resolve to an `ENTITY`, and a same-chunk sibling with a strict
    subset of another's fillers collapses into it. A role configuration is then
    checked against FrameNet's own frame-element plane
-   (`graphknows/symbolic/framenet/fe.py`, imported into the graph as `FE` /
+   (`processrecall/symbolic/framenet/fe.py`, imported into the graph as `FE` /
    `SEMTYPE`, see Schema above): an instance whose filled roles violate a
    Requires or Excludes constraint is dropped
    (`abstentions.frame_invalid_requires` / `frame_invalid_excludes`), and one
@@ -218,10 +218,10 @@ Both paths converge on the same write helper, which per chunk:
    FrameNet semantic type is dropped and counted under `frame_semtype_veto`;
    the comparison is a fixed equivalence table between the graph's own entity
    types and FrameNet semantic types, and consults no ontology class;
-7. resolves dates (`resolve_temporal` in `graphknows/temporal.py`) into
+7. resolves dates (`resolve_temporal` in `processrecall/temporal.py`) into
    `TEMPORAL` nodes and `MENTIONS_DATE` edges.
 
-`OntologyPredicateMapper` (`graphknows/ingestion/extraction/relations/filter.py`)
+`OntologyPredicateMapper` (`processrecall/ingestion/extraction/relations/filter.py`)
 remains available for ontology-constrained predicate mapping, but the hot ingest
 path does not filter GLiNER2 labels through it.
 
@@ -234,7 +234,7 @@ aborting, so an analytics failure never skips the state flip:
 
 1. **Channel populate** — every default channel's `populate(store, session_id)`
    runs first, soft-failing under its own name so one broken extension does
-   not cost the rest of the flush. `WordNetChannel` (`graphknows/channels/wordnet.py`)
+   not cost the rest of the flush. `WordNetChannel` (`processrecall/channels/wordnet.py`)
    is the one that does anything today: scoped to this session's chunks, it
    mints the shortest hypernym chain (`BROADER`) for any `SYNSET` this
    session grounded that is still missing one, and `SENSE_REL` edges among
@@ -242,7 +242,7 @@ aborting, so an analytics failure never skips the state flip:
    `SYNSET`/`SENSE` pair and the `HAS_SENSE` edge, so this backfill is what
    attaches a grounding to the wider taxonomy.
 2. **Entity resolution** — `resolve_entities`
-   (`graphknows/ingestion/consolidation/entity_resolution.py`), a layered
+   (`processrecall/ingestion/consolidation/entity_resolution.py`), a layered
    most-confident-first resolver: junk/hub filter, name-standardization merge for
    non-person entities, then person-nickname merge. Embedding similarity is
    deliberately not the primary mechanism (a true nickname pair scores below two
@@ -273,8 +273,8 @@ skipped.
 ## Storage: ArcadeDB
 
 ArcadeDB is reached through a thin async httpx client, `ArcadeDBClient`
-(`graphknows/storage/arcadedb/client.py`), wrapping the REST API (query, command,
-transactions) with HTTP Basic Auth. `graphknows/storage/__init__.py` holds the
+(`processrecall/storage/arcadedb/client.py`), wrapping the REST API (query, command,
+transactions) with HTTP Basic Auth. `processrecall/storage/__init__.py` holds the
 namespace-aware factories — `build_arcadedb_client`, `build_graph_store` — which
 return **unconnected** stores so the client binds to the caller's event loop when
 `connect()` is awaited.
@@ -283,11 +283,11 @@ ArcadeDB constraints the store works around, documented in its module docstring:
 Cypher has no DDL surface (schema is SQL); embedding values must be inline SQL
 literals because LIST params conflict with the `LSM_VECTOR` index; openCypher has
 no `IN $list`, so every interpolated string goes through
-`graphknows/storage/arcadedb/_sql.py`.
+`processrecall/storage/arcadedb/_sql.py`.
 
 ## Embeddings
 
-`graphknows/storage/embedder.py` provides `embed` / `embed_one` (LRU-cached),
+`processrecall/storage/embedder.py` provides `embed` / `embed_one` (LRU-cached),
 and `embed_dim`. By default a local
 `sentence-transformers` model (`BAAI/bge-small-en-v1.5`, 384-dim) runs in-process
 on CPU — no API key. Setting `GRAPHKNOWS_EMBED_API_BASE` routes embeddings through
@@ -302,10 +302,10 @@ an `asyncio.Lock`).
 
 ### Channels
 
-A **channel** (`graphknows/channels/base.py`) is one memory signal exposing
+A **channel** (`processrecall/channels/base.py`) is one memory signal exposing
 `collect(ctx, rt, top_k)` — ranked query candidates as
 `{chunk_id: (score, info)}`. `default_channels`
-(`graphknows/channels/registry.py`) returns the live set; insertion order defines
+(`processrecall/channels/registry.py`) returns the live set; insertion order defines
 fusion order.
 
 The baseline signals (entity, vector, bm25, temporal) are collected directly by
@@ -317,13 +317,13 @@ store:
 - `entity` — entity-graph traversal from query-token entity nodes
 - `vector` — dense ANN over chunk embeddings (plus a declarative query variant)
 - `bm25` — lexical search (`rank_bm25` when importable, tokenised fallback otherwise)
-- `temporal` — date-anchored traversal (`graphknows/temporal.py`)
+- `temporal` — date-anchored traversal (`processrecall/temporal.py`)
 
 Only the optional signals are `Channel`s: `FrameChannel`
-(`graphknows/channels/frames.py`, name `frame`) when `settings.enable_frames`,
-and `OntologyChannel` (`graphknows/channels/ontology.py`, name `ontology`) when
+(`processrecall/channels/frames.py`, name `frame`) when `settings.enable_frames`,
+and `OntologyChannel` (`processrecall/channels/ontology.py`, name `ontology`) when
 `settings.enable_ontology_channel`. `WordNetChannel`
-(`graphknows/channels/wordnet.py`, name `wordnet`) is also registered
+(`processrecall/channels/wordnet.py`, name `wordnet`) is also registered
 unconditionally, but implements only `populate` (the flush-time hypernym/
 sense-relation backfill described under Flush above) and not `collect` — it
 contributes no leg to the RRF fusion below and does not affect retrieval.
@@ -334,13 +334,13 @@ topic stage wrote. See the `registry.py` docstring for the measurements.
 
 ### DETRetriever (llm_free)
 
-`DETRetriever` (`graphknows/retrieval/retriever.py`) is the channel-blind spine:
+`DETRetriever` (`processrecall/retrieval/retriever.py`) is the channel-blind spine:
 it builds a `ChannelContext` (query embedding + declarative variant, two token
 sets), fans the channels out concurrently with `asyncio.gather`, then fuses and
 ranks. A failure in any channel raises loudly rather than silently degrading
 recall.
 
-Candidates are fused by **RRF** (`graphknows/ranking/rrf.py`, `rrf_score`,
+Candidates are fused by **RRF** (`processrecall/ranking/rrf.py`, `rrf_score`,
 `RRF_K = 60`). The fused score is the final rank: the cross-encoder
 reranker was removed after measurement (evidence_recall 0.636 → 0.692 without
 it).
@@ -361,9 +361,9 @@ it have all been removed.
 
 ## Transports
 
-- **MCP stdio** — `graphknows/server/mcp/stdio_server.py` (console script
-  `graphknows-mcp`) over the shared FastMCP app in `graphknows/server/mcp/_app.py`.
-  `graphknows/server/mcp/tools/__init__.py` is the authoritative inventory:
+- **MCP stdio** — `processrecall/server/mcp/stdio_server.py` (console script
+  `processrecall-mcp`) over the shared FastMCP app in `processrecall/server/mcp/_app.py`.
+  `processrecall/server/mcp/tools/__init__.py` is the authoritative inventory:
   `memory_ingest`, `memory_flush`, `memory_query`,
   `memory_stats`, `memory_doctor`, `memory_purge`, `memory_drop_namespace`,
   `corpus_ingest`, `ltm_entity`, `ltm_entities`. A thin

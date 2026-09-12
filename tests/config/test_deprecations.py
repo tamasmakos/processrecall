@@ -10,7 +10,7 @@ import warnings
 
 import pytest
 
-from graphknows.settings import Decoder, GraphKnowsSettings, MemoryMode, TopicMode
+from processrecall.settings import Decoder, GraphKnowsSettings, MemoryMode, TopicMode
 
 
 class TestRetiredRelationsKnob:

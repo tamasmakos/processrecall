@@ -12,8 +12,8 @@ from typing import Any
 
 import pytest
 
-from graphknows.storage.arcadedb._schema import _CORE_DDL
-from graphknows.storage.arcadedb.graph_store import GraphStore
+from processrecall.storage.arcadedb._schema import _CORE_DDL
+from processrecall.storage.arcadedb.graph_store import GraphStore
 
 _DECLARED_TYPES = {
     stmt.split()[3]

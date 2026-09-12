@@ -6,7 +6,7 @@ before the field existed (data-model.md §4).
 
 from __future__ import annotations
 
-from graphknows.ingestion.extraction.entities.extractor import ExtractionResult
+from processrecall.ingestion.extraction.entities.extractor import ExtractionResult
 
 
 def test_frames_defaults_empty_and_is_per_instance() -> None:

@@ -8,7 +8,7 @@ step in quickstart.md §4; this is the part that can be checked offline.
 
 from __future__ import annotations
 
-from graphknows.llm import build_lm
+from processrecall.llm import build_lm
 
 
 def test_built_lm_has_the_disk_cache_off() -> None:

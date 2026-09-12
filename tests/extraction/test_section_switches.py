@@ -18,9 +18,9 @@ from typing import Any
 
 import dspy
 
-from graphknows.ingestion.extraction.llm.decoder import LLMDecoder
-from graphknows.ingestion.extraction.llm.schema import FrameCandidate
-from graphknows.settings import GraphKnowsSettings
+from processrecall.ingestion.extraction.llm.decoder import LLMDecoder
+from processrecall.ingestion.extraction.llm.schema import FrameCandidate
+from processrecall.settings import GraphKnowsSettings
 
 TEXT = "Melanie works for Acme."
 ENTITY_LABELS = ("person", "organization")

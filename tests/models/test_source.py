@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from graphknows.models import Source
+from processrecall.models import Source
 
 
 class TestSourceId:

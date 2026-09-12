@@ -1,4 +1,4 @@
-"""Tests for graphknows.storage.embedder — local + remote embed paths."""
+"""Tests for processrecall.storage.embedder — local + remote embed paths."""
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -17,13 +17,13 @@ def _settings(*, embed_api_base="", embed_model="BAAI/bge-small-en-v1.5", embed_
 
 class TestEmbedLocal:
     def test_empty_list_returns_zero_array(self):
-        from graphknows.storage.embedder import EMBED_DIM, embed
+        from processrecall.storage.embedder import EMBED_DIM, embed
 
         result = embed([])
         assert result.shape == (0, EMBED_DIM)
 
     def test_local_embed_returns_correct_shape(self):
-        from graphknows.storage import embedder
+        from processrecall.storage import embedder
 
         fake_model = MagicMock()
         fake_model.encode.return_value = np.array([[0.1, 0.2, 0.3]], dtype=np.float32)
@@ -40,7 +40,7 @@ class TestEmbedLocal:
 
 class TestEmbedRemote:
     def test_remote_embed_hits_configured_endpoint(self):
-        from graphknows.storage import embedder
+        from processrecall.storage import embedder
 
         captured = {}
 
@@ -67,7 +67,7 @@ class TestEmbedRemote:
         assert result.shape == (1, 2)
 
     def test_remote_truncates_long_text(self):
-        from graphknows.storage import embedder
+        from processrecall.storage import embedder
 
         sent = []
 
@@ -91,7 +91,7 @@ class TestEmbedRemote:
     def test_remote_raises_when_data_missing(self):
         import pytest
 
-        from graphknows.storage import embedder
+        from processrecall.storage import embedder
 
         resp = MagicMock()
         resp.json.return_value = {"error": "quota exceeded"}
@@ -113,7 +113,7 @@ class TestEmbedOne:
     def test_returns_list_of_floats(self):
         import pytest
 
-        from graphknows.storage import embedder
+        from processrecall.storage import embedder
 
         embedder._embed_one_cached.cache_clear()
         with patch.object(

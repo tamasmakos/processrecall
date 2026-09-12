@@ -11,8 +11,8 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-from graphknows.retrieval.retriever import SymbolRecall
-from graphknows.storage.arcadedb._base import ArcadeStoreBase
+from processrecall.retrieval.retriever import SymbolRecall
+from processrecall.storage.arcadedb._base import ArcadeStoreBase
 
 _CONCEPTS = [{"uri": "demo:Person", "label": "Person"}]
 
@@ -29,7 +29,7 @@ def _row(fact_id: str, name_norm: str) -> dict[str, Any]:
         "confidence": 1.0,
         "valid_from": "",
         "valid_to": "",
-        "text": "graphknows/memory.py imports the retriever.",
+        "text": "processrecall/memory.py imports the retriever.",
         "byte_start": 0,
         "byte_end": 43,
         "source_uri": "file:///notes.md",
@@ -57,12 +57,12 @@ def _queries(store: ArcadeStoreBase) -> str:
 
 
 async def test_an_identifier_term_activates_the_facts_its_entity_is_subject_of() -> None:
-    store = _store([_row("f1", "graphknows/memory.py")])
+    store = _store([_row("f1", "processrecall/memory.py")])
 
-    result = await SymbolRecall(store).recall("what changed in graphknows/memory.py?")
+    result = await SymbolRecall(store).recall("what changed in processrecall/memory.py?")
 
     text = _queries(store)
-    assert "e.name_norm IN ['graphknows/memory.py']" in text
+    assert "e.name_norm IN ['processrecall/memory.py']" in text
     assert "(e)-[:SUBJECT_OF]->(f:FACT)-[:ASSERTED_IN]->(g:SEGMENT)" in text
     assert [item.fact.id for item in result.facts] == ["f1"]
     assert result.no_evidence is False
@@ -74,7 +74,7 @@ async def test_identifier_shapes_are_kept_whole_and_normalised() -> None:
 
     await SymbolRecall(store).recall("Does name_norm in GraphKnows/Memory.py call Store.query?")
 
-    assert "['graphknows/memory.py','name_norm','store.query']" in _queries(store)
+    assert "['processrecall/memory.py','name_norm','store.query']" in _queries(store)
 
 
 async def test_a_plain_word_query_asks_no_entity_question() -> None:
@@ -87,7 +87,7 @@ async def test_a_plain_word_query_asks_no_entity_question() -> None:
 
 
 async def test_an_unmatched_identifier_counts_as_an_unresolved_symbol() -> None:
-    result = await SymbolRecall(_store([])).recall("graphknows/nowhere.py")
+    result = await SymbolRecall(_store([])).recall("processrecall/nowhere.py")
 
     assert result.no_evidence is True
     assert result.counters.symbols_resolved == 0

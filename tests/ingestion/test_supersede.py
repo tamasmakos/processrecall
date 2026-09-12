@@ -13,12 +13,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from graphknows.ingestion.pipeline import IngestPipeline
-from graphknows.models.fact import Fact, Mention, Validity
-from graphknows.models.segment import Segment, SegmentKind
-from graphknows.models.source import Source
-from graphknows.models.symbols import ConceptRef, PredicateRef
-from graphknows.storage.arcadedb._base import ArcadeStoreBase
+from processrecall.ingestion.pipeline import IngestPipeline
+from processrecall.models.fact import Fact, Mention, Validity
+from processrecall.models.segment import Segment, SegmentKind
+from processrecall.models.source import Source
+from processrecall.models.symbols import ConceptRef, PredicateRef
+from processrecall.storage.arcadedb._base import ArcadeStoreBase
 
 
 def _no_model(texts: Sequence[str]) -> list[list[float]]:

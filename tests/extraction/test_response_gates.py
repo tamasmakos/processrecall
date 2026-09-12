@@ -7,8 +7,8 @@ data-model.md §4).
 
 from __future__ import annotations
 
-from graphknows.ingestion.extraction.llm.anchor import ResponseGates
-from graphknows.ingestion.extraction.llm.schema import (
+from processrecall.ingestion.extraction.llm.anchor import ResponseGates
+from processrecall.ingestion.extraction.llm.schema import (
     DecodedEntity,
     DecodedFrameInstance,
     DecodedItems,

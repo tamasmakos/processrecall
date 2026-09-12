@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from graphknows.settings import GraphKnowsSettings
+from processrecall.settings import GraphKnowsSettings
 
 DEFAULTS: dict[str, bool | int | float] = {
     "decode_entities": True,

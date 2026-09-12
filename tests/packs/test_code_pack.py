@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from graphknows.ingestion.extraction.protocol import Extractor, PackGuidance
-from graphknows.models.segment import Segment, SegmentKind
-from graphknows.packs import DomainPack, load_packs
-from graphknows.packs.code import CodeExtractor, CodePack, symbol_id
+from processrecall.ingestion.extraction.protocol import Extractor, PackGuidance
+from processrecall.models.segment import Segment, SegmentKind
+from processrecall.packs import DomainPack, load_packs
+from processrecall.packs.code import CodeExtractor, CodePack, symbol_id
 
 _FUNCTION = """def load(path):
     import json
@@ -67,7 +67,7 @@ def test_entity_labels_are_the_concept_labels() -> None:
 def test_hygiene_admits_symbols_and_refuses_prose() -> None:
     admits = CodePack().hygiene()
 
-    assert admits("load") and admits("graphknows.packs.code")
+    assert admits("load") and admits("processrecall.packs.code")
     assert not admits("the loader we discussed")
 
 

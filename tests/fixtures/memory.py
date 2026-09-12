@@ -6,7 +6,7 @@ only two methods the LangGraph hooks, ``GraphKnowsMemory`` and
 duplicated in two test modules before, which is how the two copies came to
 return different hits for the same call.
 
-``recall_memory`` returns :class:`~graphknows.models.hit.Hit` objects, exactly
+``recall_memory`` returns :class:`~processrecall.models.hit.Hit` objects, exactly
 as the real facade does: a fake that returned dicts would let a caller that
 subscripts hits pass here and fail against a live ``Memory``.
 """
@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock
 
-from graphknows.models.hit import Hit
+from processrecall.models.hit import Hit
 
 HITS = [
     Hit(text="Mochi is a ragdoll", sources="stm", speaker="Gina", ts="20 January, 2023"),

@@ -30,14 +30,14 @@ expecting its own worktree to have them.
 ## The Verify line
 
 ```markdown
-- [ ] T012 [P] [US1] Create User model in graphknows/models/user.py
+- [ ] T012 [P] [US1] Create User model in processrecall/models/user.py
   - Verify: `pytest -q tests/models/test_user.py`
 ```
 
 One backticked command per task, single line. It fails before and passes after; if it
 names a test that does not exist, writing the test is part of the task. Python commands
 are written as they run at `/app`; the scripts wrap them in
-`docker exec graphknows-workspace`. The sub-bullet is invisible to the other speckit
+`docker exec processrecall-workspace`. The sub-bullet is invisible to the other speckit
 skills, which only read task lines.
 
 ## Rules held in code

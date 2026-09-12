@@ -24,9 +24,9 @@ import pytest
 pytest.importorskip("rdflib")
 pytest.importorskip("networkx")
 
-from graphknows.symbolic.ontology import rdf_io
-from graphknows.symbolic.ontology.rdf import digest_export, projection, store, taxonomy
-from graphknows.symbolic.ontology.skos import ancestors, build_scheme
+from processrecall.symbolic.ontology import rdf_io
+from processrecall.symbolic.ontology.rdf import digest_export, projection, store, taxonomy
+from processrecall.symbolic.ontology.skos import ancestors, build_scheme
 
 SKOS_CHAIN = Path(__file__).resolve().parents[1] / "fixtures" / "ontology_rdf" / "skos-chain.ttl"
 

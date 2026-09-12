@@ -201,11 +201,11 @@ fail an ingest.
 
 The bundled vocabulary is the **Common Core Ontologies (CCO)**, and it is the
 *always-on default* — not an opt-in. `GRAPHKNOWS_ONTOLOGY` defaults to
-`graphknows/ontology/assets/cco/cco.json`, resolved in
-[`graphknows/settings.py`](../graphknows/settings.py) (`_BUNDLED_ONTOLOGY`).
+`processrecall/ontology/assets/cco/cco.json`, resolved in
+[`processrecall/settings.py`](../processrecall/settings.py) (`_BUNDLED_ONTOLOGY`).
 Setting the variable **replaces** that default with your own file or folder.
 
-`graphknows/ontology/assets/` ships:
+`processrecall/ontology/assets/` ships:
 
 | Path | What it is |
 | --- | --- |
@@ -234,7 +234,7 @@ There is no by-name registry — point `GRAPHKNOWS_ONTOLOGY` at a path, exactly 
 you would at your own file:
 
 ```bash
-GRAPHKNOWS_ONTOLOGY=graphknows/ontology/assets/cco-modules/AgentOntology.ttl
+GRAPHKNOWS_ONTOLOGY=processrecall/ontology/assets/cco-modules/AgentOntology.ttl
 ```
 
 Entity typing and the relation vocabulary are two separate knobs:
@@ -268,11 +268,11 @@ at a higher threshold (`min_similarity=0.35`).
 
 | Concern | Location |
 |---|---|
-| Term loading (file or folder, with definitions) | `graphknows/ontology/loader.py` |
-| Definition embedding index + disk cache | `graphknows/ontology/catalog.py` |
-| Bundled assets | `graphknows/ontology/assets/` |
-| Predicate mapper | `graphknows/ingestion/extraction/relations/filter.py` |
-| Ingest injection + linking | `graphknows/ingestion/stm/ingest.py` |
-| Retrieval channel | `graphknows/channels/ontology.py` |
-| Persistence | `graphknows/storage/arcadedb/graph_store.py` |
-| DSPy wiring | `graphknows/ingestion/extraction/relations/llm_assisted/dspy.py` |
+| Term loading (file or folder, with definitions) | `processrecall/ontology/loader.py` |
+| Definition embedding index + disk cache | `processrecall/ontology/catalog.py` |
+| Bundled assets | `processrecall/ontology/assets/` |
+| Predicate mapper | `processrecall/ingestion/extraction/relations/filter.py` |
+| Ingest injection + linking | `processrecall/ingestion/stm/ingest.py` |
+| Retrieval channel | `processrecall/channels/ontology.py` |
+| Persistence | `processrecall/storage/arcadedb/graph_store.py` |
+| DSPy wiring | `processrecall/ingestion/extraction/relations/llm_assisted/dspy.py` |

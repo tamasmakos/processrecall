@@ -1,6 +1,6 @@
 """The core import surface must not pull the heavy ML/LLM stack.
 
-``import graphknows`` and ``import graphknows.integrations.client`` must work on a core-only
+``import processrecall`` and ``import processrecall.integrations.client`` must work on a core-only
 install (no local-embeddings/extraction/analytics/assisted extras) and must not
 eagerly import sentence-transformers, gliner2, spacy, igraph, leidenalg, torch,
 or dspy. This test fails if an eager import creeps back onto the core path.
@@ -31,16 +31,16 @@ def _heavy_modules_after(import_line: str) -> list[str]:
     return [m for m in line.split(",") if m]
 
 
-def test_import_graphknows_is_light() -> None:
-    assert _heavy_modules_after("import graphknows") == []
+def test_import_processrecall_is_light() -> None:
+    assert _heavy_modules_after("import processrecall") == []
 
 
 def test_import_client_is_light() -> None:
-    assert _heavy_modules_after("import graphknows.integrations.client") == []
+    assert _heavy_modules_after("import processrecall.integrations.client") == []
 
 
 def test_import_does_not_pull_dateparser() -> None:
     """dateparser is deferred to the call sites that parse; importing must not load it."""
-    code = "import sys, graphknows; print('dateparser' in sys.modules)"
+    code = "import sys, processrecall; print('dateparser' in sys.modules)"
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert out.stdout.strip().splitlines()[-1] == "False"

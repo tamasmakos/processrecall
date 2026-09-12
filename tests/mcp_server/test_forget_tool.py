@@ -15,8 +15,8 @@ from unittest.mock import patch
 
 import pytest
 
-from graphknows.memory import Memory
-from graphknows.server.mcp.tools.ltm import memory_forget
+from processrecall.memory import Memory
+from processrecall.server.mcp.tools.ltm import memory_forget
 
 
 @dataclass
@@ -45,7 +45,7 @@ def store() -> Any:
     async def _get_runtime() -> Memory:
         return _connected(fake)
 
-    with patch("graphknows.server.mcp.tools.ltm.get_runtime", _get_runtime):
+    with patch("processrecall.server.mcp.tools.ltm.get_runtime", _get_runtime):
         yield fake
 
 
@@ -82,8 +82,8 @@ async def test_a_fact_with_other_evidence_is_not_counted(store: _FakeStore) -> N
 @pytest.mark.asyncio
 async def test_the_tool_is_registered_and_takes_no_namespace() -> None:
     """Per-fact forget is a user operation, and no tool names a namespace."""
-    from graphknows.server.mcp import tools
-    from graphknows.server.mcp._app import app
+    from processrecall.server.mcp import tools
+    from processrecall.server.mcp._app import app
 
     tool = next(t for t in await app.list_tools() if t.name == "memory_forget")
     assert "memory_forget" in tools.__all__

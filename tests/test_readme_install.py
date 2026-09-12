@@ -1,12 +1,12 @@
-"""README install section must tell a `pip install graphknows` user what they get.
+"""README install section must tell a `pip install processrecall` user what they get.
 
 The section documents the ArcadeDB requirement only as `docker compose up -d
 arcadedb` and never names the setting that points at an ArcadeDB the user
 already runs (`GRAPHKNOWS_ARCADEDB_URL`, default `http://localhost:2480` —
-graphknows/settings.py). It also tells that pip user to run
-`python scripts/bake_models.py`, but the wheel ships only the `graphknows`
-package (`[tool.hatch.build.targets.wheel] packages = ["graphknows"]`), so
-`scripts/` does not exist after `pip install graphknows` — the instruction is
+processrecall/settings.py). It also tells that pip user to run
+`python scripts/bake_models.py`, but the wheel ships only the `processrecall`
+package (`[tool.hatch.build.targets.wheel] packages = ["processrecall"]`), so
+`scripts/` does not exist after `pip install processrecall` — the instruction is
 executable only from a repo checkout. Nothing states that a pip install is a
 library plus its console entry points, not a standalone-runnable app without
 a reachable graph database.
@@ -41,7 +41,7 @@ def test_states_arcadedb_url_setting_and_default() -> None:
     )
     assert "http://localhost:2480" in section, (
         "Install section never states GRAPHKNOWS_ARCADEDB_URL's default "
-        "(http://localhost:2480, see graphknows/settings.py field arcadedb_url)"
+        "(http://localhost:2480, see processrecall/settings.py field arcadedb_url)"
     )
 
 
@@ -76,7 +76,7 @@ def test_links_are_absolute() -> None:
         'README.md is the PyPI long description (readme = "README.md" in '
         "pyproject.toml); relative links resolve against pypi.org and 404 there. "
         "Internal targets must be absolute GitHub blob URLs under "
-        "https://github.com/tamasmakos/graphknows/blob/main/ . Offending "
+        "https://github.com/tamasmakos/processrecall/blob/main/ . Offending "
         f"targets: {relative}"
     )
 
@@ -89,8 +89,8 @@ def test_scripts_path_is_qualified_as_checkout_only() -> None:
     qualifiers = ("clone", "checkout", "repo")
     assert any(q in lowered for q in qualifiers), (
         "Install section references a scripts/ path (e.g. 'python scripts/bake_models.py'), "
-        "but the wheel ships only the graphknows package "
-        '([tool.hatch.build.targets.wheel] packages = ["graphknows"]), so scripts/ does not '
-        "exist after `pip install graphknows` — the section must qualify this as requiring a "
+        "but the wheel ships only the processrecall package "
+        '([tool.hatch.build.targets.wheel] packages = ["processrecall"]), so scripts/ does not '
+        "exist after `pip install processrecall` — the section must qualify this as requiring a "
         "repo clone/checkout (no mention of: " + ", ".join(qualifiers) + ")"
     )

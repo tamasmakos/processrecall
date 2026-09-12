@@ -16,13 +16,13 @@ from typing import Any
 
 import pytest
 
-from graphknows.cli.memory import main
-from graphknows.exceptions import PackConflictError
-from graphknows.memory import Memory
-from graphknows.models.report import IngestReport
-from graphknows.models.segment import Segment
-from graphknows.models.source import Source
-from graphknows.models.symbols import ConceptRef, PredicateRef
+from processrecall.cli.memory import main
+from processrecall.exceptions import PackConflictError
+from processrecall.memory import Memory
+from processrecall.models.report import IngestReport
+from processrecall.models.segment import Segment
+from processrecall.models.source import Source
+from processrecall.models.symbols import ConceptRef, PredicateRef
 
 
 @dataclass(frozen=True)
@@ -152,7 +152,7 @@ def test_cli_ingest_prints_the_report(
             ingested.append(segments)
             return IngestReport(source_id=source.id, segments_written=len(segments))
 
-    monkeypatch.setattr("graphknows.cli.memory.Memory", _StubMemory)
+    monkeypatch.setattr("processrecall.cli.memory.Memory", _StubMemory)
 
     assert main(["ingest", str(path)]) == 0
     assert ingested[0][0].text == "Ada wrote the first program."
