@@ -100,3 +100,5 @@ processrecall/symbolic/ontology/assets/cco-extensions/candidates/
 # machine-written run reports; the rules beside runs/ stay tracked
 docs/agents/runs/
 docs\adr
+.mcp.json
+.claude\settings.local.json
