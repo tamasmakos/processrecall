@@ -1,0 +1,102 @@
+# ─── Python ───────────────────────────────────────────────────────────────────
+.venv
+.venv-*
+__pycache__
+*.py[cod]
+*.pyo
+*.egg-info
+dist/
+build/
+.pytest_cache
+.ruff_cache
+.mypy_cache
+htmlcov/
+coverage.xml
+
+# ─── Secrets / environment ────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ─── Data / generated output ─────────────────────────────────────────────────
+output/
+dogfood-output/
+input/
+data/raw/
+evaluation/results/*
+!evaluation/results/baseline/
+evaluation/data/*
+!evaluation/data/identity/
+!evaluation/data/repo/
+evaluation/external/
+demo_ingest.py
+demo_*.py
+three_pass_benchmark.py
+scripts/demo_*.py
+
+# ─── Editor / OS ──────────────────────────────────────────────────────────────
+.vscode/settings.json
+.idea
+*.DS_Store
+Thumbs.db
+
+# ─── Backup / temp files ─────────────────────────────────────────────────────
+*.bak
+.pre_surgical*
+
+# ─── Legacy / removed ─────────────────────────────────────────────────────────
+langfuse/
+.gemini
+.gemini*.log
+.geminiignore
+lib/
+
+
+research
+.briefs
+# NOT .github: a workflow that exists only on one laptop enforces nothing and
+# does not survive a clone. Ignoring it is why this repo had no CI.
+.opencode
+.hermes
+research
+llm-wiki
+.coverage*
+.import_linter_cache
+.grimp_cache
+.vscode
+.venv
+.agents
+skills-lock.json
+# Local tooling, not project deliverable: skills, workflows and the constitution live here
+# purely for portability (copy the folder to move the whole line to another repo), not for
+# git to sync them across clones or worktrees. Nothing in CI or scripts/gate.sh reads .claude
+# -- the harness and dependency gates that matter live in tracked files outside it. A spec is
+# published by `/specify {github:true}`, which force-adds just that one feature directory.
+.claude/
+AGENTS.md
+.codegraph
+# local analysis scratch (not committed)
+.scratch/
+evaluation/results/.judge_cache/
+.sonar
+# CLAUDE.md is the agent contract (container-not-host, no-silent-fallback, the
+# gate layout). Ignoring it is how this repo ended up with a CLAUDE.md
+# describing an entirely different project -- so it is tracked, and the rule that
+# ignored it anyway five lines below this comment is gone.
+.mcp.json
+
+graphify-out
+prototypes
+.scratch*
+# Candidate ontologies under evaluation — not part of the shipped bundle.
+# Scoped to `candidates/` on purpose: hatchling drops VCS-ignored files from the
+# wheel, so a broader `assets/` rule would silently unship cco/cco.json, which
+# `GraphKnowsSettings.ontology_source` defaults to.
+# The path moved with the package (frames/ + ontology/ -> symbolic/). A stale
+# path here fails SILENTLY: the files simply stop being ignored, get swept in
+# by `git add graphknows/`, and the large-file hook then rejects the whole
+# commit on a 4.6 MB .owl that was never meant to be committed.
+graphknows/symbolic/ontology/assets/cco-extensions/candidates/
+# machine-written run reports; the rules beside runs/ stay tracked
+docs/agents/runs/
+docs\adr
