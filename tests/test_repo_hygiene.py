@@ -176,14 +176,36 @@ class TestCompose:
         assert matches, f"{REPO_ROOT}: no docker-compose*.y*ml file found"
         return matches[0].read_text(encoding="utf-8")
 
-    def test_no_langfuse_or_sonarqube(self) -> None:
+    def test_no_langfuse(self) -> None:
         text = self._compose_text()
         assert "langfuse" not in text.lower(), (
             "compose file: still references langfuse — an observability stack "
             "the single dev compose file should not carry"
         )
-        assert "sonarqube" not in text.lower(), (
-            "compose file: still references SONARQUBE — the analysis tool is removed"
+
+    def test_sonarqube_is_profile_gated(self) -> None:
+        # Scope note: what the cleanup removed was SonarQube CLOUD and the CI
+        # plumbing around it (skip_sonar, sonar-publish.sh, the unpinned CLI
+        # install in the Dockerfile) — all still pinned gone by
+        # TestAnalysisToolRemoved below. A LOCAL analysis server is allowed
+        # back: `make sonar` reports to it and nothing it reads leaves the
+        # machine.
+        #
+        # What this pins is that it never joins the everyday stack. It is a JVM
+        # plus an embedded Elasticsearch next to ArcadeDB's 16G heap, and
+        # `docker compose up -d` must not start it for someone who only wanted
+        # a shell.
+        text = self._compose_text()
+        if "sonarqube:" not in text:
+            pytest.skip("no sonarqube service declared in the compose file")
+        service = re.search(r"^  sonarqube:\n((?:^ {4,}.*\n|^\n)*)", text, re.MULTILINE)
+        assert service is not None, (
+            "compose file: `sonarqube` appears but not as a top-level service — "
+            "this test can no longer tell whether it is profile-gated"
+        )
+        assert re.search(r'^\s*profiles:\s*\[\s*"?sonar"?\s*\]', service.group(1), re.MULTILINE), (
+            "compose file: the sonarqube service is not gated behind the `sonar` "
+            "profile — `docker compose up -d` would start it for everyone"
         )
 
     def test_named_volume_backs_model_cache_paths(self) -> None:
