@@ -1,0 +1,434 @@
+# CI — the merge gate for main.
+#
+# This is scripts/gate.sh's checks, run on a clean machine instead of the
+# developer's workspace container. Same checks, same thresholds, same order:
+#   ruff -> mypy -> import-linter -> bandit -> pytest+coverage
+#
+# Why not just run gate.sh? It requires the graphknows-workspace container and
+# refuses to degrade to a host run — correct for a pre-push hook on a machine
+# whose host venv cannot collect the suite, wrong for a runner that has no
+# container and a clean environment. The thresholds that matter (coverage floor
+# 65, the vulnerability ledger) are read from the SAME sources gate.sh reads,
+# so the two cannot silently disagree.
+#
+# The heavy job runs its checks with `if: !cancelled()` so ONE run reports every
+# failure. Failing fast on ruff and rediscovering mypy next run is exactly the
+# loop gate.sh was built to avoid, and here each retry re-pays the model bake.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+
+# Superseded pushes to the same PR are pointless once a newer commit exists.
+# main and tag refs are NOT cancelled: a tag run is the release build, and its
+# artifacts cannot be re-created by re-running a cancelled job.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+env:
+  # Mirrors the Dockerfile's CPU torch index. The PyPI wheel bundles ~2.5GB of
+  # CUDA kernels a runner never executes, and the runner's disk is the binding
+  # constraint here, not the download.
+  UV_TORCH_BACKEND: cpu
+  # Inside the workspace so actions/cache can address them with relative paths.
+  HF_HOME: ${{ github.workspace }}/.cache/huggingface
+  NLTK_DATA: ${{ github.workspace }}/.cache/nltk_data
+
+jobs:
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    # The first run bakes several GB of models; cached runs are ~8 min.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history so the diff coverage step below can compare this
+          # branch against origin/<base>. A shallow clone has no base ref to
+          # diff against: loud failure at best, a silent 100% at worst.
+          fetch-depth: 0
+          # No authenticated git operation happens after checkout in this job
+          # (it only reads local refs), so persisting the job token buys
+          # nothing and only widens what a compromised step could exfiltrate.
+          persist-credentials: false
+
+      - name: free disk space
+        # torch + six baked models + the uv cache do not fit alongside the
+        # runner's preinstalled toolchains. AGENT_TOOLSDIRECTORY is deliberately
+        # left alone — uv installs its own Python, but setup-uv reads that path.
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: "3.13"
+
+      - name: install
+        # --locked fails if uv.lock has drifted from pyproject.toml. That is a
+        # real quality check: the image resolves from these constraints, so a
+        # stale lock is a stale image.
+        run: uv sync --locked --extra ontology --group dev
+
+      - name: install spacy model
+        # Same pinned wheel the Dockerfile installs. `spacy download` targets the
+        # system python, which is not the venv the tests run in.
+        run: >-
+          uv pip install
+          "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"
+
+      - name: cache models
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            .cache/huggingface
+            .cache/nltk_data
+            .cache/graphknows
+          # Model ids are resolved from settings.py and the modules that own
+          # them, so those files decide what the cache holds.
+          key: models-${{ hashFiles('uv.lock', 'scripts/bake_models.py', 'graphknows/settings.py') }}
+          restore-keys: models-
+
+      - name: bake models
+        # The unit suite is NOT model-free: it loads en_core_web_lg and real
+        # GLiNER weights, and none of that is marked integration. Baking with the
+        # project's own script keeps the CI model set from drifting out of the
+        # app — a model added to the code without adding it here fails --check.
+        run: uv run python scripts/bake_models.py
+
+      - name: ruff check
+        if: ${{ !cancelled() }}
+        run: uv run ruff check --no-fix graphknows evaluation tests
+
+      - name: ruff format
+        if: ${{ !cancelled() }}
+        run: uv run ruff format --check graphknows evaluation tests
+
+      - name: mypy
+        if: ${{ !cancelled() }}
+        run: >-
+          uv run mypy graphknows --strict --ignore-missing-imports
+          --allow-untyped-decorators --no-warn-unused-ignores
+
+      - name: import-linter
+        if: ${{ !cancelled() }}
+        run: uv run lint-imports
+
+      - name: bandit
+        if: ${{ !cancelled() }}
+        run: uv run bandit -r graphknows --skip B101,B104,B105,B110,B112
+
+      - name: dependency drift (report-only)
+        # Catches what nothing else here does: DEP002 a declared dependency no
+        # shipped code imports (install footprint every user pays for forever),
+        # and DEP004 a dev-group package imported by shipped code — the
+        # nltk-in-eval incident that broke plain installs while the container
+        # stayed green. `uv run` so it sees the environment `install` resolved
+        # above, not an ephemeral resolve of its own. Report-only for this
+        # first run: it has known non-defect findings, already suppressed in
+        # [tool.deptry.per_rule_ignores] in pyproject.toml, not here.
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: uv run deptry graphknows
+
+      - name: pytest + coverage floor
+        if: ${{ !cancelled() }}
+        env:
+          # What the shipped image does. Every model the app can load is baked
+          # above, so a cache miss must fail loudly here rather than turn into a
+          # silent multi-GB download mid-test.
+          HF_HUB_OFFLINE: "1"
+          # Definition-embedding matrices (FrameNet's ~1200 frames, the ontology
+          # vocabularies). Defaults to ~/.cache/graphknows, which is OUTSIDE the
+          # workspace and so was never preserved by the cache step above: every
+          # run re-embedded every vocabulary from scratch.
+          GRAPHKNOWS_CACHE_DIR: .cache/graphknows
+        # 65 is scripts/gate.sh's COVERAGE_FLOOR_MIN — a ratchet against
+        # backsliding. The diff-scoped number is the separate step below.
+        run: >-
+          uv run python -m pytest -q -m "not integration"
+          --cov=graphknows --cov-report=xml:coverage.xml
+          --cov-report=term:skip-covered --cov-fail-under=65
+
+      - name: diff coverage (report-only)
+        # NOT `!cancelled()` like its neighbours, deliberately: there is nothing
+        # to report when the suite failed, reporting anyway is how the old
+        # new-code number got pinned at 0.0, and a collection error leaves no
+        # coverage.xml behind — a permissive guard would stack a missing-file
+        # error on top of the real failure. Pull requests only: no base branch
+        # to compare against on a push or a dispatch.
+        if: ${{ success() && github.event_name == 'pull_request' }}
+        env:
+          # The diff-coverage threshold: a DISTINCT constant from the 65% whole
+          # repo floor above, never expressed in terms of it — ratcheting one
+          # must not move the other. 0 means report-only: the number is printed,
+          # a low one does not fail the job, and the real threshold is set from
+          # two pull requests of measured numbers (#206).
+          DIFF_COVERAGE_MIN: "0"
+          # An attacker-controlled branch name expanded straight into `run:` is
+          # a template-injection surface (zizmor `template-injection`); routing
+          # it through env and referencing it as a shell variable instead keeps
+          # the expansion out of the generated script.
+          BASE_REF: ${{ github.base_ref }}
+        # Reads the coverage.xml the step above already wrote: no second test
+        # run, no new declared dependency — uvx fetches the tool ephemerally,
+        # the same way the audit job runs pip-audit.
+        run: >-
+          uvx diff-cover coverage.xml
+          --compare-branch="origin/$BASE_REF"
+          --fail-under="$DIFF_COVERAGE_MIN"
+
+  integration:
+    name: integration
+    runs-on: ubuntu-latest
+    # The eleven `integration`-marked tests currently never run in any workflow —
+    # `gate`'s pytest step above excludes them (`-m "not integration"`) and nothing
+    # else invokes them, so a live-storage regression merges unseen (FR-008,
+    # SC-005). This job runs them against a real ArcadeDB service container on
+    # every pull request and every push to main, the same events `on:` above
+    # already fires this workflow for.
+    #
+    # Same model bake as `gate`: several of the eleven load the real GLiNER/relex
+    # and spaCy models (tests/extraction/test_blind_ner_fallback.py,
+    # tests/extraction/test_ontology_relation_labels.py) — live ArcadeDB is not
+    # the only infrastructure these need.
+    timeout-minutes: 60
+    services:
+      arcadedb:
+        # Same image and root password as docker-compose.yaml's dev stack;
+        # GraphKnowsSettings' default GRAPHKNOWS_ARCADEDB_PASSWORD is "changeme",
+        # so the pytest step below reaches it with no override.
+        image: arcadedata/arcadedb:26.5.1
+        ports:
+          - 2480:2480
+        env:
+          ARCADEDB_OPTS_MEMORY: "-Xms2G -Xmx4G"
+          JAVA_OPTS: "-XX:+UseZGC -XX:+ZGenerational -Darcadedb.server.rootPassword=changeme"
+        # The arcadedb image ships wget, not curl — same probe compose's
+        # healthcheck uses. Without a health check GitHub Actions starts the
+        # service and moves straight to `steps:`, so the first test to hit it
+        # would race the JVM's own startup instead of waiting behind it.
+        options: >-
+          --health-cmd "wget -q -O /dev/null http://localhost:2480/api/v1/ready"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+          --health-start-period 30s
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # No authenticated git operation happens after checkout in this job.
+          persist-credentials: false
+
+      - name: free disk space
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: "3.13"
+
+      - name: install
+        run: uv sync --locked --extra ontology --group dev
+
+      - name: install spacy model
+        run: >-
+          uv pip install
+          "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"
+
+      - name: cache models
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            .cache/huggingface
+            .cache/nltk_data
+            .cache/graphknows
+          key: models-${{ hashFiles('uv.lock', 'scripts/bake_models.py', 'graphknows/settings.py') }}
+          restore-keys: models-
+
+      - name: bake models
+        run: uv run python scripts/bake_models.py
+
+      - name: pytest -m integration against live ArcadeDB
+        env:
+          HF_HUB_OFFLINE: "1"
+          GRAPHKNOWS_CACHE_DIR: .cache/graphknows
+          # CI's promise that the service container above is up: a container
+          # that never started must fail the job, not report a suite that
+          # skipped past every test as green.
+          GRAPHKNOWS_REQUIRE_ARCADEDB: "1"
+        run: uv run python -m pytest -q -m integration
+
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # No authenticated git operation happens after checkout in this job.
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: dependency audit (new advisories only)
+        # Ignore list comes from .pip-audit-ignore, the same ledger
+        # scripts/gate.sh reads. Adding an id in one place covers both.
+        run: |
+          test -f .pip-audit-ignore || { echo "::error::.pip-audit-ignore is missing"; exit 1; }
+          uv export --no-dev --no-editable --no-hashes --format requirements-txt > /tmp/req-audit.txt
+          # The word-splitting below is deliberate: one --ignore-vuln flag per
+          # ledger entry, not a single quoted argument. Quoting it would pass
+          # pip-audit one malformed flag instead of N well-formed ones.
+          # shellcheck disable=SC2046
+          uvx pip-audit -r /tmp/req-audit.txt --progress-spinner off \
+            $(grep -oE '^(PYSEC|GHSA)[A-Za-z0-9-]+' .pip-audit-ignore | sed 's/^/--ignore-vuln /')
+
+      - name: workflow security lint (zizmor)
+        # Nothing here has ever read .github/workflows/*.yml as code, so the
+        # pipeline's own config was the one part of the repo with no linter.
+        # A first --offline run over both workflows found 16 findings: 10
+        # unpinned-uses (fixed above), 1 template-injection (fixed above), 4
+        # artipacked (fixed above), 1 secrets-inherit (inline-ignored in
+        # release.yml, pinned by contract tests). Nothing is left to defer.
+        # Pinned, unlike the pip-audit call above: a linter whose rule set
+        # changes on someone else's release must not turn this pipeline red
+        # on an unrelated push. --offline keeps it deterministic and token-free.
+        run: uvx zizmor@1.29.0 --offline .github/workflows/
+
+      - name: workflow correctness lint (actionlint)
+        # Catches what zizmor doesn't: expression typing, YAML validity, and
+        # shellcheck over embedded `run:` blocks. A first run found 2 findings
+        # (both shellcheck, both fixed above). actionlint-py is the published
+        # PyPI wrapper around the compiled Go binary, so this runs ephemerally
+        # through uvx exactly like the pip-audit and zizmor steps above — no
+        # hash-pinned download step needed. Pinned for the same reason as
+        # zizmor. CI-only: gate.sh has no shellcheck/actionlint in the
+        # workspace container, so this is not mirrored there.
+        run: >-
+          uvx --from actionlint-py==1.7.12.24 actionlint
+          .github/workflows/ci.yml .github/workflows/release.yml
+
+  wheel:
+    name: wheel
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # No authenticated git operation happens after checkout in this job.
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: build
+        # No --wheel: this must produce both the sdist and the wheel.
+        # [tool.hatch.build.targets.sdist] is configured in pyproject.toml and
+        # nothing has ever verified it actually builds.
+        run: uv build
+
+      - name: assert the wheel still ships py.typed and stays small, and the sdist is complete
+        # A packaging regression is invisible to every other check here: the
+        # suite imports from the source tree, not from the wheel or sdist.
+        run: |
+          python3 - <<'PY'
+          import glob, os, tarfile, zipfile
+
+          wheel = sorted(glob.glob("dist/*.whl"))[-1]
+          names = zipfile.ZipFile(wheel).namelist()
+          assert any("py.typed" in n for n in names), "py.typed missing from the wheel"
+          ontology_assets = [
+              "graphknows/symbolic/ontology/assets/cco/cco.json",
+              "graphknows/symbolic/ontology/assets/cco/conversational.json",
+              "graphknows/symbolic/ontology/assets/personal/personal-profile.json",
+          ]
+          for asset in ontology_assets:
+              assert asset in names, f"bundled ontology asset missing from the wheel: {asset}"
+          kb = os.path.getsize(wheel) / 1024
+          assert kb < 1024, f"wheel too large: {kb:.0f} KB"
+          print(f"wheel OK: {os.path.basename(wheel)} ({kb:.0f} KB, py.typed + ontology assets present)")
+
+          sdists = sorted(glob.glob("dist/*.tar.gz"))
+          assert len(sdists) == 1, f"expected exactly one sdist, found {len(sdists)}"
+          sdist = sdists[0]
+          members = tarfile.open(sdist).getnames()
+          assert any(m.endswith("pyproject.toml") for m in members), "pyproject.toml missing from the sdist"
+          assert any("graphknows/" in m for m in members), "graphknows/ source missing from the sdist"
+          sdist_kb = os.path.getsize(sdist) / 1024
+          print(f"sdist OK: {os.path.basename(sdist)} ({sdist_kb:.0f} KB, pyproject.toml + graphknows/ present)")
+          PY
+
+      - name: upload the distribution
+        # This run is what a release workflow reuses via workflow_call, so the
+        # artifacts must outlive the job.
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  smoke:
+    name: smoke
+    # A separate job, not a matrix over `gate`: `gate` already takes 60
+    # minutes and deletes several GB of preinstalled toolchains because the
+    # unit suite loads a real GLiNER model and en_core_web_lg, none of it
+    # marked integration — tripling that job across three interpreters would
+    # triple the pipeline's worst cost for a check this job gets far cheaper.
+    # This job installs nothing but the built wheel: no checkout, no model
+    # bake, no pytest.
+    needs: wheel
+    runs-on: ubuntu-latest
+    # ponytail: unmeasured, replace with the first green run's per-leg wall-clock
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      # Deliberately no actions/checkout. The whole point of this job is an
+      # environment that has never seen the source tree — a checkout would
+      # let `import graphknows` resolve against the flat repo layout instead
+      # of the installed wheel, and a packaging regression would stay
+      # invisible exactly the way it is today.
+      - name: download the built distribution
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          # No enable-cache / cache-dependency-glob: there is no uv.lock in
+          # this workspace without a checkout.
+          python-version: ${{ matrix.python-version }}
+
+      - name: install the wheel into a fresh venv and import it
+        # `uv pip`, not plain `pip`: only `uv pip` respects the workflow-level
+        # UV_TORCH_BACKEND: cpu env var. Plain pip would resolve torch's
+        # default CUDA wheel, several GB, onto a runner with no disk-clearing
+        # step. Exactly one install per leg — no `uv sync`, no second import.
+        run: |
+          uv venv
+          uv pip install dist/*.whl
+          .venv/bin/python -c "import graphknows; print(graphknows.__version__)"
+
+      # A first RED run here may be a genuine incompatibility rather than a
+      # bug in this job: the top-level import in graphknows/__init__.py pulls
+      # in graphknows.memory and its heavy transitive modules, so an install
+      # or import failure on one of these interpreters is the gate working as
+      # designed, not a false alarm to silence.

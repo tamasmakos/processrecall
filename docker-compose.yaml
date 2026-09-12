@@ -1,0 +1,136 @@
+# docker-compose.yaml — GraphKnows dev stack (ArcadeDB + dev workspace)
+#
+#   docker compose up -d
+#
+# Configure via a .env file (see .env.example). All app config is GRAPHKNOWS_*.
+# Docker is dev-only: the PyPI wheel is the product, so there is no separate
+# deployment compose file and no shipped-image target to select.
+
+x-graphknows-env: &graphknows-env
+  GRAPHKNOWS_ARCADEDB_URL: "${GRAPHKNOWS_ARCADEDB_URL:-http://arcadedb:2480}"
+  GRAPHKNOWS_ARCADEDB_USER: "${GRAPHKNOWS_ARCADEDB_USER:-root}"
+  GRAPHKNOWS_ARCADEDB_PASSWORD: "${GRAPHKNOWS_ARCADEDB_PASSWORD:-changeme}"
+  # Preset over the capability knobs; each is independently overridable.
+  GRAPHKNOWS_MODE: "${GRAPHKNOWS_MODE:-llm_free}"
+  GRAPHKNOWS_TOPICS: "${GRAPHKNOWS_TOPICS:-}"
+  GRAPHKNOWS_DSPY_RELATIONS: "${GRAPHKNOWS_DSPY_RELATIONS:-}"
+  GRAPHKNOWS_ONTOLOGY: "${GRAPHKNOWS_ONTOLOGY:-}"
+  GRAPHKNOWS_RELATION_ONTOLOGY: "${GRAPHKNOWS_RELATION_ONTOLOGY:-}"
+  GRAPHKNOWS_LLM_MODEL: "${GRAPHKNOWS_LLM_MODEL:-openrouter/deepseek/deepseek-v4-flash}"
+  GRAPHKNOWS_LLM_API_KEY: "${GRAPHKNOWS_LLM_API_KEY:-}"
+  GRAPHKNOWS_EMBED_MODEL: "${GRAPHKNOWS_EMBED_MODEL:-BAAI/bge-small-en-v1.5}"
+  # The evaluation harness (evaluation/README.md) reads these directly for
+  # answer generation and LLM judging; without them `python -m evaluation`
+  # cannot run inside the workspace container.
+  OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+  LLM_MODEL: "${LLM_MODEL:-}"
+  JUDGE_MODEL: "${JUDGE_MODEL:-}"
+
+services:
+  arcadedb:
+    # Pinned to >=26.3.2: that release adds the Graph Analytical View / OLAP
+    # engine. Without it, CALL algo.* (e.g. node2vec) runs through the OLTP
+    # path and can take minutes on our entity graph, blowing past the HTTP
+    # client's read timeout and looking hung. See ltm_store._entity_graph()
+    # and the analytical view created in ltm_store for the OLAP-backed path.
+    image: arcadedata/arcadedb:26.5.1
+    ports:
+      - "${GRAPHKNOWS_ARCADEDB_PORT:-2480}:2480"
+    environment:
+      # Give the JVM real heap: vector indexes (esp. 1536-dim remote embeddings)
+      # and graph algorithms are memory-hungry; the 2G default OOMs ("Java heap
+      # space") and wedges the whole server (every request then hangs).
+      #
+      # CRITICAL: the heap MUST be set via ARCADEDB_OPTS_MEMORY, not JAVA_OPTS.
+      # server.sh launches java as `$JAVA_OPTS $ARCADEDB_OPTS_MEMORY ...`, and the
+      # image ships ARCADEDB_OPTS_MEMORY="-Xms2G -Xmx2G". Since the last -Xmx on
+      # the JVM line wins, an -Xmx set in JAVA_OPTS is silently overridden back to
+      # 2G. (That's why the earlier 8G/16G "heap raise" commits had no effect.)
+      # Tune GRAPHKNOWS_ARCADEDB_XMX to host RAM.
+      ARCADEDB_OPTS_MEMORY: "-Xms4G -Xmx${GRAPHKNOWS_ARCADEDB_XMX:-16G}"
+      # Keep the image's tuned collector (generational ZGC) — setting JAVA_OPTS
+      # replaces the image default, so we must restate it here alongside the root
+      # password.
+      JAVA_OPTS: "-XX:+UseZGC -XX:+ZGenerational -Darcadedb.server.rootPassword=${GRAPHKNOWS_ARCADEDB_PASSWORD:-changeme}"
+    volumes:
+      - arcadedb_data:/home/arcadedb/databases
+    restart: unless-stopped
+    healthcheck:
+      # The arcadedb image ships wget, not curl.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:2480/api/v1/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # MCP server, containerized. Bind-mounts the repo so code edits take effect
+  # on `restart` without a rebuild (PYTHONPATH=/app shadows the venv-installed
+  # copy) — a pyproject/uv.lock change still needs `docker compose build mcp`.
+  mcp:
+    container_name: graphknows-mcp
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: graphknows-mcp
+    volumes:
+      - .:/app
+      - model_cache:/opt/models
+    environment:
+      <<: *graphknows-env
+      PYTHONPATH: /app
+    depends_on:
+      arcadedb:
+        condition: service_healthy
+    restart: "no"
+
+  # Dev container: mounts the repo, interactive shell, all tooling.
+  workspace:
+    container_name: graphknows-workspace
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # CUDA torch for the workspace. The Dockerfile defaults TORCH_BACKEND
+        # to the CPU wheel, but this container is the eval workstation and the
+        # `deploy` block below reserves the host GPU for it. With the CPU
+        # wheel, torch.cuda.is_available() is False and the 467M-parameter
+        # relex extractor runs on CPU — conv-30 (49 chunks, the shortest
+        # LoCoMo dialogue) took 18.6 minutes to ingest.
+        # cu126: the newest CUDA the locked torch (2.12.0) ships that a 12.8
+        # driver can run — 2.12 has no cu128 wheel, and the cu130 wheel PyPI
+        # serves fails to initialise under a 12.x driver. Raise it when the
+        # host driver moves to 13.x; lower it if the driver is older.
+        TORCH_BACKEND: cu126
+    working_dir: /app
+    volumes:
+      - .:/app
+      # Model weights: a NAMED volume, not baked into the image, so rebuilding
+      # the image never re-downloads gigabytes of weights. Backs the
+      # Dockerfile's HF_HOME/NLTK_DATA (both under /opt/models). This is NOT
+      # the BuildKit `uv` cache mount in the Dockerfile — different owner,
+      # different lifetime.
+      - model_cache:/opt/models
+    environment:
+      <<: *graphknows-env
+      PYTHONPATH: /app
+    tty: true
+    stdin_open: true
+    command: /bin/bash
+    depends_on:
+      arcadedb:
+        condition: service_healthy
+    restart: unless-stopped
+    # GPU for GLiNER2 NER (torch). Requires the NVIDIA Container Toolkit on the
+    # host; degrades gracefully to CPU if no GPU is present (the loader checks
+    # torch.cuda.is_available()). Remove this block on GPU-less hosts.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  arcadedb_data:
+  model_cache:

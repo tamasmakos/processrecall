@@ -1,0 +1,388 @@
+[project]
+name = "graphknows"
+description = "Agentic memory: knowledge-graph ingestion + hybrid retrieval, llm-free or ontology-guided"
+requires-python = ">=3.11"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Tamás Mákos", email = "tamasmakos@gmail.com" }]
+keywords = [
+    "memory",
+    "knowledge-graph",
+    "agents",
+    "retrieval",
+    "rag",
+    "ontology",
+    "mcp",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dynamic = ["version"]
+dependencies = [
+    # Batteries-included: `pip install graphknows` gives a fully working memory
+    # service (local extraction, embeddings, analytics, parsers) that also serves
+    # MCP out of the box — and, with a key and `Memory(mode="llm_assisted")`, the
+    # LLM decoder too. Both modes are the contract surface, so neither sits behind
+    # an extra; only the injectable RDF/OWL stack (`ontology`) and the optional
+    # adapters do.
+    "pydantic>=2.7.0",
+    # env_file loading in settings.py needs python-dotenv, but pydantic-settings
+    # already requires it unconditionally (not behind an extra) — no separate
+    # declaration needed here.
+    "pydantic-settings>=2.2.0",
+    "httpx>=0.27.0",
+    "numpy>=1.26.0",
+    "dateparser>=1.2.0",
+    # extraction (llm_free) + embeddings
+    # `gliner` (not just gliner2) is required: entities/gliner_model.py loads
+    # knowledgator/gliner-relex-large-v1.0 through `from gliner import GLiNER`.
+    # It is NOT a transitive dependency of gliner2 — omitting it breaks the
+    # default llm_free extraction path with ModuleNotFoundError on first ingest.
+    "gliner>=0.2.26",
+    # Capped below 2.0: gliner2 2.0.0 moved peft/torch/transformers/safetensors
+    # out of the base install and behind a `local` extra, so `pip install gliner2`
+    # imports fine but cannot load a model ("No module named 'peft'"), and
+    # `gliner2[local]` pins transformers<5 which this resolution cannot satisfy.
+    # The cap also makes the Dockerfile's lock-free `uv pip install ".[assisted]"`
+    # agree with uv.lock, which pins 1.3.1.
+    "gliner2>=0.1.0,<2",
+    "spacy>=3.7.0",
+    "sentence-transformers>=3.0.0",
+    # Imported DIRECTLY by embedder.py, gliner_model.py and
+    # _gliner2_verifier.py — not merely pulled in by sentence-transformers.
+    # Relying on the transitive edge means a sentence-transformers release that
+    # drops or re-pins any of them silently breaks us. The Dockerfile also
+    # installs torch from an explicit index (CPU by default), which needs the
+    # constraint declared here to resolve consistently.
+    "torch>=2.4.0",
+    "transformers>=4.44.0",
+    "huggingface-hub>=0.24.0",
+    # BM25 sparse channel in retrieval/retriever.py. Was undeclared and
+    # therefore absent, so `except ImportError` silently degraded the channel to
+    # a tf-style scorer — a fused retrieval source that looked live and was not.
+    "rank-bm25>=0.2.2",
+    # WordNet/FrameNet lookups in the default (llm_free) relation path:
+    # ingestion/extraction/relations/_lingfeatures.py and frames/framenet.py.
+    # Core, not eval-only — those call sites guard LookupError (missing *corpus*),
+    # which does not catch the ModuleNotFoundError raised by a missing *package*.
+    "nltk>=3.10.2",  # PYSEC-2026-3726 fixed in 3.10.2
+    # plug-and-play MCP server. Capped below 2.0: that release removed
+    # `mcp.server.fastmcp`, which graphknows.server.mcp imports, so the server
+    # raises BrokenInstallError on import. The cap is here rather than in the
+    # lock because the image installs with `uv pip install ".[assisted]"` — it
+    # resolves from THESE constraints and never reads uv.lock, so a lock pin is
+    # silently ignored on every rebuild.
+    "mcp>=1.0.0,<2",
+    # The LLM decoder (`Memory(mode="llm_assisted")`). Core, not an extra: the
+    # mode is part of the contract surface, and an extra that gates half of that
+    # surface is a documentation bug waiting to happen (ADR 0003). `llm_free`
+    # installs carry them unused — the cost of the swap, accepted deliberately.
+    # `litellm` is declared beside dspy because the decoder imports it directly
+    # (typed retry signals, the model-map registration that makes structured
+    # output reach the provider), not only through dspy.
+    "dspy>=3.2.1",
+    "litellm>=1.85.0",
+]
+
+[project.optional-dependencies]
+# Injectable RDF/OWL ontology: what the release image installs
+# (`deploy/Dockerfile`), what the dev image and CI sync, and what the five
+# ontology MissingExtraError call sites name.
+#
+# `networkx` sits beside rdflib for graphknows.symbolic.ontology.rdf: projecting a
+# folder of RDF needs a multigraph with parallel predicate-keyed edges, and the
+# label-keyed taxonomy needs cycle detection and a topological order. Both are
+# imported inside functions behind a MissingExtraError guard, so a base install
+# pulls neither.
+#
+# The `assisted` extra is GONE (ADR 0003): dspy and litellm are core, because
+# `llm_assisted` is part of the contract surface. `pip install
+# 'graphknows[assisted]'` now fails; RDF users want `graphknows[ontology]`.
+ontology = ["rdflib>=7.0.0", "networkx>=3.0"]
+# Framework adapter. Genuinely optional — nothing in the core paths imports it,
+# and it is lazily imported behind a MissingExtraError guard. The `langchain`
+# extra was removed with its adapter: `GraphKnowsRetriever` had zero importers
+# (no test, example, eval, or docs page) and raised a bare ImportError, so the
+# extra it named guarded nothing.
+langgraph = ["langgraph>=0.2.0"]
+# Langfuse tracing for the LangGraph example. Nothing in the library imports it
+# — the example builds the callback only when LANGFUSE_* is set.
+#
+# `langfuse>=3` is not cosmetic: the 2.x SDK imports `langchain.callbacks`,
+# which langchain 1.x deleted, so 2.x cannot be used with any current langchain.
+# The `langchain` meta-package is a real requirement, not a transitive one —
+# langfuse's integration imports it directly and raises if it is absent, and
+# langchain-openai/langgraph alone pull only langchain-core.
+observability = ["langfuse>=3.0", "langchain>=1.0"]
+
+# Every extra named by a MissingExtraError call site MUST appear above;
+# `MissingExtraError.KNOWN_EXTRAS` and tests/test_packaging.py enforce it. For a
+# missing *core* dependency raise BrokenInstallError instead — there is no
+# extra to install, and suggesting one is a dead end.
+
+[project.urls]
+Homepage = "https://github.com/tamasmakos/graphknows"
+Repository = "https://github.com/tamasmakos/graphknows"
+Issues = "https://github.com/tamasmakos/graphknows/issues"
+Changelog = "https://github.com/tamasmakos/graphknows/blob/main/CHANGELOG.md"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "graphknows/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["graphknows"]
+# Domain packs are data, not code. `packages` ships the directory, but hatchling
+# drops anything the VCS ignores — an ignore rule matching *.json would silently
+# produce an installed package with no packs. `artifacts` force-includes them.
+artifacts = ["graphknows/packs/data/**/*.json"]
+
+[tool.hatch.build.targets.sdist]
+# `.claude` is the agent harness (skills, workflows, hooks) — version controlled so the
+# rules survive a clone, but it is not part of the distribution. hatchling drops
+# VCS-ignored files, so before it was tracked it was excluded for free; now that it is
+# tracked, only this line keeps ~1.5 MB of skills out of the sdist.
+exclude = ["evaluation", "examples", "tests", "research", ".scratch", ".claude", "CLAUDE.md"]
+
+[project.scripts]
+graphknows = "graphknows.cli.memory:main"
+graphknows-mcp = "graphknows.server.mcp.stdio_server:main"
+
+# ── Dev tooling ────────────────────────────────────────────────────────────────
+
+[dependency-groups]
+dev = [
+    "ruff>=0.4.0",
+    "mypy>=1.10.0",
+    "bandit>=1.7.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "httpx>=0.27.0",
+    # `import-linter` is the *only* architecture checker. A second one (tach)
+    # used to run alongside it and had been red on main, unnoticed, for weeks:
+    # its failure message advertises `tach sync`, which rewrites the config to
+    # permit the violation. A gate that documents its own bypass is not a gate.
+    "import-linter>=2.11",
+    # deptry checks declared deps against actual imports — must be a resolved
+    # environment member, not an ephemeral `uvx` call like pip-audit/zizmor: it
+    # matches imported module names against the *installed* distributions, so
+    # it has to see this project's own resolved environment to work at all.
+    "deptry>=0.25.0",
+]
+eval = [
+    "datasets>=2.19.0",
+    "pandas>=2.2.0",
+    "pytest>=8.0.0",
+    "tabulate>=0.9.0",
+    # nltk (PorterStemmer for the locomo_f1 lexical diagnostic) is now a core
+    # dependency — see [project.dependencies]. Declaring it here too was what
+    # let the Docker image satisfy a production import from a dev-only group.
+]
+
+[tool.uv]
+# Floors on TRANSITIVE packages, to clear advisories the dependency audit
+# (`scripts/gate.sh`, `.pip-audit-ignore`) reports against the resolved runtime
+# set. They are constraints, not dependencies: graphknows imports neither, so
+# declaring them in [project.dependencies] would be a lie deptry rightly flags —
+# a constraint only says "if something pulls this in, not below this version".
+#
+# Both entered the audited set when dspy and litellm became core (ADR 0003): the
+# audit exports the runtime closure, which used to exclude them with the extra.
+# Drop a line once the puller's own floor overtakes it.
+constraint-dependencies = [
+    "aiohttp>=3.14.3",   # litellm; PYSEC-2026-3545/3546/3547
+    "json-repair>=0.60.1",  # dspy; GHSA-xf7x-x43h-rpqh
+]
+
+[tool.deptry]
+# `known_first_party`: deptry guesses local modules by iterating the *contents*
+# of the scanned root, so when the root passed on the command line is the
+# package directory itself (`deptry graphknows`, required below to keep
+# evaluation/'s legitimate eval-group imports out of scope) it never adds
+# "graphknows" itself to that guessed set — every internal `import graphknows`
+# / `from graphknows import ...` line then reads as DEP003 (a transitive
+# dependency). Declaring it here is the documented escape hatch, not a
+# workaround for a real drift.
+known_first_party = ["graphknows"]
+
+# First run (27 Aug 2026) of `uv run deptry graphknows --config pyproject.toml`
+# on this environment (`uv sync --group dev`, no optional extras installed)
+# reported exactly four DEP002 (unused dependency) findings and nothing else:
+#   - python-dotenv  ([project.dependencies] — genuinely unimported anywhere
+#     under graphknows/; removed (#218) — pydantic-settings already requires
+#     it unconditionally for env_file loading)
+#   - scipy          ([project.dependencies] — zero references under
+#     graphknows/ despite the dependency comment claiming a direct import;
+#     removed (#218))
+#   - langfuse        (`observability` extra — deliberate, ignored below)
+#   - langchain       (`observability` extra — deliberate, ignored below)
+# No DEP003/DEP004 findings this run.
+#
+# Verified against deptry's own docs (https://deptry.com/usage/, v0.25.1):
+# [project.dependencies] / [project.optional-dependencies] are extracted as
+# regular dependencies, and groups under [dependency-groups] are extracted as
+# *development* dependencies BY DEFAULT — no group config needed. Development
+# dependencies are exempt from the unused-dependency rule (DEP002). So the
+# `dev` and `eval` groups need no `pep621_dev_dependency_groups` entry here;
+# that setting is deprecated in favour of `--optional-dependencies-dev-groups`,
+# which concerns [project.optional-dependencies] extras, not PEP 735 groups —
+# writing it would be a no-op on a deprecated option. This is what makes
+# DEP004 (a dev-group package that a shipped module imports) fire out of the
+# box, which is the actual class of defect this gate exists to catch: nltk
+# sat in the `eval` group while graphknows/ imported it, breaking a plain
+# `pip install graphknows` while the container stayed green because
+# Dockerfile installs `--group dev --group eval` (see #204).
+
+[tool.deptry.per_rule_ignores]
+DEP002 = [
+    # 27 Aug 2026: `observability` extra. [project.optional-dependencies]'s own
+    # comment says it: nothing in the library imports langfuse/langchain, the
+    # LangGraph example builds the tracing callback only when LANGFUSE_* env
+    # vars are set. Deliberately unused by graphknows/ itself. Remove this
+    # entry once the extra is either imported somewhere in graphknows/ or
+    # dropped.
+    "langfuse",   # 27 Aug 2026
+    "langchain",  # 27 Aug 2026
+]
+
+[tool.bandit]
+skips = ["B101"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+# pytest.ini used to take precedence over this table, so this setting was never
+# applied — async tests only ran because each carried an explicit
+# @pytest.mark.asyncio. Now that pytest.ini is gone, it actually binds.
+asyncio_mode = "auto"
+pythonpath = ["."]
+markers = [
+    "integration: marks tests that require live infrastructure (ArcadeDB) — excluded from CI unit test run",
+    "unit: marks pure unit tests with no infrastructure dependencies",
+    "slow: marks tests that build or install a real artifact (minutes, not seconds)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# The agent harness is tracked (so its rules survive a clone) but it is not this
+# package's code: these are vendored skill helpers, and scripts/gate.sh lints
+# `graphknows evaluation tests` only. Without this the pre-commit hook — which has no
+# path scope of its own — holds a third-party skill to graphknows' docstring rules.
+extend-exclude = [".claude"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort
+    "D",    # pydocstyle
+    "C90",  # mccabe complexity
+    "N",    # naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear — likely bugs, mutable defaults, loop-var capture
+    "BLE",  # blind except — catches `except Exception:` without variable binding
+    "TRY",  # tryceratops — exception anti-patterns
+    "SIM",  # flake8-simplify — boolean traps, redundant conditions
+    "ERA",  # eradicate — commented-out dead code
+    "RUF",  # Ruff-specific rules
+    # Silent-swallow detectors. This repo's recurring defect is not a crash, it
+    # is code that runs, passes and does nothing: a BM25 channel that scored
+    # with a fallback, a reranker that was a no-op, a verifier score computed
+    # and discarded. Every one hid behind a swallowed exception.
+    "S110",  # try-except-pass
+    "S112",  # try-except-continue
+]
+ignore = [
+    "E501",   # line too long — formatter handles this
+    "D100",   # missing docstring in public module — enforced per-file
+    "D104",   # missing docstring in public package
+    "D105",   # missing docstring in magic method (__aenter__, __aexit__, etc.)
+    "D107",   # missing docstring in __init__
+    "D203",   # one-blank-line-before-class — conflicts with D211
+    "D213",   # multi-line-summary-second-line — conflicts with D212
+    "TRY003",  # long messages outside exception class — too strict for this codebase
+    "TRY301",  # abstract raise to inner function — style choice, not a bug
+    # BLE001 (blind except) stays off, measured rather than assumed: it fires at
+    # 67 sites across 23 files, every one an I/O boundary (ArcadeDB HTTP, torch
+    # model loads, MCP transport) where the set of raisable exceptions is not
+    # enumerable and narrowing would turn a degraded path into a crash. Turning
+    # it on buys 67 `noqa` comments and no defect. S110/S112 below are the half
+    # of this that IS a defect — caught and did nothing — and are enforced.
+    "BLE001",
+    "SIM108",  # ternary — readability preference
+    "ERA001",  # commented code — false positives on intentional examples
+]
+
+[tool.ruff.lint.per-file-ignores]
+# TRY002: test doubles legitimately raise bare Exception to simulate a backend
+# failure — inventing an exception class per mock side-effect adds noise, not safety.
+"tests/*" = ["D", "S101", "B017", "E402", "N806", "SIM102", "UP038", "TRY002"]
+"scripts/*" = ["D103"]
+"evaluation/**" = ["D", "C901", "UP038", "RUF034"]
+# TODO(tech-debt): add docstrings and refactor complexity in the files below
+"**/rdf_parser.py" = ["C901"]
+"**/storage/arcadedb/*.py" = ["D102", "C901"]  # data-access layer — docstrings deferred
+"**/retrieval/agentic.py" = ["C901"]  # ReAct loop complexity is inherent
+"**/framenet/framenet.py" = ["C901"]  # FE assignment is one dependency-parse pass
+# Pre-existing complexity, exempted rather than refactored under a gate-hardening
+# change: both are single linear passes over a parse tree / a section, and
+# splitting core extraction to satisfy a metric is churn with defect risk.
+"**/parsers/base.py" = ["C901"]  # _split_large_section: one section scan (15)
+# RUF059 flags unused names in tuple unpacking. Test fixtures return a fixed
+# tuple and each test binds all of it positionally while using a subset; the
+# alternative is index arithmetic, which is worse to read in a failing test.
+"tests/**" = ["RUF059"]
+# SIM905's autofix expands the compact whitespace-delimited stopword block into
+# ~100 lines of one word each. An inline noqa is impossible — the diagnostic
+# lands on the `"""` line, where the directive becomes string content.
+"**/extraction/entities/hygiene.py" = ["SIM905"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.mypy]
+
+[[tool.mypy.overrides]]
+module = [
+    "graphknows.settings",
+]
+disable_error_code = ["misc"]
+
+# Only the two low-signal annotation codes stay off. `union-attr` and
+# `attr-defined` were disabled here while producing ZERO errors — pure loss of
+# signal. `arg-type` / `return-value` / `misc` / `call-overload` /
+# `func-returns-value` cost 8 fixes between them and are the codes that catch
+# real defects, so they are back on. `type-arg` (35) and `no-any-return` (29)
+# are bare-generic and Any-propagation chores with no bug-finding record here;
+# re-enabling them would be a day of `dict[str, Any]` edits for no defect caught.
+[[tool.mypy.overrides]]
+module = [
+    "graphknows.retrieval.*",
+    "graphknows.storage.*",
+    "graphknows.server.mcp.*",
+    "graphknows.ingestion.*",
+    "graphknows.channels.*",
+    "graphknows.symbolic.*",
+    "graphknows.temporal",
+]
+disable_error_code = ["no-any-return", "type-arg"]
