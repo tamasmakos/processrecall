@@ -53,9 +53,14 @@ REMOVED_PATHS = [
     "integrations/client",
     "integrations/langgraph",
     "server/mcp/tools",
-    "cli",
+    # `cli/` is named by the ledger and rewritten by the plan, so what R18 drops
+    # is the forked module, not the package: plan.md §Project Structure keeps
+    # `cli/` as REWRITTEN (bootstrap, backfill, rebuild, prune, show) and five
+    # tasks put files there. Pinning the directory absent would have made every
+    # one of them unpassable.
+    "cli/memory.py",
 ]
-# `ranking/` is the one partial deletion: RRF survives (T045 lifts it into
+# `ranking/` is the other partial deletion: RRF survives (T045 lifts it into
 # `guidance/fusion.py`), everything that shared the package with it does not.
 RANKING_SURVIVORS = ["__init__.py", "rrf.py"]
 
