@@ -24,7 +24,8 @@ from processrecall.graph.store import (
     SequenceKey,
     SQLiteEpisodicStore,
 )
-from processrecall.symbolic.packs import ActivityClass
+
+from .conftest import make_step
 
 KEY = SequenceKey(conversation_id="c1", session_epoch=0, prompt_id="p1")
 
@@ -52,15 +53,7 @@ def _open_sequence(store: SQLiteEpisodicStore) -> None:
 
 def _step(*, dedup_key: str = "t1", position: int = 0) -> EpisodicStep:
     """One recordable step, with only the fields a test varies exposed."""
-    return EpisodicStep(
-        dedup_key=dedup_key,
-        sequence_key=KEY,
-        position=position,
-        node_key="Inspection/Read",
-        activity_class=ActivityClass.INSPECTION,
-        template="Read file_path",
-        occurred_at=datetime(2026, 9, 13, 10, 0, 1, tzinfo=UTC),
-    )
+    return make_step(dedup_key=dedup_key, sequence_key=KEY, position=position)
 
 
 def test_a_recorded_step_comes_back_whole_from_the_sequence_it_was_recorded_on(
