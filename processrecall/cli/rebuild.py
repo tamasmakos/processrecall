@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from processrecall.config import STORE_DIR, Config, home_dir, load_config
-from processrecall.graph.abstract import aggregate, edge_key, served
+from processrecall.graph.abstract import aggregate, edge_key, reattach, served
 from processrecall.graph.keys import group_by_sequence
 from processrecall.graph.snapshot import SNAPSHOT_NAME, Snapshot, SnapshotFile
 from processrecall.graph.store import EpisodicStep, EpisodicStore, Sequence, SequenceKey
@@ -54,24 +54,40 @@ class Derivation:
     level: str
     config: Config = field(default_factory=load_config)
 
-    def snapshots(self) -> tuple[tuple[Path, Snapshot], ...]:
+    def snapshots(self) -> tuple[tuple[Path, Snapshot, int], ...]:
         """Both snapshots this derives, each against the path it belongs at.
 
         Derived together from one read of the index so that the two files agree
         about the rows they saw: a second read could catch a step the first
         missed and leave the project's graph ahead of the cross-project one.
+
+        The third element of each tuple is how many stored annotations
+        `reattach` (FR-038) could not find a move for on this rebuild —
+        reported by the caller rather than dropped, since an orphan is a fact
+        about the rebuild and not a defect to run silently.
         """
         steps = tuple(self.store.iter_steps())
         sequences = _sequences(self.store, steps)
-        mine = _recorded_against(steps, sequences, project_key(str(self.project_dir)))
+        mine_key = project_key(str(self.project_dir))
+        mine = _recorded_against(steps, sequences, mine_key)
+        mine_reattached = reattach(
+            aggregate(mine, self.level, sequences, self.config),
+            self.store.annotations_for(mine_key),
+        )
+        every_reattached = reattach(
+            aggregate(steps, self.level, sequences, self.config),
+            self.store.annotations_for(None),
+        )
         return (
             (
                 self.project_dir / STORE_DIR / SNAPSHOT_NAME,
-                served(aggregate(mine, self.level, sequences, self.config), _generated_at(mine)),
+                served(mine_reattached.graph, _generated_at(mine)),
+                len(mine_reattached.orphaned),
             ),
             (
                 home_dir() / SNAPSHOT_NAME,
-                served(aggregate(steps, self.level, sequences, self.config), _generated_at(steps)),
+                served(every_reattached.graph, _generated_at(steps)),
+                len(every_reattached.orphaned),
             ),
         )
 
@@ -90,9 +106,12 @@ def _generated_at(steps: Iterable[EpisodicStep]) -> datetime:
 def rebuild(source: Derivation) -> str:
     """Write both of *source*'s snapshots, reporting what landed where."""
     lines = []
-    for path, snapshot in source.snapshots():
+    for path, snapshot, orphaned in source.snapshots():
         SnapshotFile(path, source.store).write(snapshot)
-        lines.append(f"{path}  nodes={len(snapshot.nodes)}  edges={len(snapshot.edges)}")
+        lines.append(
+            f"{path}  nodes={len(snapshot.nodes)}  edges={len(snapshot.edges)}"
+            f"  annotations_orphaned={orphaned}"
+        )
     return "\n".join(lines)
 
 
@@ -134,7 +153,7 @@ def check(source: Derivation) -> str | None:
     incremental writer and a rebuild of the same index stamp the same instant
     and a real divergence still shows there.
     """
-    for path, rebuilt in source.snapshots():
+    for path, rebuilt, _ in source.snapshots():
         if (on_disk := SnapshotFile(path, _DiscardCounters()).read()) is None:
             return f"{path} is missing or unreadable"
         if (divergence := _divergence(on_disk, rebuilt)) is not None:

@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
+from datetime import datetime
 from difflib import get_close_matches
 from typing import NoReturn
 
@@ -64,6 +66,27 @@ CREDENTIAL_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 #: about: `record_ref` already points at that. The lower half is 1 — an empty
 #: note is refused under the same reason rather than stored as an empty row.
 TEXT_CEILING = 500
+
+
+@dataclass(frozen=True, slots=True)
+class Annotation:
+    """One agent-authored note about a move — authored, never derived (FR-038).
+
+    It is stored against `TransitionEdge.edge_key` in a table of its own rather
+    than on the edge, because the edge is re-derived from the episodic rows at
+    every rebuild and anything kept on it would be re-derived away.
+
+    Attributes:
+        edge_key: The move the note is about, as `edge_key` spells it.
+        text: The note, as `AnnotationValidator` accepted it (FR-038a).
+        author: Who wrote it.
+        written_at: When they wrote it.
+    """
+
+    edge_key: str
+    text: str
+    author: str
+    written_at: datetime
 
 
 class AnnotationValidator:
