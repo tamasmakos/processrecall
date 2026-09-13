@@ -8,7 +8,11 @@ a second copy of them.
 R10 fixes how it is opened: WAL so two projects' sessions writing at once is a
 non-event, `synchronous = NORMAL` because the rows are reconstructible by
 backfill, and a 2 s busy timeout well inside the hook's 5 s fence. On the hot
-path, so the standard library only.
+path, so the standard library only. `SequenceIdentity.begin` uses `RETURNING`,
+which needs SQLite 3.35+; every platform this ships on bundles that or newer.
+
+`SequenceIdentity` holds the epoch that makes clear and fork start a new
+sequence (R2) while resume and compact continue the one already running.
 
 Example:
     from processrecall.graph.episodic import open_index
@@ -22,10 +26,17 @@ import sqlite3
 from pathlib import Path
 
 from processrecall.config import home_dir
+from processrecall.graph.store import SequenceKey
 
 #: The one private store (FR-052). Private: it holds snippets and prompts, and
 #: nothing crosses from here into a snapshot except through aggregation.
 DEFAULT_DATABASE_PATH = home_dir() / "episodes.db"
+
+#: The `SessionStart` sources that begin a fresh chain (R2). Every other
+#: source — `startup`, `resume`, `compact`, and any a later harness adds —
+#: continues the chain already running, because losing a turn's history to an
+#: unrecognised word is the worse of the two wrong answers (FR-012).
+NEW_SEQUENCE_SOURCES = frozenset({"clear", "fork"})
 
 #: The shape below, stamped into ``meta`` when the store is created and checked
 #: on every open. It changes when a column does, and a store stamped with
@@ -168,3 +179,63 @@ def open_index(path: Path = DEFAULT_DATABASE_PATH) -> sqlite3.Connection:
             (SCHEMA_VERSION,),
         )
     return connection
+
+
+class SequenceIdentity:
+    """One conversation's epoch, and the keys it stamps on that turn's steps (R2).
+
+    Bound to a conversation because a hook invocation only ever handles one:
+    the caller names it once, then asks for keys without carrying the epoch
+    around and without spelling the `epochs` table.
+    """
+
+    def __init__(self, connection: sqlite3.Connection, conversation_id: str) -> None:
+        self._connection = connection
+        self._conversation_id = conversation_id
+        self._epoch: int | None = None
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(conversation_id={self._conversation_id!r})"
+
+    @property
+    def epoch(self) -> int:
+        """The conversation's current epoch; ``0`` until something rotates it.
+
+        Read once per instance and cached: nothing but `begin` can change it,
+        and `begin` updates the cache itself, so a hook stamping many steps in
+        one invocation pays one query instead of one per step.
+        """
+        if self._epoch is None:
+            row = self._connection.execute(
+                "SELECT session_epoch FROM epochs WHERE conversation_id = ?",
+                (self._conversation_id,),
+            ).fetchone()
+            self._epoch = 0 if row is None else int(row[0])
+        return self._epoch
+
+    def begin(self, source: str) -> int:
+        """Apply what a `SessionStart` of *source* does to the epoch (FR-012).
+
+        Returns the epoch every subsequent key is stamped with, so a caller
+        that wants both the rotation and the identity asks once.
+        """
+        if source not in NEW_SEQUENCE_SOURCES:
+            return self.epoch
+        with self._connection:
+            row = self._connection.execute(
+                "INSERT INTO epochs (conversation_id, session_epoch) VALUES (?, 1)"
+                " ON CONFLICT (conversation_id) DO UPDATE SET session_epoch = session_epoch + 1"
+                " RETURNING session_epoch",
+                (self._conversation_id,),
+            ).fetchone()
+        self._epoch = int(row[0])
+        return self._epoch
+
+    def key(self, prompt_id: str, agent_id: str = "") -> SequenceKey:
+        """The identity of the turn *prompt_id* names, at the current epoch.
+
+        ``agent_id`` defaults to the main agent's empty string; passing a
+        sub-agent's gives that sub-agent its own chain inside the same turn
+        (FR-011).
+        """
+        return SequenceKey(self._conversation_id, self.epoch, prompt_id, agent_id)
