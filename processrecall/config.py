@@ -28,6 +28,18 @@ _logger = logging.getLogger("processrecall")
 #: Every field is settable as ``PROCESSRECALL_`` plus its name, upper-cased.
 ENV_PREFIX = "PROCESSRECALL_"
 
+def home_dir() -> Path:
+    """The one store root every processrecall file lives under (FR-052).
+
+    Named here, at the bottom of the layering, so every other module builds
+    its filename from this rather than re-spelling
+    ``Path.home() / ".processrecall"``. A function, not a constant: ``HOME``
+    can change within a process (tests monkeypatch it), and ``Path.home()``
+    already re-reads it on every call — freezing the result at import time
+    would throw that away.
+    """
+    return Path.home() / ".processrecall"
+
 #: The three levels of generality every node materialises (FR-023), coarsest
 #: first. ``Config.level`` picks which of them guidance is served at; the other
 #: two stay on the node either way.
@@ -91,7 +103,7 @@ def _file_overrides() -> dict[str, Any]:
     so it yields no overrides rather than an error. Keys that name no field are
     dropped: a stale one should not stop a session from starting.
     """
-    path = Path.home() / ".processrecall" / "config.json"
+    path = home_dir() / "config.json"
     if not path.is_file():
         return {}
     stored = json.loads(path.read_text(encoding="utf-8"))
