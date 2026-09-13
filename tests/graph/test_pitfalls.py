@@ -8,15 +8,10 @@ knows the base failure rate to call one over-represented relative to.
 from __future__ import annotations
 
 from processrecall.graph.abstract import PitfallKind, aggregate
-from processrecall.graph.store import EpisodicStep, SequenceKey
+from processrecall.graph.store import EpisodicStep
 
-from .conftest import edge
+from .conftest import edge, sequence
 from .conftest import make_aggregate_step as make_step
-
-
-def sequence(prompt_id: str) -> SequenceKey:
-    """One prompt's key, named so a fixture reads as the prompt it is."""
-    return SequenceKey(conversation_id="c1", session_epoch=0, prompt_id=prompt_id)
 
 
 def edit_then_failing_test(prompt_id: str, first_step_id: int) -> tuple[EpisodicStep, ...]:

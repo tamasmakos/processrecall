@@ -5,8 +5,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from processrecall.graph.abstract import AbstractGraph, TransitionEdge
-from processrecall.graph.store import EpisodicStep, SequenceKey
-from processrecall.symbolic.packs import ActivityClass
+from processrecall.graph.store import EpisodicStep, Sequence, SequenceKey
+from processrecall.symbolic.packs import ActivityClass, ProcessType
+
+
+def sequence(prompt_id: str) -> SequenceKey:
+    """One prompt's key, named so a fixture reads as the prompt it is."""
+    return SequenceKey(conversation_id="c1", session_epoch=0, prompt_id=prompt_id)
 
 
 def make_step(*, dedup_key: str, sequence_key: SequenceKey, position: int = 0) -> EpisodicStep:
@@ -43,6 +48,24 @@ def make_aggregate_step(
         occurred_at=datetime(2026, 9, 13, 10, 0, tzinfo=UTC),
         outcome=outcome,
         step_id=step_id,
+    )
+
+
+def make_sequence(
+    steps: tuple[EpisodicStep, ...],
+    *,
+    process_type: ProcessType = ProcessType.UNKNOWN,
+    status: str = "closed",
+) -> Sequence:
+    """The sequence *steps* belong to, filling only the fields the fold reads."""
+    return Sequence(
+        key=steps[0].sequence_key,
+        project_dir_key="proj",
+        started_at=steps[0].occurred_at,
+        process_type=process_type,
+        status=status,
+        ended_at=None if status == "open" else steps[-1].occurred_at,
+        step_count=len(steps),
     )
 
 

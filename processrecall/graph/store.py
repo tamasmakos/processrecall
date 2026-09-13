@@ -101,6 +101,11 @@ class SequenceKey:
         return f"syn-{sha256(material.encode()).hexdigest()[:24]}"
 
 
+#: The status a closed sequence carries (`close_sequence`), spelled once so
+#: nothing outside this module compares against the raw string.
+CLOSED = "closed"
+
+
 @dataclass(frozen=True, slots=True)
 class Sequence:
     """One prompt's chain: the steps of a single user turn, and its outcome.

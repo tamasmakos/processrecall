@@ -31,7 +31,7 @@ from enum import StrEnum
 from itertools import pairwise
 
 from processrecall.config import LEVELS, Config
-from processrecall.graph.store import EpisodicStep, SequenceKey
+from processrecall.graph.store import CLOSED, EpisodicStep, Sequence, SequenceKey
 from processrecall.procedures.outcome import Outcome
 from processrecall.procedures.taxonomy import NO_FILE_TYPE
 from processrecall.symbolic.packs import ActivityClass, ProcessType
@@ -53,6 +53,11 @@ SUPPORTING_STEPS_KEPT = 50
 #: single sink to check it reaches (FR-021).
 START_KEY = "Start"
 END_KEY = "End"
+
+#: What one observation made outside a cleanly ended prompt counts for. The
+#: clean side of the ratio is configuration (`Config.clean_prompt_weight`,
+#: R6); this side is the unit it is a multiple of (FR-027).
+_UNCLEAN_WEIGHT = 1.0
 
 #: The oldest a fold can be: every real observation is later, so the first one
 #: replaces it.
@@ -194,6 +199,9 @@ class TransitionEdge:
         condition: The context the move was commonest in (FR-029).
         support: Distinct episodic steps supporting the move — the true count
             beside the bounded `supporting_steps` (FR-026).
+        weight: That support with every observation made inside a cleanly ended
+            prompt counted `Config.clean_prompt_weight` times one that was not
+            (FR-027).
         supporting_steps: The ``step_id``s it was derived from, the most recent
             `SUPPORTING_STEPS_KEPT` of them, oldest first. Integers, so an edge
             names its private rows without carrying anything out of them.
@@ -207,6 +215,7 @@ class TransitionEdge:
     target: str
     condition: Condition
     support: int
+    weight: float
     supporting_steps: tuple[int, ...]
     outcome_counts: Mapping[Outcome, int]
     last_seen: datetime
@@ -285,14 +294,16 @@ class _NodeFold:
 
 @dataclass(frozen=True, slots=True)
 class _Chain:
-    """One prompt's rows in the order carried out, under the prompt's process type.
+    """One prompt's rows in the order carried out, under the prompt's own context.
 
-    The two travel together because a condition needs both: the process type is
-    a property of the sequence, not of any row in it.
+    They travel together because a move needs all three: the process type its
+    condition names and the cleanliness its weight comes from are properties of
+    the sequence, not of any row in it.
     """
 
     process_type: ProcessType
     steps: tuple[EpisodicStep, ...]
+    clean: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,17 +323,19 @@ class _EdgeFold:
     source: str
     target: str
     last_seen: datetime = _UNSEEN
+    weight: float = 0.0
     step_ids: set[int] = field(default_factory=set)
     outcomes: Counter[Outcome] = field(default_factory=Counter)
     conditions: Counter[Condition] = field(default_factory=Counter)
     failed_templates: Counter[str] = field(default_factory=Counter)
     repetitions: int = 0
 
-    def record(self, move: _Move) -> None:
-        """Fold one observation of this move into the tally."""
+    def record(self, move: _Move, weight: float) -> None:
+        """Fold one observation of this move, counting for *weight*, into the tally."""
         step = move.supporting_step
         outcome = Outcome(step.outcome)
         self.step_ids.add(step.step_id)
+        self.weight += weight
         self.last_seen = max(self.last_seen, step.occurred_at)
         self.outcomes[outcome] += 1
         self.conditions[move.condition] += 1
@@ -405,6 +418,7 @@ class _EdgeFold:
             target=self.target,
             condition=self.condition,
             support=self.support,
+            weight=self.weight,
             supporting_steps=tuple(recent),
             outcome_counts=dict(self.outcomes),
             last_seen=self.last_seen,
@@ -437,20 +451,25 @@ def edge_key(source: str, target: str) -> str:
 def aggregate(
     steps: Iterable[EpisodicStep],
     level: str,
-    process_types: Mapping[SequenceKey, ProcessType] | None = None,
+    sequences: Mapping[SequenceKey, Sequence] | None = None,
     config: Config | None = None,
 ) -> AbstractGraph:
     """Fold every episodic row in *steps* into the abstract graph at *level*.
 
-    *process_types* is what each sequence was for, which lives on the sequence
-    and not on any of its rows (FR-020). A sequence missing from it is folded as
-    `ProcessType.UNKNOWN`: an unclassified prompt still has transitions. No
-    shipped caller passes it yet — the task that wires a real mapping from the
-    store at the call site is T040 (`cli/rebuild.py`).
+    *sequences* is what the rows' prompts were for and how they ended, which
+    lives on the sequence and not on any of its rows (FR-020): the process type
+    a condition names, and the status a weight is derived from (FR-027). A
+    sequence missing from it is folded as `ProcessType.UNKNOWN` and as unclean —
+    an unclassified prompt still has transitions, but a prompt nothing recorded
+    the end of cannot be said to have ended cleanly. No shipped caller passes it
+    yet — the task that wires the store's sequences in at the call site is T040
+    (`cli/rebuild.py`).
 
-    *config* is the tuning pitfall derivation reads — the support floor below
-    which a move may not warn (FR-031). The shipped defaults when absent, so a
-    caller with no configuration of its own still folds the same graph.
+    *config* is the tuning the fold reads: the support floor below which a move
+    may not warn (FR-031), and how much a move observed in a cleanly ended
+    prompt outweighs one that was not (FR-027). The shipped defaults when
+    absent, so a caller with no configuration of its own still folds the same
+    graph.
 
     Raises:
         ValueError: *level* names none of the materialised `LEVELS`. A level
@@ -462,7 +481,7 @@ def aggregate(
     nodes: dict[str, _NodeFold] = {}
     edges: dict[tuple[str, str], _EdgeFold] = {}
     high_water = 0
-    for chain in _chains(steps, process_types or {}).values():
+    for chain in _chains(steps, sequences or {}).values():
         for step in chain.steps:
             high_water = max(high_water, step.step_id)
             key = _key_at(step, lvl)
@@ -472,9 +491,10 @@ def aggregate(
         first, last = chain.steps[0], chain.steps[-1]
         nodes.setdefault(START_KEY, _synthetic_fold(START_KEY, lvl)).observe(first.occurred_at)
         nodes.setdefault(END_KEY, _synthetic_fold(END_KEY, lvl)).observe(last.occurred_at)
+        weight = tuning.clean_prompt_weight if chain.clean else _UNCLEAN_WEIGHT
         for move in _transitions(chain, lvl):
             pair = (move.source, move.target)
-            edges.setdefault(pair, _EdgeFold(move.source, move.target)).record(move)
+            edges.setdefault(pair, _EdgeFold(move.source, move.target)).record(move, weight)
         for key, runs in _repetition_runs(chain, lvl, tuning.k).items():
             edges[(key, key)].repetitions += runs
     baseline = _Baseline(_base_failure_rate(edges.values()), tuning)
@@ -555,8 +575,23 @@ def _shares_a_file(before: EpisodicStep, after: EpisodicStep) -> bool:
     return bool(set(before.files) & set(after.files))
 
 
+def _is_clean(sequence: Sequence | None, steps: tuple[EpisodicStep, ...]) -> bool:
+    """Whether the prompt behind *steps* ended cleanly (R5).
+
+    Derived here rather than read off a stored flag, so a change to what counts
+    as clean is a re-derivation and not a migration. An `incomplete` sequence —
+    a prompt a crash or a later prompt ended for it — is never clean, however
+    its rows went: a crash must not be able to look like success. *steps* is
+    non-empty by construction — `_chains` only builds a chain for a key that
+    had at least one row appended to it.
+    """
+    if sequence is None or sequence.status != CLOSED:
+        return False
+    return all(Outcome(step.outcome) is not Outcome.FAILURE for step in steps)
+
+
 def _chains(
-    steps: Iterable[EpisodicStep], process_types: Mapping[SequenceKey, ProcessType]
+    steps: Iterable[EpisodicStep], sequences: Mapping[SequenceKey, Sequence]
 ) -> dict[SequenceKey, _Chain]:
     """The rows of *steps* grouped into sequences, each in the order carried out.
 
@@ -568,13 +603,17 @@ def _chains(
     rows: dict[SequenceKey, list[EpisodicStep]] = {}
     for step in steps:
         rows.setdefault(step.sequence_key, []).append(step)
-    return {
-        key: _Chain(
-            process_types.get(key, ProcessType.UNKNOWN),
-            tuple(sorted(rows_for_key, key=lambda step: step.position)),
-        )
-        for key, rows_for_key in rows.items()
-    }
+    return {key: _chain_for(sequences.get(key), rows_for_key) for key, rows_for_key in rows.items()}
+
+
+def _chain_for(sequence: Sequence | None, rows: list[EpisodicStep]) -> _Chain:
+    """*rows* as one prompt's chain: in the order carried out, under its context."""
+    ordered = tuple(sorted(rows, key=lambda step: step.position))
+    return _Chain(
+        process_type=sequence.process_type if sequence else ProcessType.UNKNOWN,
+        steps=ordered,
+        clean=_is_clean(sequence, ordered),
+    )
 
 
 def _keys_of(step: EpisodicStep) -> tuple[str, str, str]:
