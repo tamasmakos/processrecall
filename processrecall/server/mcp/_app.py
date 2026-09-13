@@ -8,9 +8,13 @@ from contextlib import asynccontextmanager
 try:
     from mcp.server.fastmcp import FastMCP
 except ModuleNotFoundError as exc:  # pragma: no cover - exercised only on broken installs
-    from processrecall.exceptions import BrokenInstallError
+    from processrecall.exceptions import BootstrapError
 
-    raise BrokenInstallError("The MCP stdio server", "mcp") from exc
+    raise BootstrapError(
+        "mcp",
+        "The MCP stdio server cannot start without it — re-run bootstrap to rebuild "
+        "the plugin environment.",
+    ) from exc
 
 
 @asynccontextmanager

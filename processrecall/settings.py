@@ -25,8 +25,6 @@ from typing import Any
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from processrecall.exceptions import ConfigurationError
-
 #: Default server-side wall-clock budget for one call. Overridable per
 #: deployment via ``GRAPHKNOWS_MCP_CALL_TIMEOUT_S``: nothing preloads the
 #: extraction models, so the first request after a cold start pays their load
@@ -577,20 +575,21 @@ class GraphKnowsSettings(BaseSettings):
         callable directly as the strict entry point.
 
         Raises:
-            ConfigurationError: When production env is detected with the default
+            ValueError: When production env is detected with the default
                 password, or with an LLM-using capability enabled but no API key.
         """
         if self.processrecall_env is not Env.production:
             return
         if self.arcadedb_password.get_secret_value() == "changeme":
-            raise ConfigurationError(
-                "GRAPHKNOWS_ARCADEDB_PASSWORD is still the development default."
+            raise ValueError(
+                "GRAPHKNOWS_ARCADEDB_PASSWORD is still the development default; "
+                "set it before running in production."
             )
         # Keyed off the resolved capabilities, not the mode label.
         if self.uses_llm and not self.llm_api_key:
-            raise ConfigurationError(
-                "LLM-backed capabilities (the LLM decoder, LLM topics) "
-                "in production require GRAPHKNOWS_LLM_API_KEY."
+            raise ValueError(
+                "GRAPHKNOWS_LLM_API_KEY is required in production for LLM-backed "
+                "capabilities (the LLM decoder, LLM topics)."
             )
 
     @model_validator(mode="after")

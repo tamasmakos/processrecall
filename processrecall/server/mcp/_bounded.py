@@ -15,7 +15,6 @@ import functools
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
-from processrecall.exceptions import ConfigurationError
 from processrecall.settings import get_settings
 
 _AsyncFunc = TypeVar("_AsyncFunc", bound=Callable[..., Awaitable[Any]])
@@ -34,8 +33,10 @@ def bounded(func: _AsyncFunc) -> _AsyncFunc:
         try:
             return await asyncio.wait_for(func(*args, **kwargs), timeout=budget)
         except TimeoutError as exc:
-            raise ConfigurationError(
-                f"request exceeded the {budget:.0f}s server-side timeout"
-            ) from exc
+            # A timeout is not a configuration defect (T009 removed
+            # ConfigurationError), so this re-raises the same exception type
+            # with a message naming the budget, rather than reusing another
+            # error's identity.
+            raise TimeoutError(f"request exceeded the {budget:.0f}s server-side timeout") from exc
 
     return wrapper  # type: ignore[return-value]
