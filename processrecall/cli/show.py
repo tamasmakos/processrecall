@@ -87,10 +87,9 @@ def graph_report(view: Inspection) -> str:
     operator asking is the one person who can do something about it.
 
     Annotations are part of `contracts/cli.md`'s "nodes and edges with counts,
-    conditions and annotations", but the store exposes no read of the
-    ``annotations`` table yet (`EpisodicStore` names no such method) — this
-    subject is deliberately incomplete until that seam exists, rather than
-    silently short.
+    conditions and annotations"; they ride the snapshot's own ``edge["annotations"]``
+    key rather than a second read of the store, since `abstract.served` already
+    carries every note `reattach` put back on rebuild.
     """
     path = view.project_dir / STORE_DIR / SNAPSHOT_NAME
     snapshot = SnapshotFile(path, view.store).read()

@@ -23,15 +23,16 @@ Example:
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from itertools import pairwise
 from typing import Any, cast
 
 from processrecall.config import LEVELS, Config
+from processrecall.graph.annotations import Annotation
 from processrecall.graph.keys import group_by_sequence, key_at, keys_of, shares_a_file
 from processrecall.graph.snapshot import Snapshot
 from processrecall.graph.store import CLOSED, EpisodicStep, Sequence, SequenceKey
@@ -212,6 +213,9 @@ class TransitionEdge:
         outcome_counts: How the step each move landed on went.
         last_seen: The most recent of those steps.
         pitfalls: What this move is known to go wrong as (FR-029, FR-031).
+        annotations: The notes an agent attached to it, put back by `reattach`
+            after the fold derived the move again (FR-038). Empty out of the
+            fold: nothing authored survives an aggregation on its own.
     """
 
     edge_key: str
@@ -224,6 +228,7 @@ class TransitionEdge:
     outcome_counts: Mapping[Outcome, int]
     last_seen: datetime
     pitfalls: tuple[Pitfall, ...]
+    annotations: tuple[Annotation, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -508,6 +513,44 @@ def aggregate(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class Reattachment:
+    """A rebuilt graph with its notes back on it, and the notes that lost a move.
+
+    Attributes:
+        graph: *graph* with each note on the move it names.
+        orphaned: The notes whose move this rebuild no longer derives. Reported
+            rather than dropped: the row stays where it is, and a taxonomy that
+            renames a move must not silently destroy what an agent wrote about
+            it (FR-038).
+    """
+
+    graph: AbstractGraph
+    orphaned: tuple[Annotation, ...]
+
+
+def reattach(graph: AbstractGraph, annotations: Iterable[Annotation]) -> Reattachment:
+    """Put every note in *annotations* back on the move of *graph* it names (FR-038).
+
+    Nothing about a move is stored, so a note survives a rebuild only by being
+    attached again to the edge the fold re-derived. A note whose
+    `Annotation.edge_key` names no derived move comes back as
+    `Reattachment.orphaned`; this deletes nothing
+    and writes nothing, leaving what to do about an orphan to the caller that
+    owns the table.
+    """
+    by_edge: dict[str, list[Annotation]] = defaultdict(list)
+    for annotation in annotations:
+        by_edge[annotation.edge_key].append(annotation)
+    edges = tuple(
+        replace(edge, annotations=tuple(by_edge.pop(edge.edge_key, ()))) for edge in graph.edges
+    )
+    return Reattachment(
+        graph=replace(graph, edges=edges),
+        orphaned=tuple(note for notes in by_edge.values() for note in notes),
+    )
+
+
 def served(graph: AbstractGraph, generated_at: datetime) -> Snapshot:
     """*graph* in the served form of `contracts/storage.md`, stamped *generated_at*.
 
@@ -554,6 +597,7 @@ def _edge_body(edge: TransitionEdge) -> dict[str, Any]:
         "condition": _condition_body(edge.condition),
         "guidance": [],
         "pitfalls": [_pitfall_body(pitfall) for pitfall in edge.pitfalls],
+        "annotations": [_annotation_body(annotation) for annotation in edge.annotations],
         "support": edge.support,
         "weight": edge.weight,
         "last_seen": edge.last_seen.isoformat(),
@@ -580,6 +624,16 @@ def _pitfall_body(pitfall: Pitfall) -> dict[str, Any]:
         "evidence": pitfall.evidence,
         "support": pitfall.support,
         "failure_rate": pitfall.failure_rate,
+    }
+
+
+def _annotation_body(annotation: Annotation) -> dict[str, Any]:
+    """One agent-authored note, as plain JSON values (FR-038)."""
+    return {
+        "edge_key": annotation.edge_key,
+        "text": annotation.text,
+        "author": annotation.author,
+        "written_at": annotation.written_at.isoformat(),
     }
 
 

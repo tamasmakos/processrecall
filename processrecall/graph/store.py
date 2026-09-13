@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import uuid
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -31,6 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from processrecall.config import home_dir
+from processrecall.graph.annotations import Annotation
 from processrecall.symbolic.packs import ActivityClass, ProcessType
 
 if TYPE_CHECKING:
@@ -221,6 +223,19 @@ class EpisodicStore(Protocol):
 
     def iter_steps(self, since: int = 0) -> Iterator[EpisodicStep]:
         """Every step recorded after ``step_id`` *since*, oldest first."""
+        ...
+
+    def write_annotation(self, project_key: str, annotation: Annotation) -> None:
+        """Store *annotation* against *project_key*, in the annotations table of its own (FR-038)."""
+        ...
+
+    def annotations_for(self, project_key: str | None) -> tuple[Annotation, ...]:
+        """Every annotation *project_key* names, or every one stored when it is ``None``.
+
+        ``None`` is what the cross-project snapshot reattaches against: it
+        folds every project's rows into one graph, so its reattachment needs
+        every annotation regardless of which project wrote it.
+        """
         ...
 
     def bump(self, counter: str) -> None:
@@ -519,6 +534,50 @@ class SQLiteEpisodicStore:
             (since,),
         )
         return (_step_from_row(row) for row in rows)
+
+    def write_annotation(self, project_key: str, annotation: Annotation) -> None:
+        """Store *annotation* against *project_key*, in the annotations table of its own (FR-038).
+
+        The table is keyed by `Annotation.edge_key` rather than the edge
+        itself, which does not exist here: an edge is re-derived from the
+        episodic rows at every rebuild, and a note kept on it would be
+        re-derived away.
+        """
+        with self._connection:
+            self._connection.execute(
+                "INSERT INTO annotations (annotation_id, edge_key, project_key, text,"
+                " author, written_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    uuid.uuid4().hex,
+                    annotation.edge_key,
+                    project_key,
+                    annotation.text,
+                    annotation.author,
+                    annotation.written_at.isoformat(),
+                ),
+            )
+
+    def annotations_for(self, project_key: str | None) -> tuple[Annotation, ...]:
+        """Every annotation *project_key* names, or every one stored when it is ``None``."""
+        if project_key is None:
+            rows = self._connection.execute(
+                "SELECT edge_key, text, author, written_at FROM annotations ORDER BY written_at"
+            )
+        else:
+            rows = self._connection.execute(
+                "SELECT edge_key, text, author, written_at FROM annotations"
+                " WHERE project_key = ? ORDER BY written_at",
+                (project_key,),
+            )
+        return tuple(
+            Annotation(
+                edge_key=str(row[0]),
+                text=str(row[1]),
+                author=str(row[2]),
+                written_at=datetime.fromisoformat(str(row[3])),
+            )
+            for row in rows
+        )
 
     def _log_fallback(self, counter: str, exc: sqlite3.Error) -> None:
         """Append one JSON line recording the counter the store could not keep.
