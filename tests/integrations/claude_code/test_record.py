@@ -10,11 +10,7 @@ payload and exit 0.
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
-import subprocess
-import sys
-from collections.abc import Mapping
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -25,7 +21,7 @@ from processrecall.graph.episodic import open_index
 from processrecall.graph.store import SequenceKey, SQLiteEpisodicStore
 from processrecall.integrations.claude_code.hooks import capture
 
-from .conftest import PAYLOADS, ROOT
+from .conftest import PAYLOADS, hook
 
 pytestmark = pytest.mark.unit
 
@@ -39,19 +35,6 @@ def action() -> dict[str, Any]:
     envelope = json.loads((PAYLOADS / "replayed_duplicate.json").read_text(encoding="utf-8"))
     return next(
         payload for payload in envelope["payloads"] if payload.get("tool_use_id") == "toolu_dup"
-    )
-
-
-def hook(payload: Mapping[str, Any], home: Path) -> subprocess.CompletedProcess[str]:
-    """Run the ``record`` verb the way the harness does, over a home of its own."""
-    return subprocess.run(
-        [sys.executable, "-m", "processrecall.integrations.claude_code", "record"],
-        input=json.dumps(payload),
-        capture_output=True,
-        text=True,
-        cwd=ROOT,
-        env={**os.environ, "HOME": str(home), "USERPROFILE": str(home)},
-        check=False,
     )
 
 
@@ -91,7 +74,7 @@ def test_the_hook_process_records_in_silence_and_exits_zero(
     if store_is_a_directory:
         (tmp_path / ".processrecall" / "episodes.db").mkdir(parents=True)
 
-    result = hook(action(), home=tmp_path)
+    result = hook("record", action(), home=tmp_path)
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == ""

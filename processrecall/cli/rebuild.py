@@ -24,11 +24,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from processrecall.cli.show import SNAPSHOT_NAME
 from processrecall.config import STORE_DIR, Config, home_dir, load_config
 from processrecall.graph.abstract import aggregate, edge_key, served
 from processrecall.graph.keys import group_by_sequence
-from processrecall.graph.snapshot import Snapshot, SnapshotFile
+from processrecall.graph.snapshot import SNAPSHOT_NAME, Snapshot, SnapshotFile
 from processrecall.graph.store import EpisodicStep, EpisodicStore, Sequence, SequenceKey
 from processrecall.trajectory.paths import project_key
 
