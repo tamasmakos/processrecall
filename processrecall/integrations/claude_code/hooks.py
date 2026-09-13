@@ -684,9 +684,38 @@ def _denial(reason: str) -> Mapping[str, Any]:
     }
 
 
+#: The one sentence that reaches for ``skills/remember/SKILL.md``. It is served
+#: from :func:`close` rather than from :func:`record` because a nudge the agent
+#: meets after every action buys notes written out of habit; one at the end of
+#: the work is asked of an agent that has something to say (FR-040).
+REMEMBER_NUDGE = (
+    "This piece of work has ended. If a move went a way the counts alone will not "
+    "explain to the next run, call `remember` once with that move's edge key — the "
+    "`remember` skill says what is worth a note and what is not."
+)
+
+
 def close(payload: Mapping[str, Any]) -> Response:
-    """``Stop`` and ``SubagentStop``: close the sequence and score it (T049)."""
-    return None
+    """``Stop`` and ``SubagentStop``: nudge for a note on the work just ended (T060).
+
+    The harness runs this verb once per sequence, which is what "at end of work
+    rather than on every step" means for a nudge — so it is emitted here, on
+    every sequence but one an excluded project ran (FR-058, checked first as in
+    :func:`open_prompt`): an agent whose project opted out is told nothing,
+    matching the "suppress capture entirely" of R13. Short of that, the nudge
+    is unconditional — an agent that has nothing to say declines, and the store
+    holds no signal for whether it does. Closing the sequence and scoring it,
+    the rest of the verb's contract, lands with T049.
+    """
+    try:
+        connection = open_index()
+    except sqlite3.Error as exc:
+        log_fallback(home_dir() / "log" / "hooks.jsonl", "capture_store_busy", exc)
+        return None
+    with closing(connection):
+        if is_excluded(str(payload.get("cwd") or ""), SQLiteEpisodicStore(connection)):
+            return None
+    return {"additionalContext": REMEMBER_NUDGE}
 
 
 def end(payload: Mapping[str, Any]) -> Response:
