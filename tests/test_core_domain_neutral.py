@@ -4,10 +4,10 @@
 *naming* one domain. Only real code is scanned — a docstring may still say
 "the dialogue pack" — so the check is over Python tokens, not raw text.
 
-The old core still carries the dialogue vocabulary until the cutover (T037,
-FR-045), so those files sit in a quarantine list that only shrinks: a new
-offender fails the first test, and a cleaned-up file fails the second until
-it is struck off.
+The quarantine list only shrinks: a new offender fails the first test, and a
+cleaned-up file fails the second until it is struck off. R18 emptied it in one
+go — every module that carried the dialogue vocabulary was a module the fork
+deletes — so nothing is skipped today.
 """
 
 from __future__ import annotations
@@ -26,22 +26,8 @@ DOMAIN_TERM = re.compile(
     re.IGNORECASE,
 )
 
-# Dialogue-shaped modules awaiting the cutover (T037). Strike each off there.
-PENDING_CUTOVER = frozenset(
-    {
-        "ingestion/extraction/entities/extractor.py",
-        "ingestion/extraction/llm/anchor.py",
-        "ingestion/extraction/llm/decoder.py",
-        "ingestion/extraction/llm/schema.py",
-        "ingestion/extraction/protocol.py",
-        "ingestion/extraction/relations/_lingfeatures.py",
-        "ingestion/parsers/text.py",
-        "integrations/langgraph/_session.py",
-        "memory.py",
-        "models/hit.py",
-        "models/ingest_options.py",
-    }
-)
+# Dialogue-shaped modules still awaiting a cleanup. Strike each off when it lands.
+PENDING_CUTOVER: frozenset[str] = frozenset()
 
 
 def domain_terms(module: Path) -> list[str]:

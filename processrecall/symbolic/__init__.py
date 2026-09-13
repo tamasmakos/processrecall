@@ -1,12 +1,7 @@
-"""Symbolic knowledge: the symbol index, WordNet, imported ontologies, FrameNet.
+"""Symbolic knowledge: the concept index.
 
-This is *shared infrastructure*, not an optional signal: both ingestion and
-retrieval import it. ``processrecall.channels`` holds the retrieval legs and may
-import this package; this package must never import ``processrecall.channels``.
-
-FrameNet is no longer a plane of its own here: ``framenet.emitter`` hands a
-pack concepts and role predicates (FR-023), which are indexed by the embedding
-of their definition exactly like an imported ontology's terms. There is no
-frame-specific vertex or edge type, and therefore nothing to bridge between a
-frame role and an ontology class.
+R18 reduced this package to that one job. The imported-ontology loader, the
+FrameNet emitter and the embedding-backed symbol index left with the channels
+and storage layers they served; what plan.md leaves here is a curated pack
+(``packs.py``, ``data/``) and the classifiers that read it (``classify.py``).
 """

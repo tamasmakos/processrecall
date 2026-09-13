@@ -31,6 +31,34 @@ PROTOTYPE_GLOB = "prototype_procedural_graph_v*.py"
 REPORT_GLOB = "*.html"
 EXPECTED_PROTOTYPES = ["prototype_procedural_graph_v4.py", "prototype_procedural_graph_v5.py"]
 
+# R18's subtractive half, resolved to paths: every forked module the fork drops.
+REMOVED_PATHS = [
+    "channels",
+    "ingestion",
+    "retrieval",
+    "storage",
+    "models",
+    "packs",
+    "memory.py",
+    "llm.py",
+    "temporal.py",
+    "nlp.py",
+    "linguistics.py",
+    "bounds.py",
+    "symbolic/ontology",
+    "symbolic/framenet",
+    "symbolic/index.py",
+    "symbolic/match.py",
+    "symbolic/predicates.py",
+    "integrations/client",
+    "integrations/langgraph",
+    "server/mcp/tools",
+    "cli",
+]
+# `ranking/` is the one partial deletion: RRF survives (T045 lifts it into
+# `guidance/fusion.py`), everything that shared the package with it does not.
+RANKING_SURVIVORS = ["__init__.py", "rrf.py"]
+
 # plan.md §Project Structure — the five new layers, each a package of its own.
 PLANNED_LAYERS = ["artifacts", "graph", "guidance", "procedures", "trajectory"]
 # Shipped knowledge is data, not code, so these carry JSON and no `__init__.py` —
@@ -60,6 +88,22 @@ def test_prototypes_live_in_research() -> None:
     assert prototypes == EXPECTED_PROTOTYPES, f"{RESEARCH}: expected {EXPECTED_PROTOTYPES}, found {prototypes}"
 
 
+def test_removed_modules_are_absent() -> None:
+    """R18: the forked modules the fork drops are gone from the tree.
+
+    Paths, not imports: a dropped module is still a defect when it imports
+    cleanly, and most of these no longer do. `ranking/` is asserted by its
+    surviving contents instead, because the package itself stays.
+    """
+    survivors = sorted(str(Path(p)) for p in REMOVED_PATHS if (PKG_ROOT / p).exists())
+    assert not survivors, f"R18 deletes these, but they are still in the package: {survivors}"
+
+    ranking = sorted(p.name for p in (PKG_ROOT / "ranking").iterdir())
+    assert ranking == RANKING_SURVIVORS, (
+        f"processrecall/ranking: expected only {RANKING_SURVIVORS}, found {ranking}"
+    )
+
+
 def test_package_layout_matches_plan() -> None:
     """The other half of the ledger: what the fork *adds* is present and importable.
 
@@ -67,8 +111,8 @@ def test_package_layout_matches_plan() -> None:
     until the day two installs shadow each other, and `py.typed` never covers it.
     So the assertion is the import, not the path. Loaded from its file directly
     (not as `processrecall.{layer}`) so this stays a layout check: a dotted
-    import would run `processrecall/__init__.py` first, and today that pulls in
-    `Memory` and the rest of the pre-fork stack this test has nothing to do with.
+    import would run `processrecall/__init__.py` first, which this test has
+    nothing to do with.
     """
     for layer in PLANNED_LAYERS:
         init = PKG_ROOT / layer / "__init__.py"
