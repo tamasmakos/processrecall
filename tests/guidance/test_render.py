@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from processrecall.guidance.render import BulletRenderer, GuidanceStatement, Renderer
+from processrecall.guidance.render import BulletRenderer, Deadline, GuidanceStatement, Renderer
 
 
 class FakeCounters:
@@ -30,7 +30,7 @@ def test_every_statement_is_rendered_with_its_support_count() -> None:
     )
 
     counters = FakeCounters()
-    renderer: Renderer = BulletRenderer(counters)
+    renderer: Renderer = BulletRenderer(counters, Deadline())
 
     rendered = renderer.render(statements)
 
@@ -54,7 +54,7 @@ def test_over_budget_drops_whole_statements_lowest_support_first() -> None:
     """R8: the ceiling costs the reader the weakest evidence, never half a claim."""
     counters = FakeCounters()
 
-    rendered = BulletRenderer(counters).render([padded(n) for n in (5, 9, 2, 7, 1, 8)])
+    rendered = BulletRenderer(counters, Deadline()).render([padded(n) for n in (5, 9, 2, 7, 1, 8)])
 
     assert supports(rendered) == [5, 9, 2, 7, 8]
     assert len(rendered) <= 1200
@@ -65,7 +65,9 @@ def test_a_statement_that_alone_exceeds_the_ceiling_is_silence() -> None:
     """R8: an unfittable claim is dropped whole too, leaving nothing to serve."""
     counters = FakeCounters()
 
-    rendered = BulletRenderer(counters).render([GuidanceStatement(text="x" * 1300, support=9)])
+    rendered = BulletRenderer(counters, Deadline()).render(
+        [GuidanceStatement(text="x" * 1300, support=9)]
+    )
 
     assert rendered == ""
     assert counters.counted["guidance_over_budget"] == 1
