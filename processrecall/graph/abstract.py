@@ -27,9 +27,10 @@ from collections import Counter
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import StrEnum
 from itertools import pairwise
 
-from processrecall.config import LEVELS
+from processrecall.config import LEVELS, Config
 from processrecall.graph.store import EpisodicStep, SequenceKey
 from processrecall.procedures.outcome import Outcome
 from processrecall.procedures.taxonomy import NO_FILE_TYPE
@@ -142,6 +143,46 @@ class Condition:
     intended_activity: ActivityClass | None = None
 
 
+class PitfallKind(StrEnum):
+    """What a move is known to go wrong as (FR-031)."""
+
+    FAILURE_PRONE = "failure_prone"
+    REPETITION_LOOP = "repetition_loop"
+
+
+@dataclass(frozen=True, slots=True)
+class Pitfall:
+    """One known way a transition goes wrong — derived, never authored.
+
+    Attributes:
+        kind: Which of the two shapes FR-031 recognises this is.
+        evidence: The template that failed, or the node key that repeated.
+        support: Observations behind it, so nothing is rendered as a warning
+            without the count that earned it (FR-044).
+        failure_rate: Share of the move's observations that failed. ``0.0`` for
+            `PitfallKind.REPETITION_LOOP`, which counts repetitions rather than
+            failures and makes no claim about how they went.
+    """
+
+    kind: PitfallKind
+    evidence: str
+    support: int
+    failure_rate: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class _Baseline:
+    """What an edge's pitfalls are judged against: the corpus and the tuning.
+
+    The two travel as one because neither decides a pitfall alone — a move is
+    failure-prone relative to how often every other move failed, and only once
+    it clears the support floor configuration sets.
+    """
+
+    failure_rate: float
+    config: Config
+
+
 @dataclass(frozen=True, slots=True)
 class TransitionEdge:
     """One permissible move between two procedures — the predicate index.
@@ -158,6 +199,7 @@ class TransitionEdge:
             names its private rows without carrying anything out of them.
         outcome_counts: How the step each move landed on went.
         last_seen: The most recent of those steps.
+        pitfalls: What this move is known to go wrong as (FR-029, FR-031).
     """
 
     edge_key: str
@@ -168,6 +210,7 @@ class TransitionEdge:
     supporting_steps: tuple[int, ...]
     outcome_counts: Mapping[Outcome, int]
     last_seen: datetime
+    pitfalls: tuple[Pitfall, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,14 +315,74 @@ class _EdgeFold:
     step_ids: set[int] = field(default_factory=set)
     outcomes: Counter[Outcome] = field(default_factory=Counter)
     conditions: Counter[Condition] = field(default_factory=Counter)
+    failed_templates: Counter[str] = field(default_factory=Counter)
+    repetitions: int = 0
 
     def record(self, move: _Move) -> None:
         """Fold one observation of this move into the tally."""
         step = move.supporting_step
+        outcome = Outcome(step.outcome)
         self.step_ids.add(step.step_id)
         self.last_seen = max(self.last_seen, step.occurred_at)
-        self.outcomes[Outcome(step.outcome)] += 1
+        self.outcomes[outcome] += 1
         self.conditions[move.condition] += 1
+        if outcome is Outcome.FAILURE:
+            self.failed_templates[step.template] += 1
+
+    @property
+    def support(self) -> int:
+        """Distinct episodic rows behind this move."""
+        return len(self.step_ids)
+
+    def _failure_prone(self, baseline: _Baseline) -> Pitfall | None:
+        """This move's `PitfallKind.FAILURE_PRONE` pitfall, where it earns one.
+
+        Over-representation is relative (FR-031): where a third of everything
+        fails, failing a third of the time is the base rate and not a pitfall.
+        The support floor is what stops one unlucky prompt from warning every
+        later one. The template named is the commonest of the ones that failed,
+        ties broken on its own text so a rebuild names the same one (FR-032) —
+        it is evidence for the transition's over-representation, not itself
+        judged over-represented against a template-level base rate.
+        """
+        rate = self.outcomes[Outcome.FAILURE] / self.outcomes.total()
+        if self.support < baseline.config.min_support or rate <= baseline.failure_rate:
+            return None
+        ranked = sorted(self.failed_templates.items(), key=lambda item: (-item[1], item[0]))
+        return Pitfall(
+            kind=PitfallKind.FAILURE_PRONE,
+            evidence=ranked[0][0],
+            support=self.support,
+            failure_rate=rate,
+        )
+
+    def _repetition_loop(self) -> Pitfall | None:
+        """This move's `PitfallKind.REPETITION_LOOP` pitfall, where it has one.
+
+        Only a move onto itself can have one, and only where `_repetition_runs`
+        counted a run long enough to be a loop rather than a retry (R7). The
+        pitfall makes no claim about outcome: a loop is worth warning about
+        because it is going nowhere, whatever each attempt reported.
+        """
+        if not self.repetitions:
+            return None
+        return Pitfall(
+            kind=PitfallKind.REPETITION_LOOP,
+            evidence=self.source,
+            support=self.repetitions,
+        )
+
+    def _pitfalls(self, baseline: _Baseline) -> tuple[Pitfall, ...]:
+        """Everything this move is known to go wrong as (FR-031).
+
+        Never for a bookend: a move into `END_KEY` or out of `START_KEY` is not
+        one a later prompt can be steered away from, so it earns no pitfall
+        however its rate compares to the base rate.
+        """
+        if self.source in (START_KEY, END_KEY) or self.target in (START_KEY, END_KEY):
+            return ()
+        derived = (self._failure_prone(baseline), self._repetition_loop())
+        return tuple(pitfall for pitfall in derived if pitfall is not None)
 
     @property
     def condition(self) -> Condition:
@@ -293,7 +396,7 @@ class _EdgeFold:
         ranked = sorted(self.conditions.items(), key=lambda item: (-item[1], repr(item[0])))
         return ranked[0][0]
 
-    def finish(self) -> TransitionEdge:
+    def finish(self, baseline: _Baseline) -> TransitionEdge:
         """The edge this tally describes, its supporting rows bounded (FR-026)."""
         recent = sorted(self.step_ids)[-SUPPORTING_STEPS_KEPT:]
         return TransitionEdge(
@@ -301,11 +404,29 @@ class _EdgeFold:
             source=self.source,
             target=self.target,
             condition=self.condition,
-            support=len(self.step_ids),
+            support=self.support,
             supporting_steps=tuple(recent),
             outcome_counts=dict(self.outcomes),
             last_seen=self.last_seen,
+            pitfalls=self._pitfalls(baseline),
         )
+
+
+def _base_failure_rate(folds: Iterable[_EdgeFold]) -> float:
+    """Share of every observed move that landed on a failed step.
+
+    The corpus-wide rate a move has to beat to count as over-represented in
+    failed prompts (FR-031). Bookend folds are excluded: the row a chain ends
+    on already supports the real move that landed on it, and folding the
+    `-> END_KEY` move too would count that one row's outcome twice.
+    """
+    outcomes: Counter[Outcome] = Counter()
+    for fold in folds:
+        if fold.source in (START_KEY, END_KEY) or fold.target in (START_KEY, END_KEY):
+            continue
+        outcomes.update(fold.outcomes)
+    total = outcomes.total()
+    return outcomes[Outcome.FAILURE] / total if total else 0.0
 
 
 def edge_key(source: str, target: str) -> str:
@@ -317,6 +438,7 @@ def aggregate(
     steps: Iterable[EpisodicStep],
     level: str,
     process_types: Mapping[SequenceKey, ProcessType] | None = None,
+    config: Config | None = None,
 ) -> AbstractGraph:
     """Fold every episodic row in *steps* into the abstract graph at *level*.
 
@@ -326,12 +448,17 @@ def aggregate(
     shipped caller passes it yet — the task that wires a real mapping from the
     store at the call site is T040 (`cli/rebuild.py`).
 
+    *config* is the tuning pitfall derivation reads — the support floor below
+    which a move may not warn (FR-031). The shipped defaults when absent, so a
+    caller with no configuration of its own still folds the same graph.
+
     Raises:
         ValueError: *level* names none of the materialised `LEVELS`. A level
             nobody materialises would silently produce a graph no renderer can
             find a node in.
     """
     lvl = Level.of(level)
+    tuning = config or Config()
     nodes: dict[str, _NodeFold] = {}
     edges: dict[tuple[str, str], _EdgeFold] = {}
     high_water = 0
@@ -348,10 +475,13 @@ def aggregate(
         for move in _transitions(chain, lvl):
             pair = (move.source, move.target)
             edges.setdefault(pair, _EdgeFold(move.source, move.target)).record(move)
+        for key, runs in _repetition_runs(chain, lvl, tuning.k).items():
+            edges[(key, key)].repetitions += runs
+    baseline = _Baseline(_base_failure_rate(edges.values()), tuning)
     return AbstractGraph(
         level=level,
         nodes={key: nodes[key].finish() for key in sorted(nodes)},
-        edges=tuple(edges[pair].finish() for pair in sorted(edges)),
+        edges=tuple(edges[pair].finish(baseline) for pair in sorted(edges)),
         episode_high_water=high_water,
     )
 
@@ -390,6 +520,34 @@ def _transitions(chain: _Chain, level: Level) -> Iterator[_Move]:
         supporting_step=last,
         condition=Condition(chain.process_type, None, Outcome(last.outcome)),
     )
+
+
+def _repetition_runs(chain: _Chain, level: Level, k: int) -> Counter[str]:
+    """Each node key in *chain* against how many of its runs reached *k* in a row.
+
+    A run is the node doing itself over, and R7 puts the threshold at three
+    occurrences because two attempts at the same procedure are an ordinary
+    retry. The count is of runs and not of repetitions: a run that goes on past
+    *k* is still the one loop, so twenty repetitions are one thing to warn
+    about rather than eighteen.
+
+    Counted over the moves rather than the rows, which is what keeps every key
+    here one the aggregation also folded a self-edge for.
+    """
+    runs: Counter[str] = Counter()
+    length = 1
+    counted = False
+    for before, after in pairwise(chain.steps):
+        key = _key_at(after, level)
+        if key != _key_at(before, level):
+            length = 1
+            counted = False
+            continue
+        length += 1
+        if length >= k and not counted:
+            runs[key] += 1
+            counted = True
+    return runs
 
 
 def _shares_a_file(before: EpisodicStep, after: EpisodicStep) -> bool:
