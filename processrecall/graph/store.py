@@ -52,6 +52,34 @@ _LOG_ROTATE_BYTES = 5 * 1024 * 1024
 #: text at all (R13), so there is nothing to bound.
 RESULT_CEILING = 2048
 
+#: Every counter the package can increment (R16), whether or not a given store
+#: has ever seen one. The list is the reader half of Principle V, and it lives
+#: beside `bump` because that is what it is the vocabulary of: both readers —
+#: `processrecall show counters` and the `inspect` tool — print a name that is
+#: still at zero, since a capture path that never ran looks identical to one
+#: that never existed unless the name is printed anyway.
+COUNTERS: tuple[str, ...] = (
+    "annotation_rejected_credential",
+    "annotation_rejected_no_edge",
+    "annotation_rejected_too_long",
+    "backfill_records_skipped",
+    "capture_excluded",
+    "capture_payload_malformed",
+    "capture_store_busy",
+    "class_unknown",
+    "enrichment_unavailable",
+    "guidance_below_support",
+    "guidance_deadline_exceeded",
+    "guidance_fallback_global",
+    "guidance_over_budget",
+    "guidance_served",
+    "guidance_silent",
+    "snapshot_unreadable",
+    "snapshot_written",
+    "steps_duplicate",
+    "steps_recorded",
+)
+
 
 def _canonical_json(arguments: Mapping[str, object]) -> str:
     """*arguments* as one string that two passes over the same record agree on.
@@ -205,6 +233,18 @@ class EpisodicStore(Protocol):
     def counters(self) -> Mapping[str, int]:
         """Every counter this store has kept, against its value."""
         ...
+
+
+def counter_table(store: EpisodicStore) -> dict[str, int]:
+    """Every counter the package can increment, against what *store* kept.
+
+    Counters the store holds but :data:`COUNTERS` does not name are reported
+    too: a count this build cannot explain is still a count, and hiding it is
+    the one thing Principle V forbids. Shared by `processrecall show counters`
+    and the `inspect` tool, the two readers of Principle V's counter half.
+    """
+    kept = store.counters()
+    return {name: kept.get(name, 0) for name in sorted({*COUNTERS, *kept})}
 
 
 #: The step columns, in the order `_step_from_row` reads them back.

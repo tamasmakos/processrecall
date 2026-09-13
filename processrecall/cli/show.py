@@ -22,36 +22,9 @@ from typing import Any, cast
 
 from processrecall.config import STORE_DIR, config_sources, load_config
 from processrecall.graph.snapshot import SNAPSHOT_NAME, SnapshotFile
-from processrecall.graph.store import EpisodicStore, SequenceKey
+from processrecall.graph.store import EpisodicStore, SequenceKey, counter_table
 from processrecall.graph.store import Sequence as RecordedSequence
 from processrecall.trajectory.paths import project_key
-
-#: Every counter the package can increment (R16), whether or not this store has
-#: ever seen one. The list is the reader half of Principle V: a counter that is
-#: still at zero is exactly the case an operator needs shown — a capture path
-#: that never ran looks identical to one that never existed unless the name is
-#: printed anyway.
-COUNTERS: tuple[str, ...] = (
-    "annotation_rejected_credential",
-    "annotation_rejected_no_edge",
-    "annotation_rejected_too_long",
-    "backfill_records_skipped",
-    "capture_excluded",
-    "capture_payload_malformed",
-    "capture_store_busy",
-    "class_unknown",
-    "enrichment_unavailable",
-    "guidance_below_support",
-    "guidance_deadline_exceeded",
-    "guidance_fallback_global",
-    "guidance_over_budget",
-    "guidance_served",
-    "guidance_silent",
-    "snapshot_unreadable",
-    "snapshot_written",
-    "steps_duplicate",
-    "steps_recorded",
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,14 +61,8 @@ def _table(rows: Mapping[str, object]) -> str:
 
 
 def counter_report(store: EpisodicStore) -> str:
-    """Every counter the package can increment, against what *store* kept.
-
-    Counters the store holds but :data:`COUNTERS` does not name are printed
-    too: a count this build cannot explain is still a count, and hiding it is
-    the one thing Principle V forbids.
-    """
-    kept = store.counters()
-    return _table({name: kept.get(name, 0) for name in sorted({*COUNTERS, *kept})})
+    """Every counter the package can increment, against what *store* kept (R16)."""
+    return _table(counter_table(store))
 
 
 def config_report() -> str:
