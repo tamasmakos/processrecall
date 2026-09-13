@@ -34,6 +34,7 @@ def make_aggregate_step(
     step_id: int,
     key: SequenceKey,
     outcome: str = "success",
+    files: tuple[str, ...] = (),
 ) -> EpisodicStep:
     """One recorded row, named by the node key the recorder derived for it."""
     activity_class, program, _ = node_key.split("/")
@@ -46,6 +47,7 @@ def make_aggregate_step(
         program=program,
         template=f"{program} <File>",
         occurred_at=datetime(2026, 9, 13, 10, 0, tzinfo=UTC),
+        files=files,
         outcome=outcome,
         step_id=step_id,
     )

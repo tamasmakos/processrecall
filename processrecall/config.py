@@ -67,11 +67,13 @@ class Config:
         clean_prompt_weight: How much a transition observed inside a
             cleanly-ended prompt outweighs one that was not (FR-027, R6).
         same_file_conditioning: Whether the back-off additionally conditions
-            on the candidate touching the same file as the previous step
-            (FR-028, R6). R6 measured this costing 2 points top-1 at the
-            shipped serving level while buying 2 points top-3 — configuration
-            rather than a constant so that verdict can be revised without a
-            code change.
+            on whether the last procedure in the context stayed on the same
+            file as the one before it (FR-028, R6) — a candidate has no files
+            of its own until it is taken, so this reads the context, not the
+            candidate. R6 measured this costing 2 points top-1 at the shipped
+            serving level while buying 2 points top-3 — configuration rather
+            than a constant so that verdict can be revised without a code
+            change.
     """
 
     level: str = "class/program"
