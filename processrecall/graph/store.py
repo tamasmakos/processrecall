@@ -406,18 +406,31 @@ class SQLiteEpisodicStore:
         preferable to raising into the agent's own action. Rotated aside at
         5 MB (R16) so an unreachable store cannot grow this file forever.
         """
-        line = json.dumps(
-            {
-                "at": datetime.now(UTC).isoformat(),
-                "counter": counter,
-                "error": str(exc),
-            }
-        )
-        try:
-            self._log_path.parent.mkdir(parents=True, exist_ok=True)
-            if self._log_path.exists() and self._log_path.stat().st_size >= _LOG_ROTATE_BYTES:
-                self._log_path.replace(self._log_path.with_suffix(".jsonl.1"))
-            with self._log_path.open("a", encoding="utf-8") as log:
-                log.write(f"{line}\n")
-        except OSError:
-            _logger.warning("could not record counter %s: %s", counter, exc)
+        log_fallback(self._log_path, counter, exc)
+
+
+def log_fallback(log_path: Path, counter: str, exc: sqlite3.Error) -> None:
+    """Append one JSON line at *log_path* recording *counter*, which could not be kept.
+
+    The last resort of a hook that must exit 0 regardless (FR-014) — also the
+    path taken when the store itself could not be opened, before any
+    :class:`SQLiteEpisodicStore` exists to ask. If even this fails there is
+    nowhere left to say so, and losing the line is preferable to raising into
+    the agent's own action. Rotated aside at 5 MB (R16) so an unreachable store
+    cannot grow this file forever.
+    """
+    line = json.dumps(
+        {
+            "at": datetime.now(UTC).isoformat(),
+            "counter": counter,
+            "error": str(exc),
+        }
+    )
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        if log_path.exists() and log_path.stat().st_size >= _LOG_ROTATE_BYTES:
+            log_path.replace(log_path.with_suffix(".jsonl.1"))
+        with log_path.open("a", encoding="utf-8") as log:
+            log.write(f"{line}\n")
+    except OSError:
+        _logger.warning("could not record counter %s: %s", counter, exc)

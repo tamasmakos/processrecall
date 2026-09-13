@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import posixpath
 import re
+from hashlib import sha256
 from pathlib import Path, PurePosixPath
 
 #: What a path under the user's home is spelled relative to. A home-relative
@@ -63,3 +64,13 @@ def lexical_path(raw: str) -> PurePosixPath:
     """
     posix = _DRIVE.sub(lambda m: f"/{m.group(1).upper()}", raw.replace("\\", "/"))
     return PurePosixPath(posixpath.normpath(posix))
+
+
+def project_key(project_dir: str) -> str:
+    """The stable, path-free key a sequence is filed under (`contracts/storage.md`).
+
+    A hash rather than the directory itself: the key is what a project's
+    guidance is later looked up by, and an absolute user path is precisely what
+    FR-051 keeps out of anything a snapshot can carry.
+    """
+    return sha256(str(lexical_path(project_dir)).encode()).hexdigest()[:16]

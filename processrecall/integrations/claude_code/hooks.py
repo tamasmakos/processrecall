@@ -22,15 +22,32 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 from collections.abc import Callable, Mapping
+from contextlib import closing
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 
 from processrecall.config import STORE_DIR, home_dir
+from processrecall.exceptions import PackError
+from processrecall.graph.episodic import SequenceIdentity, open_index
+from processrecall.graph.store import (
+    EpisodicStep,
+    Sequence,
+    SequenceKey,
+    SQLiteEpisodicStore,
+    log_fallback,
+)
+from processrecall.graph.templates import template_of
+from processrecall.procedures.outcome import Outcome, classify_outcome
+from processrecall.procedures.step import SubActivity, steps_from
+from processrecall.procedures.taxonomy import identify_procedure
 from processrecall.trajectory.event import SourceKind, TrajectoryEvent
-from processrecall.trajectory.paths import lexical_path
+from processrecall.trajectory.paths import lexical_path, normalise_path, project_key
+from processrecall.trajectory.vocabulary import load_vocabulary
 
 _logger = logging.getLogger("processrecall")
 
@@ -149,6 +166,105 @@ def adapt_post_tool_use(payload: Mapping[str, Any], counters: Counters) -> Traje
     return event
 
 
+@dataclass(frozen=True, slots=True)
+class _Action:
+    """One adapted action and where it lands: what every step of it shares.
+
+    An action decomposes into several sub-activities (FR-017), and all of them
+    sit on one sequence, at consecutive positions, under one verdict — resolved
+    once here rather than threaded through every call below.
+
+    Attributes:
+        event: The action, canonically.
+        key: The sequence it belongs to, at the conversation's current epoch.
+        first_position: Where its first sub-activity lands in that sequence.
+        outcome: How it went. The canonical event carries no error flag —
+            ``contracts/trajectory-event.md`` maps none from this harness — so
+            the verdict is derived from the result text alone (FR-034).
+        activities: What it actually did, in the order it did it.
+    """
+
+    event: TrajectoryEvent
+    key: SequenceKey
+    first_position: int
+    outcome: Outcome
+    activities: tuple[SubActivity, ...]
+
+
+def _step_of(activity: SubActivity, action: _Action) -> EpisodicStep:
+    """One sub-activity of *action*, as the row the episodic index stores."""
+    event = action.event
+    identity = identify_procedure(activity)
+    position = action.first_position + activity.ordinal
+    return EpisodicStep(
+        dedup_key=action.key.dedup_key(event, position),
+        sequence_key=action.key,
+        position=position,
+        node_key=identity.key,
+        activity_class=identity.activity_class,
+        template=template_of(activity),
+        occurred_at=event.occurred_at,
+        program=identity.program,
+        files=tuple(normalise_path(path, event.project_dir) for path in activity.files),
+        result_snippet=event.tool_call_result,
+        outcome=action.outcome,
+        record_ref=event.record_ref,
+    )
+
+
+def capture(payload: Mapping[str, Any], connection: sqlite3.Connection) -> tuple[EpisodicStep, ...]:
+    """Record the action *payload* describes; the steps that landed, in order.
+
+    Nothing landing is an ordinary answer, not an error: a payload that names no
+    routable action — excluded, not a ``PostToolUse``, malformed — is already
+    counted by :func:`adapt_post_tool_use`, and a step whose dedup key was
+    already there is counted by the store (FR-008).
+
+    A store that will not take the write is one of those ordinary answers too:
+    the step is dropped and counted as ``capture_store_busy`` rather than
+    raised, because a capture that fails must not surface against the action it
+    was only watching (FR-014). The store writes the count to its own fallback
+    log when it is the store itself that is unreachable (R16). A pack that
+    fails to load is the same kind of failure, from ``load_vocabulary``
+    instead.
+
+    A fault partway through a multi-activity action still reports the steps
+    that landed before it struck, never all-or-nothing: they are already rows
+    in the store, so a caller told otherwise would go looking for guidance on
+    steps it believes never happened.
+    """
+    store = SQLiteEpisodicStore(connection)
+    event = adapt_post_tool_use(payload, store)
+    if event is None:
+        return ()
+    key = SequenceIdentity(connection, event.conversation_id).key(event.prompt_id, event.agent_id)
+    landed: list[EpisodicStep] = []
+    try:
+        store.open_sequence(
+            Sequence(
+                key=key,
+                project_dir_key=project_key(event.project_dir),
+                started_at=event.occurred_at,
+            )
+        )
+        action = _Action(
+            event=event,
+            key=key,
+            first_position=len(store.steps(key)),
+            outcome=classify_outcome(event.tool_call_result, is_error=False),
+            activities=steps_from(
+                event, load_vocabulary().activity_for(event.tool_name, store.bump)
+            ),
+        )
+        for activity in action.activities:
+            step = _step_of(activity, action)
+            if store.record(step):
+                landed.append(step)
+    except (sqlite3.Error, PackError):
+        store.bump("capture_store_busy")
+    return tuple(landed)
+
+
 #: What a verb answers the harness with, or ``None`` for nothing at all: the
 #: contract's "empty output is the normal case".
 Response = Mapping[str, Any] | None
@@ -192,7 +308,25 @@ def prompt(payload: Mapping[str, Any]) -> Response:
 
 
 def record(payload: Mapping[str, Any]) -> Response:
-    """``PostToolUse``: capture the completed action and serve the next one (T029)."""
+    """``PostToolUse``: capture the completed action (T029).
+
+    One index opened per invocation (R10), and closed here whatever happened.
+    A store that cannot even be opened — read-only, unwritable directory — is
+    the same ordinary failure :func:`capture` answers for an open one: nothing
+    is captured, ``capture_store_busy`` is counted through the R16 fallback log
+    (no store exists yet to count it any other way), and the payload is
+    untouched (FR-014, SC-002). The serving half of the contract's ``record``
+    — guidance for the action *after* this one — lands with the guidance
+    layer; until then the verb answers nothing, which the contract already
+    calls the normal case.
+    """
+    try:
+        connection = open_index()
+    except sqlite3.Error as exc:
+        log_fallback(home_dir() / "log" / "hooks.jsonl", "capture_store_busy", exc)
+        return None
+    with closing(connection):
+        capture(payload, connection)
     return None
 
 
