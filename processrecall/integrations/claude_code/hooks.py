@@ -1,6 +1,8 @@
-"""The Claude Code adapter: a hook payload in, the one canonical event out (FR-001).
+"""The Claude Code hooks: a hook payload in, the one canonical event out (FR-001).
 
-This is the whole of what welds the system to Claude Code. Everything downstream
+This is the whole of what welds the system to Claude Code: the six verbs of
+``contracts/agent-hooks.md``, and the framing that reads one JSON object from
+the harness and writes at most one back. Everything downstream
 reads a :class:`~processrecall.trajectory.event.TrajectoryEvent` and cannot tell
 which harness produced it, so the harness's spellings — ``session_id``,
 ``tool_use_id``, ``tool_input`` — stop here, at the mapping table of
@@ -18,12 +20,13 @@ On the hot path, so the standard library only.
 
 from __future__ import annotations
 
+import json
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, TextIO
 
 from processrecall.config import STORE_DIR, home_dir
 from processrecall.trajectory.event import SourceKind, TrajectoryEvent
@@ -144,3 +147,78 @@ def adapt_post_tool_use(payload: Mapping[str, Any], counters: Counters) -> Traje
         counters.bump("capture_payload_malformed")
         return None
     return event
+
+
+#: What a verb answers the harness with, or ``None`` for nothing at all: the
+#: contract's "empty output is the normal case".
+Response = Mapping[str, Any] | None
+
+#: One verb: the payload of its hook event in, its response out.
+Verb = Callable[[Mapping[str, Any]], Response]
+
+
+def read_payload(stream: TextIO) -> Mapping[str, Any] | None:
+    """The hook event on *stream*, or ``None`` when it carries no whole one.
+
+    The harness writes one JSON object and closes stdin. Anything else — an
+    empty stream, a truncated write, a bare list — is not an event this process
+    can answer, and answering nothing is the whole of the recovery: a hook that
+    raises surfaces against the developer's own action (R16).
+    """
+    try:
+        payload = json.loads(stream.read() or "null")
+    except ValueError:
+        payload = None
+    if isinstance(payload, dict):
+        return payload
+    _logger.warning("hook read no JSON object on stdin; nothing captured")
+    return None
+
+
+def emit(response: Mapping[str, Any], stream: TextIO) -> None:
+    """Write *response* to *stream* as the one JSON object the harness reads."""
+    json.dump(response, stream)
+    stream.write("\n")
+
+
+def bootstrap(payload: Mapping[str, Any]) -> Response:
+    """``SessionStart``: prepare the plugin's interpreter, once (T067)."""
+    return None
+
+
+def prompt(payload: Mapping[str, Any]) -> Response:
+    """``UserPromptSubmit``: open the sequence and serve what starts it (T048)."""
+    return None
+
+
+def record(payload: Mapping[str, Any]) -> Response:
+    """``PostToolUse``: capture the completed action and serve the next one (T029)."""
+    return None
+
+
+def enforce(payload: Mapping[str, Any]) -> Response:
+    """``PreToolUse``: deny an action a pitfall matches, when opted in (T050)."""
+    return None
+
+
+def close(payload: Mapping[str, Any]) -> Response:
+    """``Stop`` and ``SubagentStop``: close the sequence and score it (T049)."""
+    return None
+
+
+def end(payload: Mapping[str, Any]) -> Response:
+    """``SessionEnd``: spawn the detached session-end job and return (T074)."""
+    return None
+
+
+#: The six verbs of ``contracts/agent-hooks.md``, the only names ``hooks.json``
+#: may invoke. Each is silent until its own task fills it in; the framing and
+#: the exit code are what land here (T024).
+VERBS: dict[str, Verb] = {
+    "bootstrap": bootstrap,
+    "prompt": prompt,
+    "record": record,
+    "enforce": enforce,
+    "close": close,
+    "end": end,
+}
