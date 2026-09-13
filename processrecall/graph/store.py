@@ -26,17 +26,31 @@ import sqlite3
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from processrecall.config import home_dir
 from processrecall.symbolic.packs import ActivityClass, ProcessType
+
+if TYPE_CHECKING:
+    from processrecall.trajectory.event import TrajectoryEvent
 
 _logger = logging.getLogger("processrecall")
 
 #: Bytes at which the R16 fallback log rotates aside rather than growing
 #: unbounded.
 _LOG_ROTATE_BYTES = 5 * 1024 * 1024
+
+
+def _canonical_json(arguments: Mapping[str, object]) -> str:
+    """*arguments* as one string that two passes over the same record agree on.
+
+    Sorted keys and no whitespace: a mapping's iteration order is an accident of
+    how it was parsed, and a derived key that changed with it would record the
+    same backfilled action twice (R3).
+    """
+    return json.dumps(dict(arguments), sort_keys=True, separators=(",", ":"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +66,29 @@ class SequenceKey:
     session_epoch: int
     prompt_id: str
     agent_id: str = ""
+
+    def dedup_key(self, event: TrajectoryEvent, ordinal: int) -> str:
+        """What identifies *event* as an action, at position *ordinal* of this sequence.
+
+        The harness's own tool-call id when it issued one (FR-008); otherwise the
+        R3 derivation, a pure function of the record so that backfilling the same
+        source twice derives one key rather than two (SC-003). The ``syn-``
+        prefix keeps a derived key out of the space of harness-issued ones.
+        """
+        if event.tool_call_id:
+            return event.tool_call_id
+        material = "|".join(
+            (
+                self.conversation_id,
+                str(self.session_epoch),
+                self.prompt_id,
+                self.agent_id,
+                str(ordinal),
+                event.tool_name,
+                _canonical_json(event.tool_call_arguments),
+            )
+        )
+        return f"syn-{sha256(material.encode()).hexdigest()[:24]}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,7 +279,9 @@ class SQLiteEpisodicStore:
 
         ``False`` means the dedup key was already there (FR-008). A replayed
         harness payload is an expected, countable event rather than an error, so
-        the conflict is resolved by the database and reported as a value.
+        the conflict is resolved by the database and reported as a value — and
+        counted as ``steps_duplicate`` (R3), because a duplicate nobody counted
+        reads exactly like an action that was never sent.
         """
         with self._connection:
             cursor = self._connection.execute(
@@ -271,7 +310,10 @@ class SQLiteEpisodicStore:
                     step.symbol_ref,
                 ),
             )
-        return cursor.rowcount == 1
+        if cursor.rowcount == 1:
+            return True
+        self.bump("steps_duplicate")
+        return False
 
     def sequence(self, key: SequenceKey) -> Sequence | None:
         """The sequence *key* names, or ``None`` when no turn opened it.
