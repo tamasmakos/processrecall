@@ -81,12 +81,11 @@ typecheck: ## Mypy the package
 arch: ## Enforce module boundaries (import-linter)
 	lint-imports
 
-build-wheel: ## Build the wheel and assert it stays small + ships py.typed
+build-wheel: ## Build the wheel and assert it ships py.typed (size ceiling: tests/test_packaging.py)
 	uv build --wheel
 	@python -c "import glob,os,zipfile; w=sorted(glob.glob('dist/*.whl'))[-1]; \
 	  z=zipfile.ZipFile(w); assert any('py.typed' in n for n in z.namelist()), 'py.typed missing'; \
-	  kb=os.path.getsize(w)/1024; assert kb < 1024, f'wheel too large: {kb:.0f} KB'; \
-	  print(f'wheel OK: {os.path.basename(w)} ({kb:.0f} KB, py.typed present)')"
+	  print(f'wheel OK: {os.path.basename(w)} ({os.path.getsize(w)/1024:.0f} KB, py.typed present)')"
 
 smoke: ## Core-only import smoke: import processrecall + client with no heavy deps
 	pytest -q tests/api/test_lazy_core.py tests/api/test_public_surface.py
