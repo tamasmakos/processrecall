@@ -2,11 +2,13 @@
 
 The fork (R18) has emptied this module of the pre-fork stack it re-exported:
 ``Memory`` and the ``models`` value objects went with the channels, ingestion,
-retrieval and storage layers they belonged to. What is left is what every
-surviving layer shares — the errors and settings — so that importing
-the package costs nothing and binds no layer to another::
+retrieval and storage layers they belonged to. What is left is the error
+hierarchy, so that importing the package costs nothing and binds no layer to
+another — ``processrecall.settings`` (the pydantic-backed deployment
+configuration) and ``processrecall.config`` (the stdlib hot-path settings,
+R17) are both left unimported here for the same reason::
 
-    from processrecall import BootstrapError, GraphKnowsSettings
+    from processrecall import BootstrapError
 """
 
 from __future__ import annotations
@@ -19,11 +21,6 @@ from processrecall.exceptions import (
     BootstrapError,
     PackError,
 )
-from processrecall.settings import (
-    GraphKnowsSettings,
-    MemoryMode,
-    TopicMode,
-)
 
 # A library must not configure logging handlers; attach a NullHandler so records
 # are dropped unless the embedding application configures the root logger.
@@ -32,9 +29,6 @@ logging.getLogger("processrecall").addHandler(logging.NullHandler())
 __all__ = [
     "AnnotationRejected",
     "BootstrapError",
-    "GraphKnowsSettings",
-    "MemoryMode",
     "PackError",
-    "TopicMode",
     "__version__",
 ]
