@@ -175,6 +175,18 @@ class EpisodicStore(Protocol):
         """The sequence *key* names, or ``None`` when nothing opened it."""
         ...
 
+    def sequence_for_prompt(self, prompt_id: str) -> Sequence | None:
+        """The turn *prompt_id* names, or ``None`` when nothing opened it."""
+        ...
+
+    def latest_sequence(self) -> Sequence | None:
+        """The most recently opened turn that has not yet closed."""
+        ...
+
+    def declare_outcome(self, key: SequenceKey, outcome: str) -> None:
+        """Record *outcome* on *key* beside its derived verdict (FR-035)."""
+        ...
+
     def steps(self, key: SequenceKey) -> tuple[EpisodicStep, ...]:
         """Every step of *key*, in the order it was carried out."""
         ...
@@ -364,6 +376,57 @@ class SQLiteEpisodicStore:
             declared_outcome=None if row[6] is None else str(row[6]),
             step_count=int(row[7]),
         )
+
+    def sequence_for_prompt(self, prompt_id: str) -> Sequence | None:
+        """The turn *prompt_id* names, or ``None`` when nothing opened it.
+
+        A prompt id is not a key: the same harness prompt id can appear in two
+        conversations, and a caller that has only the id — `mark_outcome` is the
+        one — cannot spell the other three fields. The most recently started
+        match is the turn it means, and ``None`` says no such turn was ever
+        opened rather than opening one.
+        """
+        row = self._connection.execute(
+            "SELECT conversation_id, session_epoch, prompt_id, agent_id FROM sequences"
+            " WHERE prompt_id = ? ORDER BY started_at DESC LIMIT 1",
+            (prompt_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return self.sequence(SequenceKey(str(row[0]), int(row[1]), str(row[2]), str(row[3])))
+
+    def latest_sequence(self) -> Sequence | None:
+        """The most recently opened turn that has not yet closed.
+
+        This store is home-wide (FR-052's one root): it holds every
+        conversation and project the harness has ever seen, and a caller with
+        no ``prompt_id`` — `mark_outcome` is the one — has no conversation
+        context of its own to narrow it with. "Running now" therefore means
+        the most recently started sequence that is not `CLOSED`; a finished
+        turn started after it would otherwise outrank the one still open.
+        """
+        row = self._connection.execute(
+            "SELECT conversation_id, session_epoch, prompt_id, agent_id FROM sequences"
+            " WHERE status != ? ORDER BY started_at DESC LIMIT 1",
+            (CLOSED,),
+        ).fetchone()
+        if row is None:
+            return None
+        return self.sequence(SequenceKey(str(row[0]), int(row[1]), str(row[2]), str(row[3])))
+
+    def declare_outcome(self, key: SequenceKey, outcome: str) -> None:
+        """Record *outcome* on *key* beside its derived verdict (FR-035).
+
+        An update and never an insert: the declared verdict is a column on a
+        turn that happened, so a key nothing opened stays unwritten instead of
+        conjuring a turn. ``derived_outcome`` is untouched, because FR-036 keeps
+        the rules' verdict recomputable.
+        """
+        with self._connection:
+            self._connection.execute(
+                f"UPDATE sequences SET declared_outcome = ?{_SEQUENCE_WHERE}",
+                (outcome, *_key_params(key)),
+            )
 
     def steps(self, key: SequenceKey) -> tuple[EpisodicStep, ...]:
         """Every step of *key*, in the order it was carried out."""
