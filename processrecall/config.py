@@ -152,6 +152,36 @@ def _environment_overrides() -> dict[str, Any]:
     return overrides
 
 
+def _resolved() -> tuple[dict[str, Any], dict[str, str]]:
+    """The overridden fields and each one's provenance, in one precedence walk.
+
+    :func:`load_config` and :func:`config_sources` used to re-read the file
+    and the environment separately and re-spell the same precedence; reading
+    it once here is what makes the two unable to disagree about which value
+    won.
+    """
+    overrides: dict[str, Any] = {}
+    sources: dict[str, str] = dict.fromkeys(_DEFAULTS, "default")
+    for values, source in ((_file_overrides(), "file"), (_environment_overrides(), "environment")):
+        overrides.update(values)
+        sources.update(dict.fromkeys(values, source))
+    return overrides, sources
+
+
 def load_config() -> Config:
     """Resolve the configuration, environment over file over shipped defaults."""
-    return Config(**{**_file_overrides(), **_environment_overrides()})
+    overrides, _ = _resolved()
+    return Config(**overrides)
+
+
+def config_sources() -> dict[str, str]:
+    """Each field against where :func:`load_config` would take its value from.
+
+    ``"default"``, ``"file"`` or ``"environment"``, applied in the precedence
+    :func:`load_config` merges by, so the two cannot disagree about which one
+    won. A value with no provenance is a setting an operator cannot tell from
+    a shipped default, which is how a tuning that never applied stays
+    invisible.
+    """
+    _, sources = _resolved()
+    return sources
