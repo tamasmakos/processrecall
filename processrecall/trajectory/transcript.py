@@ -23,6 +23,7 @@ On the hot path, so the standard library only.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -37,17 +38,49 @@ from processrecall.trajectory.event import SourceKind, TrajectoryEvent
 #: the two that do carry actions is a changed format, and is reported.
 _ACTIONLESS_TYPES = frozenset({"summary", "system", "file-history-snapshot", "checkpoint"})
 
+#: Where the harness keeps one directory of session transcripts per project,
+#: under the user's home.
+_PROJECTS_DIRECTORY_NAME = Path(".claude") / "projects"
+
+#: What the harness replaces in a project directory to name that directory:
+#: everything that is not alphanumeric, so ``/work/demo`` is ``-work-demo``.
+_NOT_IN_A_DIRECTORY_NAME = re.compile(r"[^A-Za-z0-9]")
+
+
+def transcript_directory(project_dir: Path, home: Path | None = None) -> Path:
+    """Where the harness keeps *project_dir*'s session transcripts, under *home*.
+
+    *project_dir* is resolved first: the harness only ever names the directory
+    a session actually ran in, so a relative path such as ``.`` must mangle to
+    the same name an absolute one would, not to a directory the harness never
+    wrote (FR-015). *home* defaults to the caller's own, and is a parameter
+    only so a test can point it at a fixture home instead.
+    """
+    name = _NOT_IN_A_DIRECTORY_NAME.sub("-", str(project_dir.resolve()))
+    return (home or Path.home()) / _PROJECTS_DIRECTORY_NAME / name
+
 
 @dataclass(frozen=True, slots=True)
 class SkippedRecord:
     """One record the reader did not understand, and why (FR-016).
 
-    Where it was, not what it said: the reason names the format, and the
-    ordinal sends a maintainer to the line, so an anonymised report of a real
-    session carries none of its content.
+    Where it was, not what it said: the ordinal sends a maintainer to the
+    line, so an anonymised report of a real session carries none of its
+    content.
+
+    Attributes:
+        ordinal: The line the record was read from.
+        category: The shape of the failure, free of any per-record value —
+            what a summary across many records groups by, so a run with many
+            orphaned results or unparseable timestamps still reports one row
+            per shape rather than one per record.
+        reason: The fuller message a maintainer reads instead, which for some
+            shapes names the record — a call id, a raw timestamp — that
+            *category* deliberately leaves out.
     """
 
     ordinal: int
+    category: str
     reason: str
 
 
@@ -130,9 +163,16 @@ class TranscriptSource:
         elif kind not in _ACTIONLESS_TYPES:
             self._skip(f"unrecognised record type {kind!r}", pass_)
 
-    def _skip(self, reason: str, pass_: _Pass) -> None:
-        """Pass over the record being read, counted and reported (FR-016)."""
-        pass_.skipped.append(SkippedRecord(ordinal=pass_.ordinal, reason=reason))
+    def _skip(self, category: str, pass_: _Pass, *, detail: str | None = None) -> None:
+        """Pass over the record being read, counted and reported (FR-016).
+
+        *detail* is the fuller message, when *category* alone would run every
+        record of one shape together; it defaults to *category* for a shape
+        that carries no per-record value to begin with.
+        """
+        pass_.skipped.append(
+            SkippedRecord(ordinal=pass_.ordinal, category=category, reason=detail or category)
+        )
         self._counters.bump("backfill_records_skipped")
 
     def _note_calls(self, record: Mapping[str, Any], pass_: _Pass) -> None:
@@ -173,11 +213,19 @@ class TranscriptSource:
         """The action *block* reports the result of, as one canonical event."""
         call_id = str(block.get("tool_use_id") or "")
         if (call := pass_.pending.pop(call_id, None)) is None:
-            self._skip(f"result for tool call {call_id!r} that no record opens", pass_)
+            self._skip(
+                "result for a tool call that no record opens",
+                pass_,
+                detail=f"result for tool call {call_id!r} that no record opens",
+            )
             return None
         stamp = record.get("timestamp")
         if (occurred_at := _parsed_time(stamp)) is None:
-            self._skip(f"timestamp {stamp!r} is not an offset-aware time", pass_)
+            self._skip(
+                "timestamp is not an offset-aware time",
+                pass_,
+                detail=f"timestamp {stamp!r} is not an offset-aware time",
+            )
             return None
         return TrajectoryEvent(
             operation_name="execute_tool",
