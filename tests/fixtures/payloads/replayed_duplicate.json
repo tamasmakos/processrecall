@@ -1,0 +1,59 @@
+{
+  "description": "One PostToolUse action delivered twice under the same tool_use_id, as a hook retry or a backfill pass over the same session does. FR-008: the store must still hold exactly one step for it.",
+  "payloads": [
+    {
+      "hook_event_name": "UserPromptSubmit",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "prompt": "tests/test_app.py fails on main; find out why and fix it."
+    },
+    {
+      "hook_event_name": "PostToolUse",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "tool_use_id": "toolu_dup",
+      "tool_name": "Read",
+      "tool_input": {"file_path": "/work/demo/src/app.py"},
+      "tool_result": "1  def render(items):\n2      return \", \".join(items)\n",
+      "agent_id": "",
+      "agent_type": ""
+    },
+    {
+      "hook_event_name": "PostToolUse",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "tool_use_id": "toolu_dup",
+      "tool_name": "Read",
+      "tool_input": {"file_path": "/work/demo/src/app.py"},
+      "tool_result": "1  def render(items):\n2      return \", \".join(items)\n",
+      "agent_id": "",
+      "agent_type": ""
+    },
+    {
+      "hook_event_name": "PostToolUse",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "tool_use_id": "toolu_02",
+      "tool_name": "Bash",
+      "tool_input": {"command": "pytest -q tests/test_app.py"},
+      "tool_result": "1 passed in 0.11s",
+      "agent_id": "",
+      "agent_type": ""
+    },
+    {
+      "hook_event_name": "Stop",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "agent_id": ""
+    }
+  ]
+}
