@@ -10,9 +10,9 @@ FR-014 forbids. Nothing raised below is allowed past this frame — it is logged
 instead, where a maintainer looking for it will find it.
 
 The logging here (and in :func:`~processrecall.integrations.claude_code.hooks.read_payload`)
-is today's fallback, and only reaches a maintainer who has configured the stdlib
-``processrecall`` logger. R16's counter row and ``~/.processrecall/log/hooks.jsonl``
-line land with T029.
+is the fallback of last resort, reached only when even R16's counter row and
+``~/.processrecall/log/hooks.jsonl`` line — the ones a maintainer is expected to
+check first — could not be written.
 """
 
 from __future__ import annotations
