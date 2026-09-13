@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import ast
 import re
+import subprocess
 import sys
 import tomllib
+import zipfile
 from importlib.metadata import packages_distributions
 from pathlib import Path
 
@@ -38,6 +40,14 @@ PACK_GLOBS = (
     "processrecall/symbolic/data/**/*.json",
     "processrecall/trajectory/vocab/**/*.json",
 )
+
+#: The directories those globs live under, as the archive spells them.
+PACK_DIRS = tuple(glob.split("**")[0] for glob in PACK_GLOBS)
+
+#: R15 / FR-074: the recorded ceiling for the built wheel. Like the coverage
+#: floor, it may be ratcheted down but never raised — raising it is the moment
+#: the dependency reduction stops being measurable.
+WHEEL_CEILING_BYTES = 1024 * 1024
 
 
 def _pyproject() -> dict:
@@ -60,6 +70,16 @@ def _declared_distributions() -> set[str]:
     for extra_specs in proj.get("optional-dependencies", {}).values():
         declared |= _requirement_names(extra_specs)
     return declared
+
+
+def _build_wheel(out_dir: Path) -> Path:
+    """Build the project's wheel into *out_dir* and return the built file."""
+    subprocess.run(
+        ["uv", "build", "--wheel", "--out-dir", str(out_dir), str(REPO_ROOT)], check=True
+    )
+    built = sorted(out_dir.glob("*.whl"))
+    assert len(built) == 1, f"expected exactly one wheel in {out_dir}, got {built}"
+    return built[0]
 
 
 def _source_files() -> list[Path]:
@@ -135,6 +155,31 @@ def test_both_packs_are_declared_to_hatchling() -> None:
     declared = set(wheel.get("artifacts", []))
     missing = [glob for glob in PACK_GLOBS if glob not in declared]
     assert not missing, f"pack data not declared to the build backend: {missing}"
+
+
+def test_wheel_under_ceiling_and_ships_both_packs(tmp_path: Path) -> None:
+    """FR-074 / SC-012: the built wheel is the measurable outcome of the subtraction.
+
+    The declaration test above reads pyproject.toml; this one reads the archive
+    hatchling actually produced, which is the only place both facts are true at
+    once — the size a stranger downloads, and the packs being inside it.
+
+    This builds a wheel and takes seconds, not milliseconds; the cost is
+    accepted on every run rather than gated behind an opt-in marker, since
+    neither the gate script nor CI deselects `slow` today.
+    """
+    wheel = _build_wheel(tmp_path)
+
+    size = wheel.stat().st_size
+    assert size < WHEEL_CEILING_BYTES, (
+        f"{wheel.name} is {size} bytes, over the {WHEEL_CEILING_BYTES}-byte ceiling; "
+        "the ceiling ratchets down, so this is something shipped that should not be"
+    )
+
+    with zipfile.ZipFile(wheel) as archive:
+        shipped = archive.namelist()
+    missing = [d for d in PACK_DIRS if not any(name.startswith(d) for name in shipped)]
+    assert not missing, f"{wheel.name} ships no pack data under: {missing}"
 
 
 def test_every_imported_third_party_module_is_declared() -> None:
