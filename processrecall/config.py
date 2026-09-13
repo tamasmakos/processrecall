@@ -66,6 +66,9 @@ class Config:
             back-off starts from (FR-028, R6).
         clean_prompt_weight: How much a transition observed inside a
             cleanly-ended prompt outweighs one that was not (FR-027, R6).
+        enforce: Whether a pre-action move a pitfall matches is refused outright
+            (FR-049). Off is the shipped state: the memory advises, and only an
+            operator who has asked for it lets it stop an action.
         same_file_conditioning: Whether the back-off additionally conditions
             on whether the last procedure in the context stayed on the same
             file as the one before it (FR-028, R6) — a candidate has no files
@@ -82,6 +85,7 @@ class Config:
     min_support: int = 2
     backoff_order: int = 3
     clean_prompt_weight: float = 4.0
+    enforce: bool = False
     same_file_conditioning: bool = True
 
     def __post_init__(self) -> None:
