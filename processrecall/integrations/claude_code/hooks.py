@@ -34,7 +34,13 @@ from typing import Any, Protocol, TextIO
 
 from processrecall.config import STORE_DIR, Config, home_dir, load_config
 from processrecall.exceptions import PackError
-from processrecall.graph.abstract import START_KEY, TransitionEdge, edges_from
+from processrecall.graph.abstract import (
+    START_KEY,
+    Pitfall,
+    PitfallKind,
+    TransitionEdge,
+    edges_from,
+)
 from processrecall.graph.episodic import SequenceIdentity, open_index
 from processrecall.graph.snapshot import SNAPSHOT_NAME, SnapshotFile
 from processrecall.graph.store import (
@@ -47,6 +53,7 @@ from processrecall.graph.store import (
 )
 from processrecall.graph.templates import template_of
 from processrecall.guidance.fusion import Fusion
+from processrecall.guidance.locate import locate
 from processrecall.guidance.neighborhood import Neighborhood
 from processrecall.guidance.render import BulletRenderer, Deadline, GuidanceStatement
 from processrecall.guidance.triggers import Triggers
@@ -141,19 +148,37 @@ def _record_ref(payload: Mapping[str, Any]) -> str:
 
 
 def adapt_post_tool_use(payload: Mapping[str, Any], counters: Counters) -> TrajectoryEvent | None:
+    """The completed action *payload* describes; see :func:`_adapt` for ``None``."""
+    return _adapt(payload, counters, hook_event="PostToolUse")
+
+
+def adapt_pre_tool_use(payload: Mapping[str, Any], counters: Counters) -> TrajectoryEvent | None:
+    """The action *payload* is about to take, adapted by the one mapping table.
+
+    The same event the completed action would produce, minus the result it does
+    not have yet: what :func:`enforce` needs of a pre-action payload is the
+    procedure it would land on, and that is derived from the tool and its
+    arguments alone. Nothing is recorded from it.
+    """
+    return _adapt(payload, counters, hook_event="PreToolUse")
+
+
+def _adapt(
+    payload: Mapping[str, Any], counters: Counters, *, hook_event: str
+) -> TrajectoryEvent | None:
     """The event *payload* describes, or ``None`` when it describes no routable one.
 
     ``None`` covers three cases, neither raised into the developer's action:
     ``cwd`` is excluded (FR-058, R13), checked before anything else in the
-    payload is read; a payload for a hook event other than ``PostToolUse`` is
-    not this adapter's to read and is ignored outright, uncounted; a
-    ``PostToolUse`` payload with no ``session_id``, ``prompt_id`` or
-    ``tool_name`` cannot be placed on a sequence, so it increments
-    ``capture_payload_malformed`` and the caller moves on.
+    payload is read; a payload for a hook event other than *hook_event* is not
+    this adapter's to read and is ignored outright, uncounted; a payload with
+    no ``session_id``, ``prompt_id`` or ``tool_name`` cannot be placed on a
+    sequence, so it increments ``capture_payload_malformed`` and the caller
+    moves on.
     """
     if is_excluded(str(payload.get("cwd") or ""), counters):
         return None
-    if payload.get("hook_event_name") != "PostToolUse":
+    if payload.get("hook_event_name") != hook_event:
         return None
     arguments = payload.get("tool_input")
     event = TrajectoryEvent(
@@ -409,14 +434,29 @@ def _opening_guidance(opening: _Opening) -> str:
 def _fused_openings(opening: _Opening) -> tuple[TransitionEdge, ...]:
     """The moves that open a prompt, this project's ahead of every other's (FR-048)."""
     fused = Fusion(opening.counters).fuse(
-        _opening_moves(Path(opening.project_dir) / STORE_DIR / SNAPSHOT_NAME, opening.counters),
-        _opening_moves(home_dir() / SNAPSHOT_NAME, opening.counters),
+        _moves_from(_project_snapshot(opening.project_dir), START_KEY, opening.counters),
+        _moves_from(home_dir() / SNAPSHOT_NAME, START_KEY, opening.counters),
     )
     return tuple(candidate.edge for candidate in fused.edges)
 
 
-def _opening_moves(path: Path, counters: Counters) -> tuple[TransitionEdge, ...]:
-    """The successors of ``Start`` for this process type in the snapshot at *path*.
+def _project_snapshot(project_dir: str) -> Path:
+    """Where *project_dir* keeps its own abstract graph (FR-053)."""
+    return Path(project_dir) / STORE_DIR / SNAPSHOT_NAME
+
+
+def _moves_from(
+    path: Path,
+    source: str,
+    counters: Counters,
+    *,
+    process_type: ProcessType | None = PROMPT_PROCESS_TYPE,
+) -> tuple[TransitionEdge, ...]:
+    """The successors of *source* in the snapshot at *path*, for *process_type*.
+
+    ``None`` means any process type — the pre-action lookup :func:`_matching_pitfall`
+    makes has no prompt-start condition to restrict to, unlike the opening moves
+    :func:`_fused_openings` serves, which is what the default keeps serving.
 
     A snapshot that is missing or unreadable yields no move rather than a
     fault: the reader has already counted it (R11), and a project whose graph
@@ -437,7 +477,8 @@ def _opening_moves(path: Path, counters: Counters) -> tuple[TransitionEdge, ...]
     return tuple(
         edge
         for edge in edges
-        if edge.source == START_KEY and edge.condition.process_type is PROMPT_PROCESS_TYPE
+        if edge.source == source
+        and (process_type is None or edge.condition.process_type is process_type)
     )
 
 
@@ -495,9 +536,140 @@ def record(payload: Mapping[str, Any]) -> Response:
     return None
 
 
-def enforce(payload: Mapping[str, Any]) -> Response:
-    """``PreToolUse``: deny an action a pitfall matches, when opted in (T050)."""
+@dataclass(frozen=True, slots=True)
+class _Move:
+    """The move a pre-action payload is about to make, and where to look it up.
+
+    Attributes:
+        source: The node the agent stands on — its previous step's identity.
+        target: The node the action about to be taken would land on.
+        project_dir: The project it is about to be taken in, whose graph is
+            consulted before the cross-project one (FR-048).
+    """
+
+    source: str
+    target: str
+    project_dir: str
+
+
+def deny_reason(payload: Mapping[str, Any], connection: sqlite3.Connection, config: Config) -> str:
+    """Why the action *payload* is about to take is refused; ``""`` to allow it.
+
+    The move about to be made is looked up in the graph, and only what it is
+    known to *fail* as is a reason to refuse it: the claim is the pitfall's
+    own evidence and count (FR-044), never prose a model wrote.
+
+    A locked index or a pack that fails to load is the ordinary failure
+    :func:`capture` answers for its own writes: the lookup is dropped and
+    counted as ``capture_store_busy`` rather than raised, because a check
+    that cannot be made must not itself refuse the action (FR-014).
+    """
+    store = SQLiteEpisodicStore(connection)
+    event = adapt_pre_tool_use(payload, store)
+    if event is None:
+        return ""
+    try:
+        key = SequenceIdentity(connection, event.conversation_id).key(
+            event.prompt_id, event.agent_id
+        )
+        move = _Move(
+            source=locate(store.steps(key), config.level).key,
+            target=_intended_key(event, store, level=config.level),
+            project_dir=event.project_dir,
+        )
+        pitfall = _matching_pitfall(move, store)
+    except (sqlite3.Error, PackError):
+        store.bump("capture_store_busy")
+        return ""
+    if pitfall is None:
+        return ""
+    return BulletRenderer(store, Deadline()).render([_refusal(move, pitfall)])
+
+
+def _intended_key(event: TrajectoryEvent, counters: Counters, *, level: str) -> str:
+    """The node the action *event* names would land on, spelled at *level*.
+
+    An action decomposing into several sub-activities (FR-017) is judged on the
+    first of them: that is the one about to be taken, and the only one that
+    still happens if this action is refused.
+    """
+    activities = steps_from(event, load_vocabulary().activity_for(event.tool_name, counters.bump))
+    return identify_procedure(activities[0]).key_at(level)
+
+
+def _matching_pitfall(move: _Move, counters: Counters) -> Pitfall | None:
+    """What the graph knows *move* fails as, this project's graph first.
+
+    The cross-project snapshot is read only for a move this project has no
+    pitfall for, which is FR-048's fallback spelled for a lookup rather than
+    for a ranking.
+    """
+    for path in (_project_snapshot(move.project_dir), home_dir() / SNAPSHOT_NAME):
+        for edge in _moves_from(path, move.source, counters, process_type=None):
+            if edge.target == move.target and (pitfall := _failure_of(edge)) is not None:
+                return pitfall
     return None
+
+
+def _failure_of(edge: TransitionEdge) -> Pitfall | None:
+    """What *edge* is known to fail as, or ``None`` where it is known no such thing.
+
+    A repetition loop is not one: it counts repetitions rather than failures
+    and makes no claim about how they went (FR-031), so it is something to warn
+    about one step early, not something to refuse an action over.
+    """
+    failures = (pitfall for pitfall in edge.pitfalls if pitfall.kind is PitfallKind.FAILURE_PRONE)
+    return next(failures, None)
+
+
+def _refusal(move: _Move, pitfall: Pitfall) -> GuidanceStatement:
+    """The refused move as the claim it is refused with, and its evidence."""
+    return GuidanceStatement(
+        text=f"{pitfall.evidence} is known to fail after {move.source}",
+        support=pitfall.support,
+    )
+
+
+def enforce(payload: Mapping[str, Any]) -> Response:
+    """``PreToolUse``: deny an action a pitfall matches, when opted in (T050).
+
+    Off unless opted into, and the check comes before anything else: with
+    ``Config.enforce`` at its shipped default this verb reads no index, no
+    snapshot and no payload, which is what "disabled by default" has to mean on
+    a hook the harness runs before every action (FR-049).
+
+    One index opened per invocation and closed here whatever happened (R10), as
+    in :func:`record`. A store that cannot be opened at all allows the action:
+    a memory that cannot be consulted is not a reason to stop the developer
+    (FR-014).
+    """
+    config = load_config()
+    if not config.enforce:
+        return None
+    try:
+        connection = open_index()
+    except sqlite3.Error as exc:
+        log_fallback(home_dir() / "log" / "hooks.jsonl", "capture_store_busy", exc)
+        return None
+    with closing(connection):
+        reason = deny_reason(payload, connection, config)
+    return _denial(reason) if reason else None
+
+
+def _denial(reason: str) -> Mapping[str, Any]:
+    """*reason* as the one decision ``PreToolUse`` accepts.
+
+    A deny and its reason, and nothing else: the event carries no
+    ``additionalContext``, which is why a pitfall is *warned* about one step
+    earlier, by ``record`` (FR-046).
+    """
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+    }
 
 
 def close(payload: Mapping[str, Any]) -> Response:
