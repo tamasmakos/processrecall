@@ -1,91 +1,149 @@
-r"""Standalone MCP stdio server for processrecall memory operations.
+"""The four memory tools, served over JSON-RPC on stdin and stdout (FR-065).
 
-Exposes tools over JSON-RPC 2.0 via stdin/stdout so any MCP-aware client
-(Claude Desktop, Cursor, Zed, Hermes, OpenCode) can use processrecall memory
-without requiring the full agent service.
+The inventory below is the exposed surface: four tools and no fifth. Adding a
+name here is what exposing a tool means, which is why FR-066's graph editing —
+add, delete, revise — is not here but stays a programmatic interface that
+`graph/` callers reach directly.
 
-``processrecall.server.mcp.tools.__all__`` is the authoritative tool inventory.
+Each tool's handler is one module under `tools/`, named after the tool, imported
+when a call for it arrives: the declaration a client lists is separable from the
+work a call does, and each handler stays one file with one responsibility. That
+package lands in T054-T057, one handler per task; this task only declares the
+surface, so `tools/call` is not yet exercised.
 
-Usage (stdio probe)::
+Usage::
 
-    echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
-      | processrecall-mcp 2>/dev/null
-
-All MCP protocol traffic goes to stdout. All logging goes to stderr.
+    processrecall-mcp    # or: python -m processrecall.server.mcp.stdio_server
 """
 
 from __future__ import annotations
 
 import asyncio
-import logging
+from collections.abc import Mapping
+from dataclasses import dataclass
+from importlib import import_module
+from typing import Any, Protocol
 
-logging.basicConfig(level=logging.WARNING, stream=__import__("sys").stderr)
+try:
+    from mcp import types
+    from mcp.server.lowlevel import Server
+    from mcp.server.stdio import stdio_server
+except ModuleNotFoundError as exc:  # pragma: no cover - exercised only on broken installs
+    from processrecall.exceptions import BootstrapError
 
-from processrecall.server.mcp._app import app  # noqa: E402
+    raise BootstrapError(
+        "mcp",
+        "The MCP stdio server cannot start without it — re-run bootstrap to rebuild "
+        "the plugin environment.",
+    ) from exc
 
-# Importing the tools package registers every tool (single registration point);
-# the star-import re-exports them here so existing code/tests can reference them
-# on this module. The package's __all__ is the authoritative inventory.
-from processrecall.server.mcp.tools import *  # noqa: F403, E402
+from processrecall.server.mcp.arguments import (
+    InspectArguments,
+    MarkOutcomeArguments,
+    RecallArguments,
+    RememberArguments,
+)
 
-# The destructive tools leave __all__ when the admin gate is shut, so name them
-# explicitly: the Python surface always carries them, only the MCP surface is
-# gated.
-from processrecall.server.mcp.tools.admin import (  # noqa: E402, F401
-    ENABLED_ADMIN_TOOLS,
-    memory_drop_namespace,
-    memory_purge,
+#: Where a tool's handler lives: one module per tool, named after it.
+_HANDLERS = "processrecall.server.mcp.tools"
+
+
+class ArgumentModel(Protocol):
+    """What the server asks of an argument model: a schema, and parsing.
+
+    Stated structurally so the transport never has to import the library the
+    models are written in.
+    """
+
+    @classmethod
+    def model_json_schema(cls) -> dict[str, Any]:
+        """The arguments as JSON schema, for the tool list."""
+
+    @classmethod
+    def model_validate(cls, payload: Mapping[str, Any]) -> Any:
+        """*payload* as this tool's arguments, or a rejection."""
+
+
+@dataclass(frozen=True)
+class ToolSpec:
+    """One exposed tool: its name, what it is for, and what it takes."""
+
+    name: str
+    summary: str
+    arguments: type[ArgumentModel]
+
+    def declare(self) -> types.Tool:
+        """The tool as a client lists it."""
+        return types.Tool(
+            name=self.name,
+            description=self.summary,
+            inputSchema=self.arguments.model_json_schema(),
+        )
+
+    def call(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        """Run the handler over *payload*, parsed into this tool's arguments."""
+        handler = getattr(import_module(f"{_HANDLERS}.{self.name}"), self.name)
+        result: dict[str, Any] = handler(self.arguments.model_validate(payload))
+        return result
+
+
+#: FR-065's four, in the order an agent meets them: read, annotate, judge, look.
+TOOLS: tuple[ToolSpec, ...] = (
+    ToolSpec(
+        "recall",
+        "Guidance for a named procedure, or for where the work already is.",
+        RecallArguments,
+    ),
+    ToolSpec(
+        "remember",
+        "Attach a note to one move in the graph, so the next run reads it.",
+        RememberArguments,
+    ),
+    ToolSpec(
+        "mark_outcome",
+        "Declare how a piece of work turned out, beside the derived outcome.",
+        MarkOutcomeArguments,
+    ),
+    ToolSpec(
+        "inspect",
+        "The graph in counts: nodes, edges, conditions, annotations, counters.",
+        InspectArguments,
+    ),
+)
+
+_BY_NAME: Mapping[str, ToolSpec] = {spec.name: spec for spec in TOOLS}
+
+server: Server[object, Any] = Server(
+    "processrecall-memory",
+    instructions=(
+        "Procedural memory of how work on this project has actually gone: "
+        "recall guidance before a step, remember what a move is worth, "
+        "mark_outcome when the work lands, inspect what has been learned."
+    ),
 )
 
 
-def _announce_admin_tools() -> None:
-    """Name an enabled destructive surface on stderr — it is never invisible."""
-    if ENABLED_ADMIN_TOOLS:
-        logging.getLogger("processrecall.startup").warning(
-            "admin tools ENABLED: %s", ", ".join(ENABLED_ADMIN_TOOLS)
-        )
+@server.list_tools()
+async def _list_tools() -> list[types.Tool]:
+    """Answer `tools/list` with the inventory, and nothing besides it."""
+    return [spec.declare() for spec in TOOLS]
 
 
-async def _startup_warmup() -> None:
-    """Pre-warm embedder and stores before first tool call."""
-    log = logging.getLogger("processrecall.startup")
-
-    # Load settings first so configuration is validated before the first tool call.
-    try:
-        from processrecall.server.mcp._state import get_settings
-
-        get_settings()
-        log.warning("Settings warmup OK")
-    except Exception as exc:
-        log.warning("Settings warmup failed (non-fatal): %s", exc)
-
-    # 1. Probe embedder (validates API key + network reachability)
-    try:
-        from processrecall.storage.embedder import embed_one
-
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, embed_one, "warmup")
-        log.warning("Embedder warmup OK")
-    except Exception as exc:
-        log.warning("Embedder warmup failed (non-fatal): %s", exc)
+@server.call_tool()
+async def _call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Answer `tools/call` from the named tool's handler."""
+    return _BY_NAME[name].call(arguments)
 
 
-async def _run_server() -> None:
-    await _startup_warmup()
-    await app.run_stdio_async()
+async def _serve() -> None:
+    """Serve until the client closes stdin."""
+    async with stdio_server() as (read, write):
+        await server.run(read, write, server.create_initialization_options())
 
 
 def main() -> None:
-    """Run the processrecall MCP stdio server.
-
-    Reads JSON-RPC 2.0 requests on stdin, writes responses on stdout.
-    All logging goes to stderr.
-    """
-    from processrecall.settings import get_settings
-
-    get_settings().check_production_secrets()
-    _announce_admin_tools()
-    asyncio.run(_run_server())
+    """Run the server: JSON-RPC on stdin and stdout, nothing on a port."""
+    asyncio.run(_serve())
 
 
 if __name__ == "__main__":

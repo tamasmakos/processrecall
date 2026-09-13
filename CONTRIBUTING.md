@@ -145,15 +145,17 @@ add it.
 
 ### Adding an MCP tool
 
-Tools live in `processrecall/server/mcp/tools/`, grouped by concern (`stm.py`,
-`query.py`, `ltm.py`, `corpus.py`, `admin.py`).
+FR-065/FR-066 fix the surface at exactly four tools — `recall`, `remember`,
+`mark_outcome`, `inspect` — declared in `processrecall/server/mcp/stdio_server.py`.
+There is no fifth to add; a handler moves, not a tool.
 
-1. Add an `async def` to the right module, decorated on the shared FastMCP app.
-2. Accept an optional `namespace` argument — every tool does — and resolve it
-   through the standard path in `processrecall/server/mcp/_state.py`.
-3. Keep it a thin wrapper over one `Memory` method. Logic belongs in `memory` or
-   below, never in the transport.
-4. Export it from `tools/__init__.py`, which is the authoritative inventory.
+1. Add the tool's argument model to `processrecall/server/mcp/arguments.py`, the
+   package's only pydantic.
+2. Add a `ToolSpec` for it to `TOOLS` in `stdio_server.py`; that tuple is the
+   authoritative inventory, checked by `tests/server/test_tools.py`.
+3. Implement `processrecall/server/mcp/tools/<name>.py`, one function named
+   after the tool, taking its argument model and returning a plain `dict`.
+   Stdlib only — no pydantic, no `mcp` import in the handler.
 
 ## Code style
 
