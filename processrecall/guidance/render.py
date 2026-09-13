@@ -7,15 +7,16 @@ the claim it is the evidence for, in the order the caller ranked them.
 On the hot path, so the standard library only.
 
 Example:
-    from processrecall.guidance.render import BulletRenderer
+    from processrecall.guidance.render import BulletRenderer, Deadline
 
-    text = BulletRenderer(counters).render(statements)
+    text = BulletRenderer(counters, Deadline(started_at=entered_at)).render(statements)
 """
 
 from __future__ import annotations
 
+import time
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from processrecall.graph.snapshot import Counters
@@ -23,6 +24,28 @@ from processrecall.graph.snapshot import Counters
 #: The ceiling FR-042's ~300 tokens becomes without a tokeniser on the hot
 #: path, at the conventional four characters per token (R8).
 CHARACTER_BUDGET = 1200
+
+#: The soft budget inside the hook's 5-second fence, in seconds (R9): the
+#: elapsed time at which an answer is already too late to be worth serving.
+SOFT_BUDGET_SECONDS = 0.25
+
+
+@dataclass(frozen=True, slots=True)
+class Deadline:
+    """How much of the soft budget rendering may still spend (R9).
+
+    Attributes:
+        started_at: `time.perf_counter` as it read when the hook was entered.
+            Entry, not render time, is the origin: the snapshot read happens
+            in between, and a slow one is exactly what the budget catches.
+    """
+
+    started_at: float = field(default_factory=time.perf_counter)
+
+    @property
+    def exceeded(self) -> bool:
+        """Whether the budget is spent, so that anything served now is late."""
+        return time.perf_counter() - self.started_at > SOFT_BUDGET_SECONDS
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,8 +72,9 @@ class Renderer(Protocol):
 class BulletRenderer:
     """The one renderer this phase ships: a bullet and a count per statement."""
 
-    def __init__(self, counters: Counters) -> None:
+    def __init__(self, counters: Counters, deadline: Deadline) -> None:
         self._counters = counters
+        self._deadline = deadline
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}()"
@@ -59,8 +83,12 @@ class BulletRenderer:
         """*statements* as one string, in the order they were ranked in.
 
         Bounded at :data:`CHARACTER_BUDGET`: what does not fit is dropped
-        whole, weakest evidence first, and the render is counted (R8).
+        whole, weakest evidence first, and the render is counted (R8). Past
+        the soft budget the answer is silence rather than a late one (R9).
         """
+        if self._deadline.exceeded:
+            self._counters.bump("guidance_deadline_exceeded")
+            return ""
         kept = _within_budget(statements)
         if len(kept) != len(statements):
             self._counters.bump("guidance_over_budget")
