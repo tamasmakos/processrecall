@@ -9,11 +9,12 @@ which harness produced it, so the harness's spellings — ``session_id``,
 ``contracts/trajectory-event.md``.
 
 Two rules of that contract live in this module rather than downstream. The
-result is cut to :data:`RESULT_CEILING` characters *here* (FR-010), because a
-bound applied later would mean the untruncated text had already been written
-somewhere; and a payload missing a field that places the action in a sequence is
-counted and dropped, never raised — a hook that raises surfaces against the
-developer's own action (R16).
+result is pre-cut to :data:`RESULT_CEILING` characters *here* (FR-010) so the
+untruncated text is never held in memory longer than it has to be; the store
+itself enforces the same ceiling at the write seam, for every other source
+that writes through it. And a payload missing a field that places the action
+in a sequence is counted and dropped, never raised — a hook that raises
+surfaces against the developer's own action (R16).
 
 On the hot path, so the standard library only.
 """
@@ -35,6 +36,7 @@ from processrecall.config import STORE_DIR, home_dir
 from processrecall.exceptions import PackError
 from processrecall.graph.episodic import SequenceIdentity, open_index
 from processrecall.graph.store import (
+    RESULT_CEILING,
     EpisodicStep,
     Sequence,
     SequenceKey,
@@ -50,10 +52,6 @@ from processrecall.trajectory.paths import lexical_path, normalise_path, project
 from processrecall.trajectory.vocabulary import load_vocabulary
 
 _logger = logging.getLogger("processrecall")
-
-#: The 2 KB ceiling of FR-010, in characters. A snippet is for recognising what
-#: happened, not for replaying it: ``record_ref`` points at the whole record.
-RESULT_CEILING = 2048
 
 #: The project-level opt-out: its presence under the project directory is the
 #: whole signal, contents ignored (R13).
@@ -153,6 +151,8 @@ def adapt_post_tool_use(payload: Mapping[str, Any], counters: Counters) -> Traje
         tool_name=str(payload.get("tool_name") or ""),
         tool_call_id=str(payload.get("tool_use_id") or ""),
         tool_call_arguments=arguments if isinstance(arguments, Mapping) else {},
+        # Cut here too, not just in the store: so the untruncated result is
+        # never held in this process longer than it takes to slice it (FR-010).
         tool_call_result=str(payload.get("tool_result") or "")[:RESULT_CEILING],
         prompt_id=str(payload.get("prompt_id") or ""),
         project_dir=str(payload.get("cwd") or ""),

@@ -42,6 +42,16 @@ _logger = logging.getLogger("processrecall")
 #: unbounded.
 _LOG_ROTATE_BYTES = 5 * 1024 * 1024
 
+#: The 2 KB ceiling of FR-010, in characters. It lives at the write seam rather
+#: than in one adapter because every source writes through the store: a snippet
+#: is for recognising what happened, and ``record_ref`` points at the whole
+#: record for anyone who needs the rest.
+#:
+#: FR-010's other half — 600 characters of a prompt — has no counterpart here:
+#: no field of `EpisodicStep` or the `steps`/`sequences` schema stores prompt
+#: text at all (R13), so there is nothing to bound.
+RESULT_CEILING = 2048
+
 
 def _canonical_json(arguments: Mapping[str, object]) -> str:
     """*arguments* as one string that two passes over the same record agree on.
@@ -282,6 +292,10 @@ class SQLiteEpisodicStore:
         the conflict is resolved by the database and reported as a value — and
         counted as ``steps_duplicate`` (R3), because a duplicate nobody counted
         reads exactly like an action that was never sent.
+
+        The result snippet is cut to :data:`RESULT_CEILING` on the way in
+        (FR-010): the ceiling is a property of what is stored, not of the
+        adapter that happened to produce the step.
         """
         with self._connection:
             cursor = self._connection.execute(
@@ -303,7 +317,7 @@ class SQLiteEpisodicStore:
                     step.occurred_at.isoformat(),
                     step.program,
                     json.dumps(list(step.files)),
-                    step.result_snippet,
+                    step.result_snippet[:RESULT_CEILING],
                     step.outcome,
                     step.record_ref,
                     step.rationale_label,
