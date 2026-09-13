@@ -26,112 +26,39 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-    # Batteries-included: `pip install processrecall` gives a fully working memory
-    # service (local extraction, embeddings, analytics, parsers) that also serves
-    # MCP out of the box — and, with a key and `Memory(mode="llm_assisted")`, the
-    # LLM decoder too. Both modes are the contract surface, so neither sits behind
-    # an extra; only the injectable RDF/OWL stack (`ontology`) and the optional
-    # adapters do.
+    # Five, and only five (design §5, R15). The hot path — capture, graph
+    # maintenance, serving — is stdlib-only and imports none of them; that is
+    # enforced by `.importlinter` (R17), and the exact name set by
+    # tests/test_packaging.py. Each carries a lower bound (Principle VII): a
+    # sixth name here is a person's decision, never a side effect of an import.
     "pydantic>=2.7.0",
-    # env_file loading in settings.py needs python-dotenv, but pydantic-settings
-    # already requires it unconditionally (not behind an extra) — no separate
-    # declaration needed here.
     "pydantic-settings>=2.2.0",
-    "httpx>=0.27.0",
-    "numpy>=1.26.0",
-    "dateparser>=1.2.0",
-    # extraction (llm_free) + embeddings
-    # `gliner` (not just gliner2) is required: entities/gliner_model.py loads
-    # knowledgator/gliner-relex-large-v1.0 through `from gliner import GLiNER`.
-    # It is NOT a transitive dependency of gliner2 — omitting it breaks the
-    # default llm_free extraction path with ModuleNotFoundError on first ingest.
-    "gliner>=0.2.26",
-    # Capped below 2.0: gliner2 2.0.0 moved peft/torch/transformers/safetensors
-    # out of the base install and behind a `local` extra, so `pip install gliner2`
-    # imports fine but cannot load a model ("No module named 'peft'"), and
-    # `gliner2[local]` pins transformers<5 which this resolution cannot satisfy.
-    # The cap also makes the Dockerfile's lock-free `uv pip install ".[assisted]"`
-    # agree with uv.lock, which pins 1.3.1.
-    "gliner2>=0.1.0,<2",
-    "spacy>=3.7.0",
-    "sentence-transformers>=3.0.0",
-    # Imported DIRECTLY by embedder.py, gliner_model.py and
-    # _gliner2_verifier.py — not merely pulled in by sentence-transformers.
-    # Relying on the transitive edge means a sentence-transformers release that
-    # drops or re-pins any of them silently breaks us. The Dockerfile also
-    # installs torch from an explicit index (CPU by default), which needs the
-    # constraint declared here to resolve consistently.
-    "torch>=2.4.0",
-    "transformers>=4.44.0",
-    "huggingface-hub>=0.24.0",
-    # BM25 sparse channel in retrieval/retriever.py. Was undeclared and
-    # therefore absent, so `except ImportError` silently degraded the channel to
-    # a tf-style scorer — a fused retrieval source that looked live and was not.
-    "rank-bm25>=0.2.2",
-    # WordNet/FrameNet lookups in the default (llm_free) relation path:
-    # ingestion/extraction/relations/_lingfeatures.py and frames/framenet.py.
-    # Core, not eval-only — those call sites guard LookupError (missing *corpus*),
-    # which does not catch the ModuleNotFoundError raised by a missing *package*.
-    "nltk>=3.10.2",  # PYSEC-2026-3726 fixed in 3.10.2
-    # plug-and-play MCP server. Capped below 2.0: that release removed
-    # `mcp.server.fastmcp`, which processrecall.server.mcp imports, so the server
-    # raises BrokenInstallError on import. The cap is here rather than in the
-    # lock because the image installs with `uv pip install ".[assisted]"` — it
-    # resolves from THESE constraints and never reads uv.lock, so a lock pin is
-    # silently ignored on every rebuild.
-    "mcp>=1.0.0,<2",
-    # The LLM decoder (`Memory(mode="llm_assisted")`). Core, not an extra: the
-    # mode is part of the contract surface, and an extra that gates half of that
-    # surface is a documentation bug waiting to happen (ADR 0003). `llm_free`
-    # installs carry them unused — the cost of the swap, accepted deliberately.
-    # `litellm` is declared beside dspy because the decoder imports it directly
-    # (typed retry signals, the model-map registration that makes structured
-    # output reach the provider), not only through dspy.
-    "dspy>=3.2.1",
-    "litellm>=1.85.0",
+    # Code parsing, in the detached session-end job only (FR-062, FR-064):
+    # imported by `artifacts/` and nothing else. The floors are the pair this
+    # tree was locked and tested against — lower them once an older pair has
+    # actually been exercised, not on faith. R15 records the open choice of
+    # moving both behind an `artifacts` extra.
+    "tree-sitter>=0.26.0",
+    "tree-sitter-language-pack>=1.19.0",
+    # The stdio server (`server/mcp/`). The floor is the first release with the
+    # stdio transport. No cap: the old `<2` guarded `mcp.server.fastmcp`, an
+    # import the rewritten server (T053) decides for itself.
+    "mcp>=1.0.0",
 ]
 
 [project.optional-dependencies]
-# Injectable RDF/OWL ontology: what the release image installs
-# (`deploy/Dockerfile`), what the dev image and CI sync, and what the five
-# ontology MissingExtraError call sites name.
-#
-# `networkx` sits beside rdflib for processrecall.symbolic.ontology.rdf: projecting a
-# folder of RDF needs a multigraph with parallel predicate-keyed edges, and the
-# label-keyed taxonomy needs cycle detection and a topological order. Both are
-# imported inside functions behind a MissingExtraError guard, so a base install
-# pulls neither.
-#
-# The `assisted` extra is GONE (ADR 0003): dspy and litellm are core, because
-# `llm_assisted` is part of the contract surface. `pip install
-# 'processrecall[assisted]'` now fails; RDF users want `processrecall[ontology]`.
-ontology = ["rdflib>=7.0.0", "networkx>=3.0"]
-# Framework adapter. Genuinely optional — nothing in the core paths imports it,
-# and it is lazily imported behind a MissingExtraError guard. The `langchain`
-# extra was removed with its adapter: `GraphKnowsRetriever` had zero importers
-# (no test, example, eval, or docs page) and raised a bare ImportError, so the
-# extra it named guarded nothing.
-langgraph = ["langgraph>=0.2.0"]
-# Langfuse tracing for the LangGraph example. Nothing in the library imports it
-# — the example builds the callback only when LANGFUSE_* is set.
-#
-# `langfuse>=3` is not cosmetic: the 2.x SDK imports `langchain.callbacks`,
-# which langchain 1.x deleted, so 2.x cannot be used with any current langchain.
-# The `langchain` meta-package is a real requirement, not a transitive one —
-# langfuse's integration imports it directly and raises if it is absent, and
-# langchain-openai/langgraph alone pull only langchain-core.
-observability = ["langfuse>=3.0", "langchain>=1.0"]
-
-# Every extra named by a MissingExtraError call site MUST appear above;
-# `MissingExtraError.KNOWN_EXTRAS` and tests/test_packaging.py enforce it. For a
-# missing *core* dependency raise BrokenInstallError instead — there is no
-# extra to install, and suggesting one is a dead end.
+# The one extra. Enrichment (`symbolic/classify.py`) is opted into through a
+# plugin setting (FR-071); when the extra is absent, classification is a
+# rules-only path, never a fetch and never a crash (FR-060). The hot path
+# imports none of these. gliner2 is capped below 2.0: that release moved its
+# model runtime behind a `local` extra whose transformers pin this resolution
+# cannot satisfy, so a plain install imports fine and cannot load a model.
+classify = ["gliner2>=0.1.0,<2", "torch>=2.4.0", "transformers>=4.44.0"]
 
 [project.urls]
 Homepage = "https://github.com/tamasmakos/processrecall"
 Repository = "https://github.com/tamasmakos/processrecall"
 Issues = "https://github.com/tamasmakos/processrecall/issues"
-Changelog = "https://github.com/tamasmakos/processrecall/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]
@@ -142,20 +69,32 @@ path = "processrecall/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["processrecall"]
-# Domain packs are data, not code. `packages` ships the directory, but hatchling
-# drops anything the VCS ignores — an ignore rule matching *.json would silently
-# produce an installed package with no packs. `artifacts` force-includes them.
-artifacts = ["processrecall/packs/data/**/*.json"]
+# The two packs are data, not code (FR-024, R15): the concept index under
+# symbolic/data/ and the tool vocabularies under trajectory/vocab/. `packages`
+# ships the directory, but hatchling drops anything the VCS ignores — an
+# ignore rule matching *.json would silently produce an installed package with
+# no packs. `artifacts` force-includes them; tests/test_packaging.py asserts
+# both are declared here and both land in the built wheel.
+artifacts = [
+    "processrecall/symbolic/data/**/*.json",
+    "processrecall/trajectory/vocab/**/*.json",
+]
 
 [tool.hatch.build.targets.sdist]
 # `.claude` is the agent harness (skills, workflows, hooks) — version controlled so the
 # rules survive a clone, but it is not part of the distribution. hatchling drops
 # VCS-ignored files, so before it was tracked it was excluded for free; now that it is
-# tracked, only this line keeps ~1.5 MB of skills out of the sdist.
-exclude = ["evaluation", "examples", "tests", "research", ".scratch", ".claude", "CLAUDE.md"]
+# tracked, only this line keeps ~1.5 MB of skills out of the sdist. `research/` holds
+# the prototypes and has no packaging obligations (R18).
+exclude = ["tests", "research", ".scratch", ".claude", "CLAUDE.md"]
 
 [project.scripts]
-processrecall = "processrecall.cli.memory:main"
+# The stdio server keeps its console script: `server/mcp/stdio_server.py` is a
+# kept path that T053 rewrites in place, and README.md documents the name until
+# T081 rewrites it. The `processrecall` CLI script is gone with `cli/memory.py`;
+# the rewritten CLI (T032 onward) declares its own entry point when it lands —
+# an entry point naming a module that does not exist is a broken install, not
+# a placeholder.
 processrecall-mcp = "processrecall.server.mcp.stdio_server:main"
 
 # ── Dev tooling ────────────────────────────────────────────────────────────────
@@ -168,7 +107,6 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=5.0.0",
-    "httpx>=0.27.0",
     # `import-linter` is the *only* architecture checker. A second one (tach)
     # used to run alongside it and had been red on main, unnoticed, for weeks:
     # its failure message advertises `tach sync`, which rewrites the config to
@@ -180,81 +118,14 @@ dev = [
     # it has to see this project's own resolved environment to work at all.
     "deptry>=0.25.0",
 ]
-eval = [
-    "datasets>=2.19.0",
-    "pandas>=2.2.0",
-    "pytest>=8.0.0",
-    "tabulate>=0.9.0",
-    # nltk (PorterStemmer for the locomo_f1 lexical diagnostic) is now a core
-    # dependency — see [project.dependencies]. Declaring it here too was what
-    # let the Docker image satisfy a production import from a dev-only group.
-]
-
-[tool.uv]
-# Floors on TRANSITIVE packages, to clear advisories the dependency audit
-# (`scripts/gate.sh`, `.pip-audit-ignore`) reports against the resolved runtime
-# set. They are constraints, not dependencies: processrecall imports neither, so
-# declaring them in [project.dependencies] would be a lie deptry rightly flags —
-# a constraint only says "if something pulls this in, not below this version".
-#
-# Both entered the audited set when dspy and litellm became core (ADR 0003): the
-# audit exports the runtime closure, which used to exclude them with the extra.
-# Drop a line once the puller's own floor overtakes it.
-constraint-dependencies = [
-    "aiohttp>=3.14.3",   # litellm; PYSEC-2026-3545/3546/3547
-    "json-repair>=0.60.1",  # dspy; GHSA-xf7x-x43h-rpqh
-]
 
 [tool.deptry]
-# `known_first_party`: deptry guesses local modules by iterating the *contents*
-# of the scanned root, so when the root passed on the command line is the
-# package directory itself (`deptry processrecall`, required below to keep
-# evaluation/'s legitimate eval-group imports out of scope) it never adds
-# "processrecall" itself to that guessed set — every internal `import processrecall`
-# / `from processrecall import ...` line then reads as DEP003 (a transitive
-# dependency). Declaring it here is the documented escape hatch, not a
-# workaround for a real drift.
+# deptry guesses local modules by iterating the *contents* of the scanned
+# root, so when the root passed on the command line is the package directory
+# itself (`deptry processrecall`) it never adds "processrecall" to that guessed
+# set, and every internal import reads as DEP003. Declaring it is the
+# documented escape hatch, not a workaround for a real drift.
 known_first_party = ["processrecall"]
-
-# First run (27 Aug 2026) of `uv run deptry processrecall --config pyproject.toml`
-# on this environment (`uv sync --group dev`, no optional extras installed)
-# reported exactly four DEP002 (unused dependency) findings and nothing else:
-#   - python-dotenv  ([project.dependencies] — genuinely unimported anywhere
-#     under processrecall/; removed (#218) — pydantic-settings already requires
-#     it unconditionally for env_file loading)
-#   - scipy          ([project.dependencies] — zero references under
-#     processrecall/ despite the dependency comment claiming a direct import;
-#     removed (#218))
-#   - langfuse        (`observability` extra — deliberate, ignored below)
-#   - langchain       (`observability` extra — deliberate, ignored below)
-# No DEP003/DEP004 findings this run.
-#
-# Verified against deptry's own docs (https://deptry.com/usage/, v0.25.1):
-# [project.dependencies] / [project.optional-dependencies] are extracted as
-# regular dependencies, and groups under [dependency-groups] are extracted as
-# *development* dependencies BY DEFAULT — no group config needed. Development
-# dependencies are exempt from the unused-dependency rule (DEP002). So the
-# `dev` and `eval` groups need no `pep621_dev_dependency_groups` entry here;
-# that setting is deprecated in favour of `--optional-dependencies-dev-groups`,
-# which concerns [project.optional-dependencies] extras, not PEP 735 groups —
-# writing it would be a no-op on a deprecated option. This is what makes
-# DEP004 (a dev-group package that a shipped module imports) fire out of the
-# box, which is the actual class of defect this gate exists to catch: nltk
-# sat in the `eval` group while processrecall/ imported it, breaking a plain
-# `pip install processrecall` while the container stayed green because
-# Dockerfile installs `--group dev --group eval` (see #204).
-
-[tool.deptry.per_rule_ignores]
-DEP002 = [
-    # 27 Aug 2026: `observability` extra. [project.optional-dependencies]'s own
-    # comment says it: nothing in the library imports langfuse/langchain, the
-    # LangGraph example builds the tracing callback only when LANGFUSE_* env
-    # vars are set. Deliberately unused by processrecall/ itself. Remove this
-    # entry once the extra is either imported somewhere in processrecall/ or
-    # dropped.
-    "langfuse",   # 27 Aug 2026
-    "langchain",  # 27 Aug 2026
-]
 
 [tool.bandit]
 skips = ["B101"]
@@ -268,7 +139,7 @@ addopts = "--import-mode=importlib"
 asyncio_mode = "auto"
 pythonpath = ["."]
 markers = [
-    "integration: marks tests that require live infrastructure (ArcadeDB) — excluded from CI unit test run",
+    "integration: marks tests that require live infrastructure — excluded from CI unit test run",
     "unit: marks pure unit tests with no infrastructure dependencies",
     "slow: marks tests that build or install a real artifact (minutes, not seconds)",
 ]
@@ -278,8 +149,8 @@ line-length = 100
 target-version = "py311"
 # The agent harness is tracked (so its rules survive a clone) but it is not this
 # package's code: these are vendored skill helpers, and scripts/gate.sh lints
-# `processrecall evaluation tests` only. Without this the pre-commit hook — which has no
-# path scope of its own — holds a third-party skill to processrecall' docstring rules.
+# `processrecall tests` only. Without this the pre-commit hook — which has no
+# path scope of its own — holds a third-party skill to the package's docstring rules.
 extend-exclude = [".claude"]
 
 [tool.ruff.lint]
@@ -330,24 +201,10 @@ ignore = [
 # failure — inventing an exception class per mock side-effect adds noise, not safety.
 "tests/*" = ["D", "S101", "B017", "E402", "N806", "SIM102", "UP038", "TRY002"]
 "scripts/*" = ["D103"]
-"evaluation/**" = ["D", "C901", "UP038", "RUF034"]
-# TODO(tech-debt): add docstrings and refactor complexity in the files below
-"**/rdf_parser.py" = ["C901"]
-"**/storage/arcadedb/*.py" = ["D102", "C901"]  # data-access layer — docstrings deferred
-"**/retrieval/agentic.py" = ["C901"]  # ReAct loop complexity is inherent
-"**/framenet/framenet.py" = ["C901"]  # FE assignment is one dependency-parse pass
-# Pre-existing complexity, exempted rather than refactored under a gate-hardening
-# change: both are single linear passes over a parse tree / a section, and
-# splitting core extraction to satisfy a metric is churn with defect risk.
-"**/parsers/base.py" = ["C901"]  # _split_large_section: one section scan (15)
 # RUF059 flags unused names in tuple unpacking. Test fixtures return a fixed
 # tuple and each test binds all of it positionally while using a subset; the
 # alternative is index arithmetic, which is worse to read in a failing test.
 "tests/**" = ["RUF059"]
-# SIM905's autofix expands the compact whitespace-delimited stopword block into
-# ~100 lines of one word each. An inline noqa is impossible — the diagnostic
-# lands on the `"""` line, where the directive becomes string content.
-"**/extraction/entities/hygiene.py" = ["SIM905"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -377,12 +234,7 @@ disable_error_code = ["misc"]
 # re-enabling them would be a day of `dict[str, Any]` edits for no defect caught.
 [[tool.mypy.overrides]]
 module = [
-    "processrecall.retrieval.*",
-    "processrecall.storage.*",
     "processrecall.server.mcp.*",
-    "processrecall.ingestion.*",
-    "processrecall.channels.*",
     "processrecall.symbolic.*",
-    "processrecall.temporal",
 ]
 disable_error_code = ["no-any-return", "type-arg"]

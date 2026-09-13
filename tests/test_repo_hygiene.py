@@ -593,9 +593,6 @@ class TestLintTestConfigFolded:
         assert "tests/*" in per_file_ignores, (
             f"{PYPROJECT}: tool.ruff.lint.per-file-ignores has no `tests/*` entry"
         )
-        assert "evaluation/**" in per_file_ignores, (
-            f"{PYPROJECT}: tool.ruff.lint.per-file-ignores has no `evaluation/**` entry"
-        )
         assert lint.get("pydocstyle", {}).get("convention") == "google", (
             f"{PYPROJECT}: tool.ruff.lint.pydocstyle.convention != 'google'"
         )
