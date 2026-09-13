@@ -8,11 +8,13 @@ terminal is exactly where a human expects to see one.
 from __future__ import annotations
 
 import argparse
+import sqlite3
 import sys
 from collections.abc import Sequence
 from contextlib import closing
 from pathlib import Path
 
+from processrecall.cli.backfill import Replay, backfill, parse_since
 from processrecall.cli.rebuild import Derivation, check, rebuild
 from processrecall.cli.show import Inspection, show
 from processrecall.config import LEVELS, load_config
@@ -27,6 +29,18 @@ def _parser() -> argparse.ArgumentParser:
     """The command line of `contracts/cli.md`, as far as it is implemented."""
     parser = argparse.ArgumentParser(prog="processrecall")
     commands = parser.add_subparsers(dest="command", required=True)
+    backfill_command = commands.add_parser(
+        "backfill", help="replay the harness's own past sessions through the live seam"
+    )
+    backfill_command.add_argument(
+        "--project", type=Path, default=Path.cwd(), help="the project whose sessions to replay"
+    )
+    backfill_command.add_argument(
+        "--since", type=parse_since, default=None, help="the earliest action to record"
+    )
+    backfill_command.add_argument(
+        "--dry-run", action="store_true", help="report what would be written without writing it"
+    )
     show_command = commands.add_parser("show", help="inspect the memory, printing no payloads")
     show_command.add_argument("subject", choices=SUBJECTS)
     show_command.add_argument(
@@ -53,12 +67,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the command named in *argv*, printing what it found; 0 when it answered."""
     arguments = _parser().parse_args(argv)
     with closing(open_index()) as connection:
-        store = SQLiteEpisodicStore(connection)
         if arguments.command == "rebuild":
-            return _rebuild(arguments, store)
-        view = Inspection(store=store, project_dir=arguments.project)
+            return _rebuild(arguments, SQLiteEpisodicStore(connection))
+        if arguments.command == "backfill":
+            return _backfill(arguments, connection)
+        view = Inspection(store=SQLiteEpisodicStore(connection), project_dir=arguments.project)
         print(show(arguments.subject, view))
     return 0
+
+
+def _backfill(arguments: argparse.Namespace, connection: sqlite3.Connection) -> int:
+    """Replay past sessions, printing what landed (FR-015).
+
+    Non-zero when the store dropped a write rather than landing or skipping
+    it: unlike the hook, a terminal is exactly where that failure must surface
+    (FR-014).
+    """
+    replayed = backfill(
+        Replay(
+            connection=connection,
+            project_dir=arguments.project,
+            since=arguments.since,
+            dry_run=arguments.dry_run,
+        )
+    )
+    print(replayed)
+    return 1 if replayed.store_failures else 0
 
 
 def _rebuild(arguments: argparse.Namespace, store: EpisodicStore) -> int:
