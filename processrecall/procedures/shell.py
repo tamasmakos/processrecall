@@ -130,6 +130,13 @@ _PROGRAMS: dict[str, ActivityClass | dict[str, ActivityClass]] = {
 #: Shell operators that end one simple command and start the next.
 _OPERATORS = frozenset({"&&", "||", ";", "|", "&"})
 
+#: Every operator that redirects a stream — plumbing, not a path argument,
+#: however many of them a command line writes.
+REDIRECT_OPERATORS = frozenset({">", ">>", ">&", "<", "<&"})
+
+#: Of those, the ones that write their target rather than read it.
+_OUTPUT_REDIRECTS = frozenset({">", ">>"})
+
 #: The same cut, without quote awareness — only for a line :mod:`shlex` refuses.
 _SPLIT = re.compile(r"\s*(?:&&|\|\||;|\||\n)\s*")
 
@@ -223,7 +230,7 @@ def classify_program(tokens: list[str]) -> tuple[ActivityClass | None, str]:
     return entry, program
 
 
-def _is_path(token: str) -> bool:
+def is_path(token: str) -> bool:
     """Whether a token names a file this command touched.
 
     A flag, a null sink, a version number and a bare integer are all path-shaped
@@ -245,10 +252,10 @@ def artifacts_in(tokens: list[str]) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     verb = "uses"
     for token in tokens[1:]:
-        if token in (">", ">>"):
+        if token in _OUTPUT_REDIRECTS:
             verb = "creates"
             continue
-        if _is_path(token):
+        if is_path(token):
             out.append((verb, token))
         verb = "uses"
     return out
