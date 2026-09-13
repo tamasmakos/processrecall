@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "harness": "claude_code",
+  "tools": {
+    "Read": {"class": "Inspection", "program": "Read"},
+    "Grep": {"class": "Search", "program": "Grep"},
+    "Edit": {"class": "ChangeImplementation", "program": "Edit"},
+    "Write": {"class": "ChangeImplementation", "program": "Write"},
+    "Task": {"class": "Delegation", "program": "Task"},
+    "Bash": {"class": null, "program": null, "decompose": "shell"}
+  }
+}
