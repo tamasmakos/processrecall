@@ -31,7 +31,9 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
+
+from processrecall.config import Counters
 
 #: The snapshot's filename, under `~/.processrecall` and under
 #: `<project>/.processrecall` (`contracts/storage.md`).
@@ -41,18 +43,6 @@ SNAPSHOT_NAME = "graph.json"
 #: rather than a `KeyError` inside a hook (R11), which is the whole reason the
 #: field exists.
 SNAPSHOT_FORMAT = 1
-
-
-class Counters(Protocol):
-    """The slice of the episodic store a snapshot writes to.
-
-    Narrower than :class:`processrecall.graph.store.EpisodicStore` on purpose
-    (ISP): reading and writing a file only ever counts.
-    """
-
-    def bump(self, counter: str) -> None:
-        """Increment the counter named *counter*."""
-        ...
 
 
 @dataclass(frozen=True, slots=True)

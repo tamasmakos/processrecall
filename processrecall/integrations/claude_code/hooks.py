@@ -30,9 +30,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import Any, Protocol, TextIO
+from typing import Any, TextIO
 
-from processrecall.config import STORE_DIR, Config, home_dir, load_config
+from processrecall.config import STORE_DIR, Config, Counters, home_dir, load_config
 from processrecall.exceptions import PackError
 from processrecall.graph.abstract import (
     START_KEY,
@@ -82,19 +82,6 @@ DENY_LIST = "deny.txt"
 #: the condition the sequence's ``Start`` is stored under — and the one its
 #: successors are read for — is the deterministic default until it ships.
 PROMPT_PROCESS_TYPE = ProcessType.UNKNOWN
-
-
-class Counters(Protocol):
-    """The slice of the episodic store the adapter writes to.
-
-    Narrower than :class:`processrecall.graph.store.EpisodicStore` on purpose
-    (ISP): the adapter only ever counts, so it depends on the one method it
-    uses rather than on the whole store.
-    """
-
-    def bump(self, counter: str) -> None:
-        """Increment the counter named *counter*."""
-        ...
 
 
 def is_excluded(project_dir: str, counters: Counters) -> bool:
