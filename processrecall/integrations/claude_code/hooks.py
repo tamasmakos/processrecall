@@ -32,9 +32,11 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 
-from processrecall.config import STORE_DIR, home_dir
+from processrecall.config import STORE_DIR, Config, home_dir, load_config
 from processrecall.exceptions import PackError
+from processrecall.graph.abstract import START_KEY, TransitionEdge, edges_from
 from processrecall.graph.episodic import SequenceIdentity, open_index
+from processrecall.graph.snapshot import SNAPSHOT_NAME, SnapshotFile
 from processrecall.graph.store import (
     RESULT_CEILING,
     EpisodicStep,
@@ -44,9 +46,14 @@ from processrecall.graph.store import (
     log_fallback,
 )
 from processrecall.graph.templates import template_of
+from processrecall.guidance.fusion import Fusion
+from processrecall.guidance.neighborhood import Neighborhood
+from processrecall.guidance.render import BulletRenderer, Deadline, GuidanceStatement
+from processrecall.guidance.triggers import Triggers
 from processrecall.procedures.outcome import Outcome, classify_outcome
 from processrecall.procedures.step import SubActivity, steps_from
 from processrecall.procedures.taxonomy import identify_procedure
+from processrecall.symbolic.packs import ProcessType
 from processrecall.trajectory.event import SourceKind, TrajectoryEvent
 from processrecall.trajectory.paths import lexical_path, normalise_path, project_key
 from processrecall.trajectory.vocabulary import load_vocabulary
@@ -62,6 +69,12 @@ OPTOUT_MARKER = Path(STORE_DIR) / "optout"
 #: repository one may not want to add a marker file to is precisely the
 #: sensitive one (R13).
 DENY_LIST = "deny.txt"
+
+#: What a prompt is taken to be for. The process-type classifier of FR-059 is
+#: optional enrichment whose absence may neither raise nor guess (FR-060), so
+#: the condition the sequence's ``Start`` is stored under — and the one its
+#: successors are read for — is the deterministic default until it ships.
+PROMPT_PROCESS_TYPE = ProcessType.UNKNOWN
 
 
 class Counters(Protocol):
@@ -302,9 +315,161 @@ def bootstrap(payload: Mapping[str, Any]) -> Response:
     return None
 
 
+@dataclass(frozen=True, slots=True)
+class _Opening:
+    """What serving the start of one prompt takes: where it is, and on what budget.
+
+    Attributes:
+        project_dir: The project the prompt was submitted in, whose snapshot is
+            consulted before the cross-project one (FR-048).
+        counters: Where every suppression, fallback and render is counted (R16).
+        config: The tuning the support floor is read from.
+        deadline: The soft budget, started when the hook was entered (R9).
+    """
+
+    project_dir: str
+    counters: Counters
+    config: Config
+    deadline: Deadline
+
+
+def open_prompt(
+    payload: Mapping[str, Any], connection: sqlite3.Connection, deadline: Deadline | None = None
+) -> str:
+    """Open the turn *payload* submits and serve what opens it; ``""`` for silence.
+
+    The three steps of ``contracts/agent-hooks.md``, in its order. The
+    exclusion check comes first and on ``cwd`` alone, so an excluded project's
+    prompt is answered without the payload being read at all (R13); the turn is
+    then recorded with its process type, which is the condition its successors
+    are read for (FR-047).
+
+    *deadline* is the caller's, when it has one: :func:`prompt` starts it at
+    hook entry, ahead of the index open and the config load, so the budget
+    charges for both (R9). A caller with no budget of its own, such as a unit
+    test driving this directly, gets one struck here instead.
+    """
+    store = SQLiteEpisodicStore(connection)
+    project_dir = str(payload.get("cwd") or "")
+    if is_excluded(project_dir, store):
+        return ""
+    opening = _Opening(
+        project_dir=project_dir,
+        counters=store,
+        config=load_config(),
+        deadline=deadline or Deadline(),
+    )
+    key = SequenceIdentity(connection, str(payload.get("session_id") or "")).key(
+        str(payload.get("prompt_id") or ""), str(payload.get("agent_id") or "")
+    )
+    _open_turn(store, opening.project_dir, key)
+    served = _opening_guidance(opening)
+    store.bump("guidance_served" if served else "guidance_silent")
+    return served
+
+
+def _open_turn(store: SQLiteEpisodicStore, project_dir: str, key: SequenceKey) -> None:
+    """Record *key* as an open sequence in *project_dir*, its process type on it.
+
+    A store that will not take the write is counted rather than raised, as
+    every other write on this path is: a prompt must not fail because the
+    memory watching it could not note the turn (FR-014).
+    """
+    try:
+        store.open_sequence(
+            Sequence(
+                key=key,
+                project_dir_key=project_key(project_dir),
+                started_at=datetime.now(UTC),
+                process_type=PROMPT_PROCESS_TYPE,
+            )
+        )
+    except sqlite3.Error:
+        store.bump("capture_store_busy")
+
+
+def _opening_guidance(opening: _Opening) -> str:
+    """What usually opens a prompt in *opening*'s project, as the text to serve.
+
+    The prompt has carried out no step yet, so there is nothing to locate on
+    and the position is the start node itself: its successors are the whole of
+    what FR-047 serves here, and the trigger seam is what decides whether they
+    carry evidence enough to be said at all (FR-045a).
+    """
+    firing = Triggers(opening.config, opening.counters).fire(
+        (), Neighborhood(center=START_KEY, edges=_fused_openings(opening))
+    )
+    if firing is None:
+        return ""
+    return BulletRenderer(opening.counters, opening.deadline).render(
+        [_statement(edge) for edge in firing.edges]
+    )
+
+
+def _fused_openings(opening: _Opening) -> tuple[TransitionEdge, ...]:
+    """The moves that open a prompt, this project's ahead of every other's (FR-048)."""
+    fused = Fusion(opening.counters).fuse(
+        _opening_moves(Path(opening.project_dir) / STORE_DIR / SNAPSHOT_NAME, opening.counters),
+        _opening_moves(home_dir() / SNAPSHOT_NAME, opening.counters),
+    )
+    return tuple(candidate.edge for candidate in fused.edges)
+
+
+def _opening_moves(path: Path, counters: Counters) -> tuple[TransitionEdge, ...]:
+    """The successors of ``Start`` for this process type in the snapshot at *path*.
+
+    A snapshot that is missing or unreadable yields no move rather than a
+    fault: the reader has already counted it (R11), and a project whose graph
+    has never been built is the ordinary first case rather than an error. The
+    format stamp only guards the document's outer shape, so `edges_from` gets
+    the same guard `SnapshotFile.read` gives the rest of the document — an
+    edge body it cannot parse is the same kind of unreadable snapshot, not a
+    fault inside a hook.
+    """
+    snapshot = SnapshotFile(path, counters).read()
+    if snapshot is None:
+        return ()
+    try:
+        edges = edges_from(snapshot)
+    except (KeyError, TypeError, ValueError):
+        counters.bump("snapshot_unreadable")
+        return ()
+    return tuple(
+        edge
+        for edge in edges
+        if edge.source == START_KEY and edge.condition.process_type is PROMPT_PROCESS_TYPE
+    )
+
+
+def _statement(edge: TransitionEdge) -> GuidanceStatement:
+    """One opening move as the claim it is served as, and the episodes behind it."""
+    return GuidanceStatement(
+        text=f"a prompt like this usually starts with {edge.target}",
+        support=edge.support,
+    )
+
+
 def prompt(payload: Mapping[str, Any]) -> Response:
-    """``UserPromptSubmit``: open the sequence and serve what starts it (T048)."""
-    return None
+    """``UserPromptSubmit``: open the sequence and serve what starts it (FR-047).
+
+    The deadline is struck first, before the index is even opened, so the
+    soft budget of R9 charges for the open and the config load along with the
+    render (see :class:`_Opening`). One index opened per invocation and
+    closed here whatever happened (R10), as in :func:`record`. A store that
+    cannot be opened at all leaves the turn unopened and the prompt
+    unanswered: it is counted through the R16 fallback log, there being no
+    store to count it any other way, and the developer's prompt goes on
+    untouched (FR-014).
+    """
+    deadline = Deadline()
+    try:
+        connection = open_index()
+    except sqlite3.Error as exc:
+        log_fallback(home_dir() / "log" / "hooks.jsonl", "capture_store_busy", exc)
+        return None
+    with closing(connection):
+        served = open_prompt(payload, connection, deadline)
+    return {"additionalContext": served} if served else None
 
 
 def record(payload: Mapping[str, Any]) -> Response:

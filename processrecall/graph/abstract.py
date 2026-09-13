@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from itertools import pairwise
-from typing import Any
+from typing import Any, cast
 
 from processrecall.config import LEVELS, Config
 from processrecall.graph.keys import group_by_sequence, key_at, keys_of, shares_a_file
@@ -591,6 +591,70 @@ def _outcome_body(counts: Mapping[Outcome, int]) -> dict[str, int]:
 def _label(value: StrEnum | None) -> str | None:
     """*value*'s name, or ``None`` where nothing labelled it."""
     return None if value is None else str(value)
+
+
+def edges_from(snapshot: Snapshot) -> tuple[TransitionEdge, ...]:
+    """The transitions *snapshot* carries, back as the edges `served` wrote.
+
+    The inverse of `served` on its edge half, and here rather than in
+    `snapshot.py` for the same reason the bodies are shaped here: guidance is
+    served from the file rather than from the episodes (FR-041), and it is
+    typed on `TransitionEdge`, so the bodies have to be read back somewhere
+    the file format does not reach.
+
+    Raises:
+        KeyError, TypeError, ValueError: A body the format stamp let through
+            but that does not otherwise match `_edge_body`'s shape. A caller
+            reading a snapshot's edges is on the same footing as
+            `SnapshotFile.read` reading the rest of it (R11) and should guard
+            this call the same way.
+    """
+    bodies = cast("Iterable[Mapping[str, Any]]", snapshot.edges)
+    return tuple(_edge_from(body) for body in bodies)
+
+
+def _edge_from(body: Mapping[str, Any]) -> TransitionEdge:
+    """One transition as `_edge_body` wrote it, back as the move it names.
+
+    The edge key is derived rather than read: `_edge_body` leaves it out
+    because it is the pair of endpoints spelled once, and deriving it again
+    keeps the one spelling of it in `edge_key`.
+    """
+    source, target = body["source"], body["target"]
+    return TransitionEdge(
+        edge_key=edge_key(source, target),
+        source=source,
+        target=target,
+        condition=_condition_from(body["condition"]),
+        support=body["support"],
+        weight=body["weight"],
+        supporting_steps=tuple(body["supporting_steps"]),
+        outcome_counts={Outcome(name): count for name, count in body["outcome_counts"].items()},
+        last_seen=datetime.fromisoformat(body["last_seen"]),
+        pitfalls=tuple(_pitfall_from(pitfall) for pitfall in body["pitfalls"]),
+    )
+
+
+def _condition_from(body: Mapping[str, Any]) -> Condition:
+    """The context a move applies in, back from the plain JSON values it was written as."""
+    return Condition(
+        process_type=ProcessType(body["process_type"]),
+        same_file_as_previous=body["same_file_as_previous"],
+        previous_outcome=None if (went := body["previous_outcome"]) is None else Outcome(went),
+        intended_activity=(
+            None if (labelled := body["intended_activity"]) is None else ActivityClass(labelled)
+        ),
+    )
+
+
+def _pitfall_from(body: Mapping[str, Any]) -> Pitfall:
+    """One known way a move goes wrong, back from the values it was written as."""
+    return Pitfall(
+        kind=PitfallKind(body["kind"]),
+        evidence=body["evidence"],
+        support=body["support"],
+        failure_rate=body["failure_rate"],
+    )
 
 
 def _transitions(chain: _Chain, level: Level) -> Iterator[_Move]:

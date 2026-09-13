@@ -33,6 +33,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+#: The snapshot's filename, under `~/.processrecall` and under
+#: `<project>/.processrecall` (`contracts/storage.md`).
+SNAPSHOT_NAME = "graph.json"
+
 #: The version stamp every snapshot carries. An unknown one is a refusal
 #: rather than a `KeyError` inside a hook (R11), which is the whole reason the
 #: field exists.

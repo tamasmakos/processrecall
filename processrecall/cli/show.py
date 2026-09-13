@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from processrecall.config import STORE_DIR, config_sources, load_config
-from processrecall.graph.snapshot import SnapshotFile
+from processrecall.graph.snapshot import SNAPSHOT_NAME, SnapshotFile
 from processrecall.graph.store import EpisodicStore, SequenceKey
 from processrecall.graph.store import Sequence as RecordedSequence
 from processrecall.trajectory.paths import project_key
@@ -52,10 +52,6 @@ COUNTERS: tuple[str, ...] = (
     "steps_duplicate",
     "steps_recorded",
 )
-
-#: The snapshot's filename, under `.processrecall/` in a project and in the home
-#: directory (`contracts/storage.md`).
-SNAPSHOT_NAME = "graph.json"
 
 
 @dataclass(frozen=True, slots=True)

@@ -27,11 +27,11 @@ from typing import Any
 import pytest
 
 from processrecall.cli.rebuild import Derivation, _sequences, rebuild
-from processrecall.cli.show import SNAPSHOT_NAME
 from processrecall.config import STORE_DIR, Config, home_dir
 from processrecall.graph.abstract import aggregate
 from processrecall.graph.episodic import open_index
 from processrecall.graph.keys import group_by_sequence
+from processrecall.graph.snapshot import SNAPSHOT_NAME
 from processrecall.graph.store import EpisodicStep, SQLiteEpisodicStore
 from processrecall.guidance.locate import locate
 from processrecall.guidance.neighborhood import extract
