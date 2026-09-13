@@ -290,6 +290,63 @@ class TestGateScript:
         )
 
 
+def test_gate_runs_without_services() -> None:
+    """The fork's gate needs no infrastructure: no graph server, no baked models.
+
+    So the Makefile must offer no target that provisions any — `infra-up`,
+    `infra-down`, `bake` and `eval-smoke` all start or feed something this tree
+    does not have, and a target that cannot work is worse than an absent one
+    because it reads as a supported path. The positive half is what stops
+    "delete everything" from satisfying this: `scripts/gate.sh` must still run
+    every check, and the local SonarQube targets — which talk to a container
+    nobody's everyday stack starts — must survive the cull.
+    """
+    makefile = MAKEFILE.read_text(encoding="utf-8")
+    for target in ("infra-up", "infra-down", "bake", "eval-smoke"):
+        assert target not in makefile, (
+            f"{MAKEFILE}: still declares `{target}` — it provisions or exercises "
+            "infrastructure (ArcadeDB, the model cache) this tree does not have"
+        )
+    assert "arcadedb" not in makefile.lower(), (
+        f"{MAKEFILE}: still references ArcadeDB — the fork has no graph server"
+    )
+    assert "model_cache" not in makefile, (
+        f"{MAKEFILE}: still references the model cache — the fork loads no model weights"
+    )
+
+    assert "bash scripts/gate.sh" in makefile, (
+        f"{MAKEFILE}: the `gate` target no longer runs scripts/gate.sh"
+    )
+    gate = GATE_SH.read_text(encoding="utf-8")
+    for check in (
+        "ruff check",
+        "ruff format",
+        "mypy processrecall",
+        "lint-imports",
+        "bandit -r processrecall",
+        "pytest",
+        "--cov-fail-under=",
+        "pip-audit",
+    ):
+        assert check in gate, (
+            f"{GATE_SH}: no longer runs `{check}` — the service-free gate drops "
+            "infrastructure, not checks"
+        )
+
+    for target in (
+        "sonar-up",
+        "sonar-down",
+        "sonar-token",
+        "sonar",
+        "sonar-gate-init",
+        "sonar-gate",
+    ):
+        assert re.search(rf"^{re.escape(target)}:", makefile, re.MULTILINE), (
+            f"{MAKEFILE}: the `{target}` target is gone — the local quality gate "
+            "reports to a container on this machine and is not infrastructure the cull covers"
+        )
+
+
 # ─── Library code never provisions its own environment ──────────────────────
 
 

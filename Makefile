@@ -8,8 +8,8 @@ COMPOSE := docker compose
 CONTAINER ?= processrecall-workspace
 SVC     ?= workspace   # service `make shell`/`logs`/`restart`/`stop`/`build` targets
 
-.PHONY: up down restart stop build rebuild ps logs shell infra-up infra-down setup clean prune \
-        test test-integration lint typecheck arch build-wheel smoke bake eval-smoke sweep ci gate help \
+.PHONY: up down restart stop build rebuild ps logs shell setup clean prune \
+        test test-integration lint typecheck arch build-wheel smoke sweep ci gate help \
         sonar sonar-gate sonar-gate-init sonar-up sonar-down sonar-token
 
 # ── Lifecycle ──────────────────────────────────────────────────────
@@ -43,13 +43,6 @@ build: ## Build images (cached)  →  make build SVC=workspace
 rebuild: ## Force-rebuild images (no cache)  →  make rebuild SVC=workspace
 	$(COMPOSE) build --no-cache $(SVC)
 
-# ── Infra-only ────────────────────────────────────────────────────
-infra-up: ## Start only the database (ArcadeDB)
-	$(COMPOSE) up -d arcadedb
-
-infra-down: ## Stop the database
-	$(COMPOSE) stop arcadedb
-
 # ── Setup / cleanup ───────────────────────────────────────────────
 clean: ## Stop containers and remove images built from this project
 	$(COMPOSE) down --rmi local
@@ -69,7 +62,7 @@ setup: ## First-time setup: copy .env.example → .env if missing
 test: ## Run the unit test suite (integration tests excluded)
 	pytest -q -m "not integration"
 
-test-integration: ## Run integration tests (needs a live ArcadeDB — make infra-up)
+test-integration: ## Run integration tests (requires live infrastructure)
 	pytest -q -m integration
 
 lint: ## Ruff lint the package + tests
@@ -101,16 +94,6 @@ gate: ## Run the pre-push gate exactly as the hook runs it
 sweep: ## Dead-code sweep (report only, run every few weeks)
 	docker exec $(CONTAINER) sh -c "cd /app && uvx vulture processrecall \
 	  --min-confidence 60"
-
-# ── Model prep ─────────────────────────────────────────────────────
-# Run once after `make up` on a fresh model_cache volume, or after adding/
-# changing a model in processrecall/settings.py — populates model_cache so the
-# first real ingest doesn't pay the multi-GB download inline.
-bake: ## Pre-warm the GLiNER/sentence-transformers/spaCy/NLTK model cache
-	docker exec $(CONTAINER) sh -c "cd /app && python scripts/bake_models.py"
-
-eval-smoke: ## End-to-end acceptance: one LoCoMo conversation via the MCP client (needs services up)
-	python -m evaluation --limit 1
 
 # ── Static analysis (local SonarQube, opt-in) ─────────────────────
 # Advisory, not a gate: `make sonar` reports and does not fail the build. It is
