@@ -51,7 +51,7 @@ Two extra contracts sharpen it:
 | `models` | Layer-neutral vocabulary — `Hit`, `Message`, `MemoryScope`, `IngestResult`. | `models/` |
 | `settings` | `GraphKnowsSettings`; mode presets expanded into capability knobs. | `settings.py` |
 | `llm` | Provider-neutral LM construction. | `llm.py` |
-| `exceptions` | `GraphKnowsError` and friends, including `MissingExtraError`. | `exceptions.py` |
+| `exceptions` | `BootstrapError`, `PackError`, `AnnotationRejected`. | `exceptions.py` |
 | `server` | The MCP stdio server and its tool inventory. | `server/mcp/` |
 | `integrations` | Framework adapters (LangGraph) and the stdlib-only MCP client SDK. | `integrations/` |
 
