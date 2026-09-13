@@ -61,8 +61,9 @@ END_KEY = "End"
 _UNCLEAN_WEIGHT = 1.0
 
 #: The oldest a fold can be: every real observation is later, so the first one
-#: replaces it.
-_UNSEEN = datetime.min.replace(tzinfo=UTC)
+#: replaces it. Public because `edit.py` gives an authored edge the same value
+#: for the same reason: it too has no observation to be later than.
+UNSEEN = datetime.min.replace(tzinfo=UTC)
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,7 +253,7 @@ class _NodeFold:
     program: str
     file_ext: str
     support: int = 0
-    last_seen: datetime = _UNSEEN
+    last_seen: datetime = UNSEEN
     templates: Counter[str] = field(default_factory=Counter)
     outcomes: Counter[Outcome] = field(default_factory=Counter)
 
@@ -323,7 +324,7 @@ class _EdgeFold:
 
     source: str
     target: str
-    last_seen: datetime = _UNSEEN
+    last_seen: datetime = UNSEEN
     weight: float = 0.0
     step_ids: set[int] = field(default_factory=set)
     outcomes: Counter[Outcome] = field(default_factory=Counter)
