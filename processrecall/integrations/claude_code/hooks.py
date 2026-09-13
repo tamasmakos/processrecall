@@ -427,7 +427,7 @@ def _opening_guidance(opening: _Opening) -> str:
     if firing is None:
         return ""
     return BulletRenderer(opening.counters, opening.deadline).render(
-        [_statement(edge) for edge in firing.edges]
+        [statement for edge in firing.edges for statement in _statements(edge)]
     )
 
 
@@ -487,6 +487,18 @@ def _statement(edge: TransitionEdge) -> GuidanceStatement:
     return GuidanceStatement(
         text=f"a prompt like this usually starts with {edge.target}",
         support=edge.support,
+    )
+
+
+def _statements(edge: TransitionEdge) -> tuple[GuidanceStatement, ...]:
+    """*edge*'s statistical claim, and any note an agent attached to it (FR-039).
+
+    The note's support is the move's, not its own: `edge.annotations` carries
+    no count of its own to render.
+    """
+    return (
+        _statement(edge),
+        *(GuidanceStatement.from_annotation(annotation, edge.support) for annotation in edge.annotations),
     )
 
 
