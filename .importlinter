@@ -2,57 +2,59 @@
 root_package = processrecall
 unmatched_ignore_imports_alerting = none
 
+# R17: this file is the finished layering. `processrecall.cli` and
+# `processrecall.config` are declared as R17 specifies, but neither module
+# exists yet (T002 deleted cli/*; config.py lands in T010) — `lint-imports`
+# stays red until those tasks land, by design rather than by omission.
+
 [importlinter:contract:layers]
 name = Declared architecture layers
 type = layers
 layers =
     processrecall.cli | processrecall.server | processrecall.integrations
-    processrecall.memory
-    processrecall.packs
-    processrecall.ingestion | processrecall.retrieval
-    processrecall.channels
-    processrecall.symbolic
-    processrecall.ranking
-    processrecall.storage
-    processrecall.models | processrecall.settings | processrecall.llm | processrecall.temporal
+    processrecall.guidance
+    processrecall.graph
+    processrecall.artifacts | processrecall.symbolic
+    processrecall.procedures
+    processrecall.trajectory
+    processrecall.config
     processrecall.exceptions
 
-[importlinter:contract:pipelines-independent]
-name = Ingestion and retrieval must not import each other
-type = independence
-modules =
-    processrecall.ingestion
-    processrecall.retrieval
-
-[importlinter:contract:extraction-below-stm]
-name = Extraction must not import STM
+[importlinter:contract:guidance-is-rules-only]
+name = Guidance is rules only — never the classifiers, never code structure
 type = forbidden
 source_modules =
-    processrecall.ingestion.extraction
+    processrecall.guidance
 forbidden_modules =
-    processrecall.ingestion.stm
-
-[importlinter:contract:core-knows-no-domain]
-name = The core must not import any domain pack
-type = forbidden
-source_modules =
-    processrecall.ingestion
-    processrecall.retrieval
-    processrecall.channels
     processrecall.symbolic
-    processrecall.storage
-forbidden_modules =
-    processrecall.packs
+    processrecall.artifacts
 
-[importlinter:contract:client-stdlib-only]
-name = The out-of-process client SDK stays stdlib-only
+[importlinter:contract:hot-path-stdlib-only]
+name = The hot path imports no third-party module
+type = forbidden
+include_external_packages = True
+source_modules =
+    processrecall.integrations.claude_code
+    processrecall.trajectory
+    processrecall.procedures
+    processrecall.graph
+    processrecall.guidance
+    processrecall.config
+forbidden_modules =
+    pydantic
+    pydantic_settings
+    mcp
+    tree_sitter
+    tree_sitter_language_pack
+    gliner2
+    torch
+    transformers
+
+[importlinter:contract:artifacts-off-the-hot-path]
+name = Code structure stays off the hot path
 type = forbidden
 source_modules =
-    processrecall.integrations.client
-    processrecall.integrations.claude_code
+    processrecall.graph
+    processrecall.trajectory
 forbidden_modules =
-    processrecall.ingestion
-    processrecall.retrieval
-    processrecall.storage
-    processrecall.channels
-    processrecall.memory
+    processrecall.artifacts
