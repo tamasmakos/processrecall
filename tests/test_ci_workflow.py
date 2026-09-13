@@ -252,70 +252,46 @@ def test_third_party_actions_are_pinned_to_a_commit_hash(workflow_path: Path) ->
     )
 
 
-def test_integration_job_runs_against_arcadedb_service() -> None:
-    """The eleven `integration`-marked tests currently never run in any
-    workflow — `gate`'s pytest step excludes them (`-m "not integration"`)
-    and nothing else invokes them, so a live-storage regression can merge
-    unseen. A dedicated `integration` job with a live ArcadeDB service
-    container, gated by `GRAPHKNOWS_REQUIRE_ARCADEDB=1` so a container that
-    never started fails instead of reporting a suite that skipped past every
-    test as green, is what FR-008/SC-005 require."""
-    assert re.search(r"^  integration:$", CI_TEXT, re.MULTILINE), (
-        f"{CI_WORKFLOW}: no top-level `integration:` job found"
-    )
-    integration_text = _job_text("integration")
+def test_ci_runs_the_service_free_gate() -> None:
+    """The fork's gate needs no infrastructure to run: five runtime
+    dependencies, no graph server, no baked models, no `evaluation` package.
 
-    assert re.search(r"^\s*services:\s*$", integration_text, re.MULTILINE), (
-        f"{CI_WORKFLOW}: `integration` job has no `services:` block — "
-        "no ArcadeDB service container is provisioned"
+    So ci.yml must provision none of it — a leftover ArcadeDB service
+    container, model-bake step or `evaluation` path argument is a job that
+    cannot pass on this tree, and a green-looking one that silently still
+    pays for infrastructure the package no longer has. The positive half of
+    the assertion is what stops "delete everything" from satisfying it: the
+    five checks scripts/gate.sh runs must all still be here."""
+    assert not re.search(r"^\s*services:\s*$", CI_TEXT, re.MULTILINE), (
+        f"{CI_WORKFLOW}: still declares a `services:` block — the gate must "
+        "run with no service container"
     )
-    assert re.search(r"^\s*arcadedb:\s*$", integration_text, re.MULTILINE), (
-        f"{CI_WORKFLOW}: `integration` job's `services:` block has no `arcadedb:` entry"
+    assert "arcadedb" not in CI_TEXT.lower(), (
+        f"{CI_WORKFLOW}: still references ArcadeDB — the fork has no graph server"
     )
-    assert "arcadedata/arcadedb" in integration_text, (
-        f"{CI_WORKFLOW}: `integration` job's arcadedb service does not use "
-        "the arcadedata/arcadedb image"
+    assert "bake_models" not in CI_TEXT, (
+        f"{CI_WORKFLOW}: still bakes models — the fork loads no model weights"
     )
-    assert "--health-cmd" in integration_text, (
-        f"{CI_WORKFLOW}: `integration` job's arcadedb service has no health "
-        "check — GitHub Actions would start the job's own steps without "
-        "waiting for ArcadeDB to be ready"
+    assert "spacy" not in CI_TEXT.lower(), (
+        f"{CI_WORKFLOW}: still installs a spaCy model — the fork has no spaCy dependency"
+    )
+    assert not re.search(r"(?<![\w/.-])evaluation(?![\w/.-])", CI_TEXT), (
+        f"{CI_WORKFLOW}: still names the `evaluation` target, which this tree does not ship"
     )
 
-    run_match = re.search(r"^\s*run:.*pytest.*$", integration_text, re.MULTILINE)
-    assert run_match is not None, f"{CI_WORKFLOW}: `integration` job has no `pytest` invocation"
-    run_line = run_match.group(0)
-    assert re.search(r"-m\s+integration\b", run_line), (
-        f"{CI_WORKFLOW}: `integration` job's pytest step does not select "
-        f"`-m integration` — got: {run_line.strip()!r}"
-    )
-    assert "not integration" not in run_line, (
-        f"{CI_WORKFLOW}: `integration` job's pytest step still excludes "
-        f"integration tests — got: {run_line.strip()!r}"
-    )
-
-    assert re.search(r'GRAPHKNOWS_REQUIRE_ARCADEDB:\s*"?1"?', integration_text), (
-        f"{CI_WORKFLOW}: `integration` job does not set "
-        "GRAPHKNOWS_REQUIRE_ARCADEDB=1 — a container that never started "
-        "would skip instead of fail"
-    )
-
-    # The job must run on every pull request and every push to main. It
-    # carries no job-level `if:` of its own, so it inherits the workflow's
-    # `on:` block (`pull_request: branches: [main]` / `push: branches:
-    # [main]`) unmodified rather than narrowing it to a subset of events.
-    assert not re.search(r"^\s*if:", integration_text, re.MULTILINE), (
-        f"{CI_WORKFLOW}: `integration` job carries an `if:` guard that could "
-        "narrow it below every pull request and every push to main"
-    )
-    assert re.search(r"^  pull_request:$", CI_TEXT, re.MULTILINE), (
-        f"{CI_WORKFLOW}: no workflow-level `pull_request:` trigger — the "
-        "`integration` job would not run on pull requests"
-    )
-    assert re.search(r"^\s*branches:\s*\[main\]\s*$", CI_TEXT, re.MULTILINE), (
-        f"{CI_WORKFLOW}: no `branches: [main]` push trigger — the "
-        "`integration` job would not run on pushes to main"
-    )
+    gate_text = _job_text("gate")
+    for check in (
+        "ruff check",
+        "ruff format",
+        "mypy processrecall",
+        "lint-imports",
+        "bandit -r processrecall",
+        "--cov-fail-under=",
+    ):
+        assert check in gate_text, (
+            f"{CI_WORKFLOW}: the `gate` job no longer runs `{check}` — the "
+            "service-free gate drops infrastructure, not checks"
+        )
 
 
 def test_smoke_job_declares_the_interpreters_the_classifiers_name() -> None:
@@ -349,75 +325,4 @@ def test_smoke_job_declares_the_interpreters_the_classifiers_name() -> None:
         f"{PYPROJECT} classifiers advertise {sorted(classifier_versions)} — "
         "the interpreters CI tests and the interpreters the package claims to "
         "support must be the same set"
-    )
-
-
-def _uv_sync_invocations(dockerfile: str) -> list[str]:
-    """Each real `uv sync` command in *dockerfile*, continuations joined.
-
-    Comment lines are skipped: this Dockerfile explains its own sync steps in
-    prose that says "uv sync" too, and counting those would make the check
-    assert against the comments rather than the commands.
-    """
-    lines = dockerfile.splitlines()
-    invocations: list[str] = []
-    index = 0
-    while index < len(lines):
-        line = lines[index]
-        if not line.lstrip().startswith("#") and "uv sync" in line:
-            command = [line]
-            while command[-1].rstrip().endswith("\\") and index + 1 < len(lines):
-                index += 1
-                command.append(lines[index])
-            invocations.append("\n".join(command))
-        index += 1
-    return invocations
-
-
-def test_build_extras_use_ontology_not_assisted() -> None:
-    """The image and CI must sync an extra that exists.
-
-    `assisted` was deleted when dspy and litellm became core (ADR 0003), and
-    `uv sync --extra assisted --locked` fails outright on an undeclared extra —
-    so a leftover flag here is a build that cannot start, found at image-build
-    time rather than at review time. The LLM decoder needs no extra now; the RDF
-    loader still does, which is why the replacement is `ontology` and not
-    nothing.
-    """
-    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
-    declared = set(
-        tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"].get(
-            "optional-dependencies", {}
-        )
-    )
-    assert "assisted" not in declared, (
-        "this test guards the removal of the `assisted` extra, but pyproject "
-        "declares it again — remove the test or the extra, not both"
-    )
-
-    for name, text in (("Dockerfile", dockerfile), (CI_WORKFLOW.name, CI_TEXT)):
-        for extra in re.findall(r"--extra\s+([A-Za-z0-9._-]+)", text):
-            assert extra in declared, (
-                f"{name}: syncs `--extra {extra}`, which pyproject.toml does not "
-                f"declare (declared: {sorted(declared)}) — `uv sync --locked` fails on it"
-            )
-
-    syncs = _uv_sync_invocations(dockerfile)
-    assert len(syncs) == 2, f"Dockerfile: expected two `uv sync` invocations, found {len(syncs)}"
-    for sync in syncs:
-        assert "--extra ontology" in sync, (
-            f"Dockerfile: a `uv sync` does not carry `--extra ontology`, so the dev "
-            f"image loses the RDF loader:\n{sync}"
-        )
-
-    image_extras = re.search(r'ENV GRAPHKNOWS_IMAGE_EXTRAS="([^"]*)"', dockerfile)
-    assert image_extras is not None, "Dockerfile: no GRAPHKNOWS_IMAGE_EXTRAS declaration"
-    claimed = {e for e in image_extras.group(1).split(",") if e}
-    assert claimed <= declared, (
-        f"Dockerfile: GRAPHKNOWS_IMAGE_EXTRAS claims {sorted(claimed - declared)}, which is "
-        "not a declared extra — scripts/preflight.py would refuse to start the container"
-    )
-    assert "ontology" in claimed, (
-        f"Dockerfile: GRAPHKNOWS_IMAGE_EXTRAS is {sorted(claimed)} but the image syncs "
-        "`--extra ontology`; preflight can only verify what the image claims"
     )
