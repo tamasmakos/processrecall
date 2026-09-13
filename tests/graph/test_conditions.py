@@ -14,6 +14,8 @@ from processrecall.graph.store import EpisodicStep, SequenceKey
 from processrecall.procedures.outcome import Outcome
 from processrecall.symbolic.packs import ActivityClass, ProcessType
 
+from .conftest import make_sequence
+
 KEY = SequenceKey(conversation_id="c1", session_epoch=0, prompt_id="p1")
 
 AT = datetime(2026, 9, 13, 10, 0, tzinfo=UTC)
@@ -57,7 +59,9 @@ def test_condition_is_the_deterministic_context_the_move_was_made_in() -> None:
         make_step("ChangeImplementation/Edit/py", position=1, step_id=2, files=("a.py",)),
     )
 
-    graph = aggregate(steps, level="class/program", process_types={KEY: ProcessType.BUG_FIX})
+    sequences = {KEY: make_sequence(steps, process_type=ProcessType.BUG_FIX)}
+
+    graph = aggregate(steps, level="class/program", sequences=sequences)
 
     moved = edge(graph, "Inspection/Read -> ChangeImplementation/Edit")
     assert moved.condition.process_type == ProcessType.BUG_FIX
@@ -84,7 +88,9 @@ def test_the_bookends_have_no_previous_row_to_be_conditioned_on() -> None:
     """FR-020, FR-030: `Start` has no previous step, and `End` lands on no row."""
     steps = (make_step("Inspection/Read/py", position=0, step_id=1, outcome="failure"),)
 
-    graph = aggregate(steps, level="class/program", process_types={KEY: ProcessType.INVESTIGATION})
+    sequences = {KEY: make_sequence(steps, process_type=ProcessType.INVESTIGATION)}
+
+    graph = aggregate(steps, level="class/program", sequences=sequences)
 
     opening = edge(graph, "Start -> Inspection/Read").condition
     assert (opening.same_file_as_previous, opening.previous_outcome) == (None, None)
@@ -141,9 +147,12 @@ def test_a_tied_condition_breaks_by_the_condition_s_own_repr() -> None:
             key=investigation_key,
         ),
     )
-    process_types = {bug_fix_key: ProcessType.BUG_FIX, investigation_key: ProcessType.INVESTIGATION}
+    sequences = {
+        bug_fix_key: make_sequence(steps[:2], process_type=ProcessType.BUG_FIX),
+        investigation_key: make_sequence(steps[2:], process_type=ProcessType.INVESTIGATION),
+    }
 
-    graph = aggregate(steps, level="class/program", process_types=process_types)
+    graph = aggregate(steps, level="class/program", sequences=sequences)
 
     moved = edge(graph, "Inspection/Read -> ChangeImplementation/Edit")
     assert moved.support == 2
