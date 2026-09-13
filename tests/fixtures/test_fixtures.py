@@ -146,6 +146,27 @@ def test_the_malformed_sequence_omits_every_routing_field_in_turn() -> None:
     assert {missing[0] for missing in missing_per_payload} == set(ROUTING_FIELDS)
 
 
+def test_the_transcript_fixture_is_synthetic_and_only_the_corrupt_line_is_unreadable() -> None:
+    """FR-073: ``session.jsonl`` walked through the same leak check as the snapshot.
+
+    Every line but the one deliberately corrupted must parse, and no string in
+    a line that parses may be an absolute path other than the synthetic
+    project directory: a real transcript would leak the machine it was taken
+    from through both.
+    """
+    lines = (FIXTURES / "session.jsonl").read_text(encoding="utf-8").splitlines()
+    unreadable = []
+    for ordinal, line in enumerate(lines, start=1):
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            unreadable.append(ordinal)
+            continue
+        for text in _strings(record):
+            assert text.startswith(PROJECT_DIR) or not _ABSOLUTE_PATH.match(text), text
+    assert unreadable == [8]
+
+
 def test_the_snapshot_is_the_shape_the_storage_contract_declares(snapshot: dict[str, Any]) -> None:
     """A hand-built snapshot, so a reader can be tested before a writer exists."""
     assert snapshot["format"] == 1

@@ -31,7 +31,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from processrecall.config import home_dir
+from processrecall.config import RESULT_CEILING, home_dir
 from processrecall.graph.annotations import Annotation
 from processrecall.symbolic.packs import ActivityClass, ProcessType
 
@@ -44,15 +44,11 @@ _logger = logging.getLogger("processrecall")
 #: unbounded.
 _LOG_ROTATE_BYTES = 5 * 1024 * 1024
 
-#: The 2 KB ceiling of FR-010, in characters. It lives at the write seam rather
-#: than in one adapter because every source writes through the store: a snippet
-#: is for recognising what happened, and ``record_ref`` points at the whole
-#: record for anyone who needs the rest.
-#:
+#: `RESULT_CEILING` is imported above from :mod:`processrecall.config`, where
+#: every source that produces a `TrajectoryEvent` reads the same ceiling.
 #: FR-010's other half — 600 characters of a prompt — has no counterpart here:
 #: no field of `EpisodicStep` or the `steps`/`sequences` schema stores prompt
 #: text at all (R13), so there is nothing to bound.
-RESULT_CEILING = 2048
 
 #: Every counter the package can increment (R16), whether or not a given store
 #: has ever seen one. The list is the reader half of Principle V, and it lives

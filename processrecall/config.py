@@ -21,7 +21,7 @@ import logging
 import os
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 _logger = logging.getLogger("processrecall")
 
@@ -47,6 +47,25 @@ def home_dir() -> Path:
 #: first. ``Config.level`` picks which of them guidance is served at; the other
 #: two stay on the node either way.
 LEVELS = ("class", "class/program", "class/program/ext")
+
+#: The 2 KB ceiling of FR-010, in characters. Named here, at the bottom of the
+#: layering, because every adapter that produces a `TrajectoryEvent` — live or
+#: backfilled — cuts to it at its own boundary, and the store holds it again at
+#: the write seam for any source that skips the cut.
+RESULT_CEILING = 2048
+
+
+class Counters(Protocol):
+    """The slice of the episodic store a counting-only caller writes to.
+
+    Narrower than :class:`processrecall.graph.store.EpisodicStore` on purpose
+    (ISP): named here so the adapters and the store depend on the one
+    definition instead of each restating it.
+    """
+
+    def bump(self, counter: str) -> None:
+        """Increment the counter named *counter*."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
