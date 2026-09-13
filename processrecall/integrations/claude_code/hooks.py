@@ -18,15 +18,32 @@ On the hot path, so the standard library only.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from fnmatch import fnmatchcase
+from pathlib import Path
 from typing import Any, Protocol
 
+from processrecall.config import STORE_DIR, home_dir
 from processrecall.trajectory.event import SourceKind, TrajectoryEvent
+from processrecall.trajectory.paths import lexical_path
+
+_logger = logging.getLogger("processrecall")
 
 #: The 2 KB ceiling of FR-010, in characters. A snippet is for recognising what
 #: happened, not for replaying it: ``record_ref`` points at the whole record.
 RESULT_CEILING = 2048
+
+#: The project-level opt-out: its presence under the project directory is the
+#: whole signal, contents ignored (R13).
+OPTOUT_MARKER = Path(STORE_DIR) / "optout"
+
+#: The home-level deny list, under :func:`~processrecall.config.home_dir`: one
+#: ``fnmatch`` pattern per line. It lives in the home directory because the
+#: repository one may not want to add a marker file to is precisely the
+#: sensitive one (R13).
+DENY_LIST = "deny.txt"
 
 
 class Counters(Protocol):
@@ -40,6 +57,43 @@ class Counters(Protocol):
     def bump(self, counter: str) -> None:
         """Increment the counter named *counter*."""
         ...
+
+
+def is_excluded(project_dir: str, counters: Counters) -> bool:
+    """Whether capture is suppressed for *project_dir*, counting it when it is.
+
+    Asked first, on the harness's ``cwd`` alone, so that "entirely" in FR-058
+    is literally true: on a match the payload is never parsed, and no step,
+    snippet or prompt text exists to suppress (R13).
+    """
+    if (Path(project_dir) / OPTOUT_MARKER).exists() or _is_denied(project_dir):
+        counters.bump("capture_excluded")
+        return True
+    return False
+
+
+def _is_denied(project_dir: str) -> bool:
+    """Whether any pattern of the home deny list matches *project_dir*.
+
+    Matched against the POSIX-normalised absolute directory, so one project
+    denied once stays denied however the harness spelled its ``cwd`` — and the
+    pattern is normalised the same way, so a drive-letter pattern still matches
+    on Windows. Blank lines and ``#`` comments are ignored; an absent list
+    denies nothing.
+    """
+    try:
+        lines = (home_dir() / DENY_LIST).read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        _logger.warning("%s: could not be read; denying nothing", home_dir() / DENY_LIST)
+        return False
+    project = str(lexical_path(project_dir))
+    return any(
+        fnmatchcase(project, str(lexical_path(pattern)))
+        for line in lines
+        if (pattern := line.strip()) and not pattern.startswith("#")
+    )
 
 
 def _record_ref(payload: Mapping[str, Any]) -> str:
@@ -58,13 +112,16 @@ def _record_ref(payload: Mapping[str, Any]) -> str:
 def adapt_post_tool_use(payload: Mapping[str, Any], counters: Counters) -> TrajectoryEvent | None:
     """The event *payload* describes, or ``None`` when it describes no routable one.
 
-    ``None`` covers two cases, neither raised into the developer's action: a
-    payload for a hook event other than ``PostToolUse`` is not this adapter's to
-    read and is ignored outright, uncounted; a ``PostToolUse`` payload with no
-    ``session_id``, ``prompt_id`` or ``tool_name`` cannot be placed on a
-    sequence, so it increments ``capture_payload_malformed`` and the caller
-    moves on.
+    ``None`` covers three cases, neither raised into the developer's action:
+    ``cwd`` is excluded (FR-058, R13), checked before anything else in the
+    payload is read; a payload for a hook event other than ``PostToolUse`` is
+    not this adapter's to read and is ignored outright, uncounted; a
+    ``PostToolUse`` payload with no ``session_id``, ``prompt_id`` or
+    ``tool_name`` cannot be placed on a sequence, so it increments
+    ``capture_payload_malformed`` and the caller moves on.
     """
+    if is_excluded(str(payload.get("cwd") or ""), counters):
+        return None
     if payload.get("hook_event_name") != "PostToolUse":
         return None
     arguments = payload.get("tool_input")

@@ -28,6 +28,9 @@ _logger = logging.getLogger("processrecall")
 #: Every field is settable as ``PROCESSRECALL_`` plus its name, upper-cased.
 ENV_PREFIX = "PROCESSRECALL_"
 
+#: The directory name every processrecall store lives under, home or project.
+STORE_DIR = ".processrecall"
+
 def home_dir() -> Path:
     """The one store root every processrecall file lives under (FR-052).
 
@@ -38,7 +41,7 @@ def home_dir() -> Path:
     already re-reads it on every call — freezing the result at import time
     would throw that away.
     """
-    return Path.home() / ".processrecall"
+    return Path.home() / STORE_DIR
 
 #: The three levels of generality every node materialises (FR-023), coarsest
 #: first. ``Config.level`` picks which of them guidance is served at; the other

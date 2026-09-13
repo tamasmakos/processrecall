@@ -43,19 +43,19 @@ def normalise_path(raw: str, project_dir: str) -> str:
     directory itself (or an empty *raw*, which resolves to it) returns ``"."``,
     the project-relative spelling of "no sub-path".
     """
-    project = _lexical(project_dir)
-    path = _lexical(raw)
+    project = lexical_path(project_dir)
+    path = lexical_path(raw)
     if not path.is_absolute():
-        path = _lexical(f"{project}/{path}")
+        path = lexical_path(f"{project}/{path}")
     if path.is_relative_to(project):
         return str(path.relative_to(project))
-    home = _lexical(str(Path.home()))
+    home = lexical_path(str(Path.home()))
     if path.is_relative_to(home):
         return f"{HOME_ROOT}/{path.relative_to(home)}"
     return f"{EXTERNAL_ROOT}/{path.name}"
 
 
-def _lexical(raw: str) -> PurePosixPath:
+def lexical_path(raw: str) -> PurePosixPath:
     """*raw* with POSIX separators, a drive letter as a segment, and no ``..``.
 
     Lexical on purpose: a path is normalised where it is recorded, which is a
