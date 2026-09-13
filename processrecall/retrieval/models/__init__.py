@@ -1,1 +1,0 @@
-"""Retrieval result models."""

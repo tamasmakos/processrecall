@@ -25,8 +25,15 @@ from typing import Any
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from processrecall.bounds import CALL_TIMEOUT_S
 from processrecall.exceptions import ConfigurationError
+
+#: Default server-side wall-clock budget for one call. Overridable per
+#: deployment via ``GRAPHKNOWS_MCP_CALL_TIMEOUT_S``: nothing preloads the
+#: extraction models, so the first request after a cold start pays their load
+#: time and a fixed ceiling would fail it (observed in CI, 2026-09-07).
+#: Inlined here when R18 deleted ``bounds.py``, which held it with the
+#: request-size limits the fork drops.
+CALL_TIMEOUT_S = 120.0
 
 # The always-on default ontology, resolved off this file rather than imported
 # from ``processrecall.symbolic.ontology``: settings sits BELOW ontology in the layering
