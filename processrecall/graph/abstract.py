@@ -31,6 +31,7 @@ from enum import StrEnum
 from itertools import pairwise
 
 from processrecall.config import LEVELS, Config
+from processrecall.graph.keys import group_by_sequence, key_at, keys_of, shares_a_file
 from processrecall.graph.store import CLOSED, EpisodicStep, Sequence, SequenceKey
 from processrecall.procedures.outcome import Outcome
 from processrecall.procedures.taxonomy import NO_FILE_TYPE
@@ -484,7 +485,7 @@ def aggregate(
     for chain in _chains(steps, sequences or {}).values():
         for step in chain.steps:
             high_water = max(high_water, step.step_id)
-            key = _key_at(step, lvl)
+            key = key_at(step, lvl)
             if (fold := nodes.get(key)) is None:
                 fold = nodes[key] = _fold_for(step, lvl)
             fold.record(step)
@@ -521,21 +522,21 @@ def _transitions(chain: _Chain, level: Level) -> Iterator[_Move]:
     first, last = steps[0], steps[-1]
     yield _Move(
         source=START_KEY,
-        target=_key_at(first, level),
+        target=key_at(first, level),
         supporting_step=first,
         condition=Condition(chain.process_type, None, None),
     )
     for before, after in pairwise(steps):
         yield _Move(
-            source=_key_at(before, level),
-            target=_key_at(after, level),
+            source=key_at(before, level),
+            target=key_at(after, level),
             supporting_step=after,
             condition=Condition(
-                chain.process_type, _shares_a_file(before, after), Outcome(before.outcome)
+                chain.process_type, shares_a_file(before, after), Outcome(before.outcome)
             ),
         )
     yield _Move(
-        source=_key_at(last, level),
+        source=key_at(last, level),
         target=END_KEY,
         supporting_step=last,
         condition=Condition(chain.process_type, None, Outcome(last.outcome)),
@@ -558,8 +559,8 @@ def _repetition_runs(chain: _Chain, level: Level, k: int) -> Counter[str]:
     length = 1
     counted = False
     for before, after in pairwise(chain.steps):
-        key = _key_at(after, level)
-        if key != _key_at(before, level):
+        key = key_at(after, level)
+        if key != key_at(before, level):
             length = 1
             counted = False
             continue
@@ -568,11 +569,6 @@ def _repetition_runs(chain: _Chain, level: Level, k: int) -> Counter[str]:
             runs[key] += 1
             counted = True
     return runs
-
-
-def _shares_a_file(before: EpisodicStep, after: EpisodicStep) -> bool:
-    """Whether *after* touched any of the files *before* did (FR-030)."""
-    return bool(set(before.files) & set(after.files))
 
 
 def _is_clean(sequence: Sequence | None, steps: tuple[EpisodicStep, ...]) -> bool:
@@ -598,38 +594,23 @@ def _chains(
     Sorted rather than trusted: a backfill writes rows in transcript order and a
     hook writes them live, so the two interleave by ``step_id`` — and a rebuild
     that read the transitions in a different order would not reproduce the
-    incremental graph (SC-004).
+    incremental graph (SC-004). The grouping and ordering is `group_by_sequence`
+    (shared with `sequence._chains`); this decorates each group with the process
+    type and cleanliness the abstract fold needs and the back-off does not.
     """
-    rows: dict[SequenceKey, list[EpisodicStep]] = {}
-    for step in steps:
-        rows.setdefault(step.sequence_key, []).append(step)
-    return {key: _chain_for(sequences.get(key), rows_for_key) for key, rows_for_key in rows.items()}
+    return {
+        key: _chain_for(sequences.get(key), rows_for_key)
+        for key, rows_for_key in group_by_sequence(steps).items()
+    }
 
 
-def _chain_for(sequence: Sequence | None, rows: list[EpisodicStep]) -> _Chain:
+def _chain_for(sequence: Sequence | None, rows: tuple[EpisodicStep, ...]) -> _Chain:
     """*rows* as one prompt's chain: in the order carried out, under its context."""
-    ordered = tuple(sorted(rows, key=lambda step: step.position))
     return _Chain(
         process_type=sequence.process_type if sequence else ProcessType.UNKNOWN,
-        steps=ordered,
-        clean=_is_clean(sequence, ordered),
+        steps=rows,
+        clean=_is_clean(sequence, rows),
     )
-
-
-def _keys_of(step: EpisodicStep) -> tuple[str, str, str]:
-    """*step*'s identity at each of `LEVELS`, coarsest first.
-
-    Rebuilt from the columns the recorder stored rather than by splitting
-    ``node_key``: a program is free to contain a ``/`` and a positional split of
-    the joined key would cut it in the wrong place.
-    """
-    by_program = f"{step.activity_class}/{step.program}"
-    return (str(step.activity_class), by_program, step.node_key)
-
-
-def _key_at(step: EpisodicStep, level: Level) -> str:
-    """*step*'s node key at *level*."""
-    return _keys_of(step)[level.depth]
 
 
 def _synthetic_fold(key: str, level: Level) -> _NodeFold:
@@ -655,7 +636,7 @@ def _fold_for(step: EpisodicStep, level: Level) -> _NodeFold:
     The identity fields come from the first row to reach a key; every later row
     with that key agrees on them, which is what the key being an identity means.
     """
-    keys = _keys_of(step)
+    keys = keys_of(step)
     extension = step.node_key.rsplit("/", 1)[-1]
     return _NodeFold(
         key=keys[level.depth],
