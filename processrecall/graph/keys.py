@@ -36,6 +36,18 @@ def key_at(step: EpisodicStep, level: Level) -> str:
     return keys_of(step)[level.depth]
 
 
+#: `ActivityClass.CHANGE_IMPLEMENTATION` and `.ARTIFACT_EVALUATION`, spelled as
+#: plain strings so callers above `graph` (e.g. `guidance`) can compare an
+#: activity class or a key's leading segment without importing `symbolic`.
+CHANGE_IMPLEMENTATION = "ChangeImplementation"
+ARTIFACT_EVALUATION = "ArtifactEvaluation"
+
+
+def class_of(key: str) -> str:
+    """The activity class *key* leads with, however much of the rest it keeps."""
+    return key.split("/", 1)[0]
+
+
 def shares_a_file(before: EpisodicStep, after: EpisodicStep) -> bool:
     """Whether *after* touched any of the files *before* did (FR-030)."""
     return bool(set(before.files) & set(after.files))
