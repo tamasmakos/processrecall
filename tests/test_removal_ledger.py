@@ -52,7 +52,17 @@ REMOVED_PATHS = [
     "symbolic/predicates.py",
     "integrations/client",
     "integrations/langgraph",
-    "server/mcp/tools",
+    # `server/mcp/` is the third partial deletion, and the subtlest: the ledger
+    # names the tools package, but plan.md §Project Structure keeps it as
+    # REWRITTEN (four tools, nothing else) and T054-T057 each put a file there.
+    # So what R18 drops is the five forked tools that have no successor --
+    # `recall.py` is deliberately absent from this list, because the fork keeps
+    # the name and replaces the body.
+    "server/mcp/tools/admin.py",
+    "server/mcp/tools/corpus.py",
+    "server/mcp/tools/ltm.py",
+    "server/mcp/tools/query.py",
+    "server/mcp/tools/stm.py",
     # `cli/` is named by the ledger and rewritten by the plan, so what R18 drops
     # is the forked module, not the package: plan.md §Project Structure keeps
     # `cli/` as REWRITTEN (bootstrap, backfill, rebuild, prune, show) and five
