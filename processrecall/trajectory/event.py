@@ -43,7 +43,9 @@ class TrajectoryEvent:
         prompt_id: The user turn this action belongs to.
         project_dir: Absolute working directory; the anchor for path
             normalisation.
-        record_ref: ``"<source path>#<line ordinal>"`` — a pointer for a human,
+        record_ref: ``"<source path>#<line ordinal>"`` for a backfilled event; a
+            live payload has no ordinal yet, so its adapter spells the locator
+            with the tool-call id instead. Either way, a pointer for a human,
             never a copy and never re-read by the pipeline.
         occurred_at: When the action completed, timezone-aware.
         source_kind: Live capture or backfill.
