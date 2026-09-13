@@ -2,10 +2,28 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
 from processrecall.graph.store import EpisodicStep, SequenceKey
 from processrecall.symbolic.packs import ActivityClass
+
+PAYLOADS = Path(__file__).resolve().parents[1] / "fixtures" / "payloads"
+
+#: The synthetic project the corpus works in, rewritten at replay to a real one.
+CORPUS_PROJECT = "/work/demo"
+
+
+def corpus_payloads(*rewrites: tuple[str, str]) -> Iterator[Mapping[str, Any]]:
+    """Every hook payload of the fixture corpus, with each ``(old, new)`` path rewritten."""
+    for path in sorted(PAYLOADS.glob("*.json")):
+        text = path.read_text(encoding="utf-8")
+        for old, new in rewrites:
+            text = text.replace(old, new)
+        yield from json.loads(text)["payloads"]
 
 
 def walk(*node_keys: str, prompt: str = "p1") -> tuple[EpisodicStep, ...]:

@@ -37,11 +37,7 @@ from processrecall.guidance.locate import locate
 from processrecall.guidance.neighborhood import extract
 from processrecall.guidance.triggers import Firing, Triggers
 from processrecall.integrations.claude_code.hooks import capture
-
-PAYLOADS = Path(__file__).resolve().parents[1] / "fixtures" / "payloads"
-
-#: The synthetic project the corpus works in, rewritten at replay to a real one.
-CORPUS_PROJECT = "/work/demo"
+from tests.guidance.conftest import CORPUS_PROJECT, corpus_payloads
 
 #: An absolute path anywhere in a served string, by either of R4's spellings:
 #: POSIX-rooted or drive-lettered. A node key (``"Inspection/Read/py"``) carries
@@ -76,9 +72,7 @@ def leaks(text: str, secrets: Collection[str]) -> tuple[str, ...]:
 
 def _payloads(project: Path) -> Iterator[Mapping[str, Any]]:
     """Every hook payload of the corpus, working in *project* rather than `/work/demo`."""
-    for path in sorted(PAYLOADS.glob("*.json")):
-        text = path.read_text(encoding="utf-8").replace(CORPUS_PROJECT, project.as_posix())
-        yield from json.loads(text)["payloads"]
+    return corpus_payloads((CORPUS_PROJECT, project.as_posix()))
 
 
 def _strings(value: Any) -> Iterator[str]:
