@@ -8,9 +8,9 @@ from processrecall.graph.store import EpisodicStep, SequenceKey
 from processrecall.symbolic.packs import ActivityClass
 
 
-def walk(*node_keys: str) -> tuple[EpisodicStep, ...]:
-    """One prompt that performed *node_keys* in the order given."""
-    key = SequenceKey(conversation_id="c1", session_epoch=0, prompt_id="p1")
+def walk(*node_keys: str, prompt: str = "p1") -> tuple[EpisodicStep, ...]:
+    """One prompt, named *prompt*, that performed *node_keys* in the order given."""
+    key = SequenceKey(conversation_id="c1", session_epoch=0, prompt_id=prompt)
     return tuple(
         _step(node_key, position=position, key=key) for position, node_key in enumerate(node_keys)
     )
@@ -28,5 +28,17 @@ def _step(node_key: str, *, position: int, key: SequenceKey) -> EpisodicStep:
         program=program,
         template=f"{program} <File>",
         occurred_at=datetime(2026, 9, 13, 10, 0, tzinfo=UTC),
-        step_id=position + 1,
+        step_id=_step_id(key.prompt_id, position),
     )
+
+
+def _step_id(prompt_id: str, position: int) -> int:
+    """A step id unique across prompts, derived from *prompt_id* and *position*.
+
+    Episodic identities are unique across the whole store, so two prompts
+    built here must not reuse one — an edge counts the distinct steps behind
+    it. The ordinal comes from the prompt's own name (``"p1"`` -> ``1``),
+    keeping two prompts distinct without a module-level counter.
+    """
+    ordinal = int(prompt_id.removeprefix("p"))
+    return ordinal * 1000 + position + 1
