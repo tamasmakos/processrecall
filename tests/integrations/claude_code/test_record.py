@@ -25,10 +25,9 @@ from processrecall.graph.episodic import open_index
 from processrecall.graph.store import SequenceKey, SQLiteEpisodicStore
 from processrecall.integrations.claude_code.hooks import capture
 
-pytestmark = pytest.mark.unit
+from .conftest import PAYLOADS, ROOT
 
-ROOT = Path(__file__).resolve().parents[3]
-PAYLOADS = ROOT / "tests" / "fixtures" / "payloads"
+pytestmark = pytest.mark.unit
 
 #: The sequence the synthetic corpus's actions belong to: the main agent, at the
 #: epoch nothing has rotated.
@@ -54,14 +53,6 @@ def hook(payload: Mapping[str, Any], home: Path) -> subprocess.CompletedProcess[
         env={**os.environ, "HOME": str(home), "USERPROFILE": str(home)},
         check=False,
     )
-
-
-@pytest.fixture
-def index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> sqlite3.Connection:
-    """An episodic index of this test's own, under a home directory of its own."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    return open_index(tmp_path / "episodes.db")
 
 
 def test_one_completed_action_lands_as_one_step_on_its_sequence(
