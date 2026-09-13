@@ -2,7 +2,9 @@
 
 Statements arrive already made — template-derived, never prose from a model —
 and rendering is nothing but assembly: one line each, the support count beside
-the claim it is the evidence for, in the order the caller ranked them.
+the claim it is the evidence for, in the order the caller ranked them. An
+agent-authored note is the one statement nobody derived, so it travels the same
+seam under a marker of its own rather than a channel of its own (FR-039).
 
 On the hot path, so the standard library only.
 
@@ -15,10 +17,12 @@ Example:
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Protocol
 
+from processrecall.graph.annotations import Annotation
 from processrecall.graph.snapshot import Counters
 
 #: The ceiling FR-042's ~300 tokens becomes without a tokeniser on the hot
@@ -48,6 +52,28 @@ class Deadline:
         return time.perf_counter() - self.started_at > SOFT_BUDGET_SECONDS
 
 
+class Origin(StrEnum):
+    """Where a statement came from, which is what sets its line apart (FR-039).
+
+    An authored note and a counted claim carry different authority — one is a
+    person's reading of the move, the other is what the episodes did — so the
+    reader is told which is which rather than left to infer it from wording.
+    """
+
+    STATISTICAL = "statistical"
+    ANNOTATION = "annotation"
+
+
+#: The label each origin is served under, ahead of its bullet. One table
+#: rather than a branch in :func:`_line`: the label is the whole of what
+#: FR-039 asks for, and an origin without one would render as indistinguishable
+#: from a counted claim.
+_LABELS: Mapping[Origin, str] = {
+    Origin.STATISTICAL: "",
+    Origin.ANNOTATION: "note:",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class GuidanceStatement:
     """One thing guidance has to say, and the evidence it rests on.
@@ -55,10 +81,24 @@ class GuidanceStatement:
     Attributes:
         text: The claim, template-derived and therefore deterministic.
         support: Episodes behind the claim, always rendered (FR-044).
+        origin: What kind of claim it is, and so how it is marked (FR-039).
+            Statistical by default: every statement this phase derives is
+            counted, and a note has to say so.
     """
 
     text: str
     support: int
+    origin: Origin = Origin.STATISTICAL
+
+    @classmethod
+    def from_annotation(cls, annotation: Annotation, support: int) -> GuidanceStatement:
+        """*annotation* as the statement it is served as, marked as authored.
+
+        *support* is the move's, not the note's: a note is not evidence of
+        itself, and FR-044 wants every line to carry the episodes behind the
+        transition the reader is being told about.
+        """
+        return cls(text=annotation.text, support=support, origin=Origin.ANNOTATION)
 
 
 class Renderer(Protocol):
@@ -128,4 +168,6 @@ def _assemble(statements: Sequence[GuidanceStatement]) -> str:
 
 def _line(statement: GuidanceStatement) -> str:
     """*statement* as the single line it is served on, claim then evidence."""
-    return f"- {statement.text} ({statement.support} episodes)"
+    label = _LABELS[statement.origin]
+    prefix = f"- {label} " if label else "- "
+    return f"{prefix}{statement.text} ({statement.support} episodes)"
