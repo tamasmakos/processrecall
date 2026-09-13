@@ -13,9 +13,11 @@ from collections.abc import Sequence
 from contextlib import closing
 from pathlib import Path
 
+from processrecall.cli.rebuild import Derivation, check, rebuild
 from processrecall.cli.show import Inspection, show
+from processrecall.config import LEVELS, load_config
 from processrecall.graph.episodic import open_index
-from processrecall.graph.store import SQLiteEpisodicStore
+from processrecall.graph.store import EpisodicStore, SQLiteEpisodicStore
 
 #: The subjects `show` answers for, in the order `contracts/cli.md` lists them.
 SUBJECTS = ("graph", "counters", "sequences", "config")
@@ -30,6 +32,20 @@ def _parser() -> argparse.ArgumentParser:
     show_command.add_argument(
         "--project", type=Path, default=Path.cwd(), help="the project to report on"
     )
+    rebuild_command = commands.add_parser(
+        "rebuild", help="re-derive both snapshots from the episodic index"
+    )
+    rebuild_command.add_argument(
+        "--project", type=Path, default=Path.cwd(), help="the project whose snapshot to rebuild"
+    )
+    rebuild_command.add_argument(
+        "--level", choices=LEVELS, default=None, help="the generality to fold at"
+    )
+    rebuild_command.add_argument(
+        "--check",
+        action="store_true",
+        help="compare instead of writing, exiting non-zero on any difference",
+    )
     return parser
 
 
@@ -37,9 +53,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the command named in *argv*, printing what it found; 0 when it answered."""
     arguments = _parser().parse_args(argv)
     with closing(open_index()) as connection:
-        view = Inspection(store=SQLiteEpisodicStore(connection), project_dir=arguments.project)
+        store = SQLiteEpisodicStore(connection)
+        if arguments.command == "rebuild":
+            return _rebuild(arguments, store)
+        view = Inspection(store=store, project_dir=arguments.project)
         print(show(arguments.subject, view))
     return 0
+
+
+def _rebuild(arguments: argparse.Namespace, store: EpisodicStore) -> int:
+    """Rewrite both snapshots, or compare them, printing what it found (FR-032).
+
+    A divergence is an exit code as well as a line of output: `--check` is what
+    a tree is judged consistent by, and a judgement nothing downstream can read
+    is no judgement (SC-004).
+    """
+    config = load_config()
+    level = arguments.level or config.level
+    source = Derivation(store=store, project_dir=arguments.project, level=level, config=config)
+    if not arguments.check:
+        print(rebuild(source))
+        return 0
+    if (divergence := check(source)) is None:
+        print("both snapshots match the episodic index")
+        return 0
+    print(divergence)
+    return 1
 
 
 if __name__ == "__main__":

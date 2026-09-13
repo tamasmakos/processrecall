@@ -29,9 +29,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from itertools import pairwise
+from typing import Any
 
 from processrecall.config import LEVELS, Config
 from processrecall.graph.keys import group_by_sequence, key_at, keys_of, shares_a_file
+from processrecall.graph.snapshot import Snapshot
 from processrecall.graph.store import CLOSED, EpisodicStep, Sequence, SequenceKey
 from processrecall.procedures.outcome import Outcome
 from processrecall.procedures.taxonomy import NO_FILE_TYPE
@@ -463,9 +465,7 @@ def aggregate(
     a condition names, and the status a weight is derived from (FR-027). A
     sequence missing from it is folded as `ProcessType.UNKNOWN` and as unclean —
     an unclassified prompt still has transitions, but a prompt nothing recorded
-    the end of cannot be said to have ended cleanly. No shipped caller passes it
-    yet — the task that wires the store's sequences in at the call site is T040
-    (`cli/rebuild.py`).
+    the end of cannot be said to have ended cleanly.
 
     *config* is the tuning the fold reads: the support floor below which a move
     may not warn (FR-031), and how much a move observed in a cleanly ended
@@ -506,6 +506,91 @@ def aggregate(
         edges=tuple(edges[pair].finish(baseline) for pair in sorted(edges)),
         episode_high_water=high_water,
     )
+
+
+def served(graph: AbstractGraph, generated_at: datetime) -> Snapshot:
+    """*graph* in the served form of `contracts/storage.md`, stamped *generated_at*.
+
+    Aggregation shapes the bodies rather than the file: `snapshot.py` stamps a
+    format and lands the write, and neither module has to move when the other
+    does (FR-053).
+
+    The contract's ``guidance`` key is carried empty until there is a renderer
+    to fill it: `contracts/storage.md` fixes the key on every edge, and a
+    reader indexing ``edge["guidance"]`` must not raise for want of a
+    renderer that has not shipped yet.
+    """
+    return Snapshot(
+        level=graph.level,
+        episode_high_water=graph.episode_high_water,
+        nodes={key: _node_body(node) for key, node in graph.nodes.items()},
+        edges=[_edge_body(edge) for edge in graph.edges],
+        generated_at=generated_at,
+    )
+
+
+def _node_body(node: ProcedureNode) -> dict[str, Any]:
+    """One procedure as the JSON object a snapshot carries it as."""
+    return {
+        "level": node.level,
+        "is_a": list(node.is_a),
+        "templates": [[template.text, template.count] for template in node.templates],
+        "support": node.support,
+        "outcome_counts": _outcome_body(node.outcome_counts),
+        "last_seen": node.last_seen.isoformat(),
+    }
+
+
+def _edge_body(edge: TransitionEdge) -> dict[str, Any]:
+    """One transition as the JSON object a snapshot carries it as.
+
+    ``supporting_steps`` is capped at the 50 most recent step ids (FR-026);
+    ``supporting_step_count`` repeats `TransitionEdge.support` because it is
+    the uncapped total the capped list cannot show on its own.
+    """
+    return {
+        "source": edge.source,
+        "target": edge.target,
+        "condition": _condition_body(edge.condition),
+        "guidance": [],
+        "pitfalls": [_pitfall_body(pitfall) for pitfall in edge.pitfalls],
+        "support": edge.support,
+        "weight": edge.weight,
+        "last_seen": edge.last_seen.isoformat(),
+        "outcome_counts": _outcome_body(edge.outcome_counts),
+        "supporting_steps": list(edge.supporting_steps),
+        "supporting_step_count": edge.support,
+    }
+
+
+def _condition_body(condition: Condition) -> dict[str, Any]:
+    """The context a move applies in, as plain JSON values (FR-029)."""
+    return {
+        "process_type": str(condition.process_type),
+        "same_file_as_previous": condition.same_file_as_previous,
+        "previous_outcome": _label(condition.previous_outcome),
+        "intended_activity": _label(condition.intended_activity),
+    }
+
+
+def _pitfall_body(pitfall: Pitfall) -> dict[str, Any]:
+    """One known way a move goes wrong, as plain JSON values (FR-031)."""
+    return {
+        "kind": str(pitfall.kind),
+        "evidence": pitfall.evidence,
+        "support": pitfall.support,
+        "failure_rate": pitfall.failure_rate,
+    }
+
+
+def _outcome_body(counts: Mapping[Outcome, int]) -> dict[str, int]:
+    """*counts* keyed by the outcome's name rather than by the enum member."""
+    return {str(outcome): count for outcome, count in counts.items()}
+
+
+def _label(value: StrEnum | None) -> str | None:
+    """*value*'s name, or ``None`` where nothing labelled it."""
+    return None if value is None else str(value)
 
 
 def _transitions(chain: _Chain, level: Level) -> Iterator[_Move]:
