@@ -1,0 +1,64 @@
+{
+  "description": "A clear restarts the session while the harness keeps the session id. FR-012: SessionStart with source clear increments the epoch, so the second prompt opens a new sequence instead of continuing the first.",
+  "payloads": [
+    {
+      "hook_event_name": "UserPromptSubmit",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "prompt": "Where is render() defined?"
+    },
+    {
+      "hook_event_name": "PostToolUse",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "tool_use_id": "toolu_30",
+      "tool_name": "Read",
+      "tool_input": {"file_path": "/work/demo/src/app.py"},
+      "tool_result": "1  def render(items):\n",
+      "agent_id": "",
+      "agent_type": ""
+    },
+    {
+      "hook_event_name": "SessionStart",
+      "session_id": "sess-demo",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "source": "clear"
+    },
+    {
+      "hook_event_name": "UserPromptSubmit",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-2",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "prompt": "Add a CHANGELOG entry for the render fix."
+    },
+    {
+      "hook_event_name": "PostToolUse",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-2",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "tool_use_id": "toolu_31",
+      "tool_name": "Write",
+      "tool_input": {
+        "file_path": "/work/demo/CHANGELOG.md",
+        "content": "- render() handles an empty list\n"
+      },
+      "tool_result": "Wrote 1 line to CHANGELOG.md",
+      "agent_id": "",
+      "agent_type": ""
+    },
+    {
+      "hook_event_name": "Stop",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-2",
+      "cwd": "/work/demo",
+      "agent_id": ""
+    }
+  ]
+}

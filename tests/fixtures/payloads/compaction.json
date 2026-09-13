@@ -1,0 +1,57 @@
+{
+  "description": "A compaction restarts the session mid-prompt. FR-012: SessionStart with source compact leaves the epoch alone, so the actions on either side of it belong to one sequence.",
+  "payloads": [
+    {
+      "hook_event_name": "UserPromptSubmit",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "prompt": "Make render() handle an empty list."
+    },
+    {
+      "hook_event_name": "PostToolUse",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "tool_use_id": "toolu_20",
+      "tool_name": "Edit",
+      "tool_input": {
+        "file_path": "/work/demo/src/app.py",
+        "old_string": "return \", \".join(items)",
+        "new_string": "return \", \".join(items) if items else \"\""
+      },
+      "tool_result": "Applied 1 edit to src/app.py",
+      "agent_id": "",
+      "agent_type": ""
+    },
+    {
+      "hook_event_name": "SessionStart",
+      "session_id": "sess-demo",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "source": "compact"
+    },
+    {
+      "hook_event_name": "PostToolUse",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "tool_use_id": "toolu_21",
+      "tool_name": "Bash",
+      "tool_input": {"command": "pytest -q tests/test_app.py"},
+      "tool_result": "2 passed in 0.12s",
+      "agent_id": "",
+      "agent_type": ""
+    },
+    {
+      "hook_event_name": "Stop",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "agent_id": ""
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "description": "The main agent delegates with Task, then the sub-agent works under its own agent_id. FR-011: the delegation is one step on the parent sequence and the sub-agent actions form a sequence of their own.",
+  "payloads": [
+    {
+      "hook_event_name": "UserPromptSubmit",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "prompt": "Review the change on this branch and report what it breaks."
+    },
+    {
+      "hook_event_name": "PostToolUse",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "tool_use_id": "toolu_10",
+      "tool_name": "Task",
+      "tool_input": {"subagent_type": "code-reviewer", "prompt": "Review the staged diff."},
+      "tool_result": "Reviewed 2 files, 1 finding.",
+      "agent_id": "",
+      "agent_type": ""
+    },
+    {
+      "hook_event_name": "PostToolUse",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "tool_use_id": "toolu_11",
+      "tool_name": "Grep",
+      "tool_input": {"pattern": "def render", "path": "/work/demo/src"},
+      "tool_result": "src/app.py:1:def render(items):",
+      "agent_id": "agent-7",
+      "agent_type": "code-reviewer"
+    },
+    {
+      "hook_event_name": "PostToolUse",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "tool_use_id": "toolu_12",
+      "tool_name": "Read",
+      "tool_input": {"file_path": "/work/demo/src/app.py"},
+      "tool_result": "1  def render(items):\n2      return \", \".join(items)\n",
+      "agent_id": "agent-7",
+      "agent_type": "code-reviewer"
+    },
+    {
+      "hook_event_name": "SubagentStop",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "agent_id": "agent-7"
+    },
+    {
+      "hook_event_name": "Stop",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "agent_id": ""
+    }
+  ]
+}
