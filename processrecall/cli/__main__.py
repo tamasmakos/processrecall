@@ -16,6 +16,7 @@ from pathlib import Path
 
 from processrecall.cli.backfill import Replay, backfill, parse_since
 from processrecall.cli.bootstrap import prepare
+from processrecall.cli.prune import Removal, episodes_before, prune
 from processrecall.cli.rebuild import Derivation, check, rebuild
 from processrecall.cli.show import Inspection, show
 from processrecall.config import LEVELS, load_config
@@ -73,6 +74,21 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="remove this file once the rebuild finishes (the session-end job's own lock)",
     )
+    prune_command = commands.add_parser(
+        "prune", help="delete the episodic history recorded before a date"
+    )
+    prune_command.add_argument(
+        "--project", type=Path, default=Path.cwd(), help="the project whose snapshot to re-derive"
+    )
+    prune_command.add_argument(
+        "--before",
+        type=parse_since,
+        required=True,
+        help="delete every turn that began before this instant",
+    )
+    prune_command.add_argument(
+        "--yes", action="store_true", help="delete without asking for confirmation"
+    )
     return parser
 
 
@@ -84,6 +100,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     with closing(open_index()) as connection:
         if arguments.command == "rebuild":
             return _rebuild(arguments, SQLiteEpisodicStore(connection))
+        if arguments.command == "prune":
+            return _prune(arguments, SQLiteEpisodicStore(connection))
         if arguments.command == "backfill":
             return _backfill(arguments, connection)
         view = Inspection(store=SQLiteEpisodicStore(connection), project_dir=arguments.project)
@@ -148,6 +166,39 @@ def _rebuild(arguments: argparse.Namespace, store: EpisodicStore) -> int:
     finally:
         if arguments.release_lock is not None:
             arguments.release_lock.unlink(missing_ok=True)
+
+
+def _prune(arguments: argparse.Namespace, store: EpisodicStore) -> int:
+    """Delete the history older than `--before`, asking first unless told not to (FR-057).
+
+    The cutoff is required by the parser, so there is no run of this command
+    that deletes without one; `--yes` answers the question in advance for a
+    script, and a refusal leaves the store exactly as it was.
+    """
+    config = load_config()
+    removal = episodes_before(store, arguments.before, arguments.project)
+    if not arguments.yes and not _confirmed(removal):
+        print("nothing removed")
+        return 0
+    source = Derivation(
+        store=store, project_dir=arguments.project, level=config.level, config=config
+    )
+    print(prune(source, removal))
+    return 0
+
+
+def _confirmed(removal: Removal) -> bool:
+    """Whether the operator at the terminal agreed to lose *removal*.
+
+    An unanswerable prompt — a closed stdin, a job with no terminal — is a
+    refusal and not an error: the question is the last thing standing between a
+    cutoff and deleted history, so silence keeps the history.
+    """
+    try:
+        answer = input(f"remove {removal}? [y/N] ")
+    except EOFError:
+        return False
+    return answer.strip().lower() in {"y", "yes"}
 
 
 if __name__ == "__main__":
