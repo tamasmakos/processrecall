@@ -42,7 +42,6 @@ from processrecall.graph.abstract import (
     Pitfall,
     PitfallKind,
     TransitionEdge,
-    edges_from,
 )
 from processrecall.graph.derive import Derivation
 from processrecall.graph.episodic import SequenceIdentity, open_index
@@ -60,6 +59,7 @@ from processrecall.guidance.fusion import Fusion
 from processrecall.guidance.locate import locate
 from processrecall.guidance.neighborhood import Neighborhood
 from processrecall.guidance.render import BulletRenderer, Deadline, GuidanceStatement
+from processrecall.guidance.successors import successors_from
 from processrecall.guidance.triggers import Triggers
 from processrecall.procedures.outcome import sequence_outcome
 from processrecall.procedures.step import steps_from
@@ -421,29 +421,8 @@ def _moves_from(
     ``None`` means any process type — the pre-action lookup :func:`_matching_pitfall`
     makes has no prompt-start condition to restrict to, unlike the opening moves
     :func:`_fused_openings` serves, which is what the default keeps serving.
-
-    A snapshot that is missing or unreadable yields no move rather than a
-    fault: the reader has already counted it (R11), and a project whose graph
-    has never been built is the ordinary first case rather than an error. The
-    format stamp only guards the document's outer shape, so `edges_from` gets
-    the same guard `SnapshotFile.read` gives the rest of the document — an
-    edge body it cannot parse is the same kind of unreadable snapshot, not a
-    fault inside a hook.
     """
-    snapshot = SnapshotFile(path, counters).read()
-    if snapshot is None:
-        return ()
-    try:
-        edges = edges_from(snapshot)
-    except (KeyError, TypeError, ValueError):
-        counters.bump("snapshot_unreadable")
-        return ()
-    return tuple(
-        edge
-        for edge in edges
-        if edge.source == source
-        and (process_type is None or edge.condition.process_type is process_type)
-    )
+    return successors_from(path, source, counters, process_type=process_type)
 
 
 def _statement(edge: TransitionEdge) -> GuidanceStatement:

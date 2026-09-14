@@ -27,7 +27,9 @@ class RecallArguments(BaseModel):
         default=None,
         description=(
             "How general the guidance should be: `class`, `class/program` or "
-            "`class/program/ext`. Omitted: the configured serving level."
+            "`class/program/ext`. Omitted: the configured serving level. Only shapes "
+            "the position read for an omitted `procedure`; a named `procedure` is "
+            "matched as spelled, against whatever level the graph was built at."
         ),
     )
 

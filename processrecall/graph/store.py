@@ -213,6 +213,10 @@ class EpisodicStore(Protocol):
         """The most recently opened turn that has not yet closed."""
         ...
 
+    def latest_sequence_for_project(self, project_key: str) -> Sequence | None:
+        """The most recently opened, not-yet-closed turn *project_key* names."""
+        ...
+
     def declare_outcome(self, key: SequenceKey, outcome: str) -> None:
         """Record *outcome* on *key* beside its derived verdict (FR-035)."""
         ...
@@ -489,6 +493,22 @@ class SQLiteEpisodicStore:
             "SELECT conversation_id, session_epoch, prompt_id, agent_id FROM sequences"
             " WHERE status != ? ORDER BY started_at DESC LIMIT 1",
             (CLOSED,),
+        ).fetchone()
+        if row is None:
+            return None
+        return self.sequence(SequenceKey(str(row[0]), int(row[1]), str(row[2]), str(row[3])))
+
+    def latest_sequence_for_project(self, project_key: str) -> Sequence | None:
+        """The most recently opened, not-yet-closed turn *project_key* names.
+
+        `latest_sequence`'s own query, narrowed to one project: a caller that
+        does know which project it is answering for — `recall` is the one —
+        must not read a position off a turn some other project left open.
+        """
+        row = self._connection.execute(
+            "SELECT conversation_id, session_epoch, prompt_id, agent_id FROM sequences"
+            " WHERE status != ? AND project_dir_key = ? ORDER BY started_at DESC LIMIT 1",
+            (CLOSED, project_key),
         ).fetchone()
         if row is None:
             return None
