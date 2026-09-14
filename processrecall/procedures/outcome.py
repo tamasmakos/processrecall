@@ -11,6 +11,7 @@ Lifted from prototype v3 (R18). On the hot path, so the standard library only.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from enum import StrEnum
 
 
@@ -52,3 +53,18 @@ def classify_outcome(result: str, *, is_error: bool) -> Outcome:
         if pattern.search(result):
             return outcome
     return Outcome.NEUTRAL
+
+
+def sequence_outcome(outcomes: Iterable[str]) -> Outcome:
+    """The verdict a whole turn derives from the verdicts of *outcomes*.
+
+    One failed action is what makes a turn a failure, however much of it went
+    well: a piece of work that had to be fixed is not the same evidence as one
+    that never broke (FR-027 reads it that way too). A turn nothing recognised
+    an outcome on is ``NEUTRAL`` rather than a success, for the reason
+    `Outcome.NEUTRAL` exists at all.
+    """
+    verdicts = {Outcome(outcome) for outcome in outcomes}
+    if Outcome.FAILURE in verdicts:
+        return Outcome.FAILURE
+    return Outcome.SUCCESS if Outcome.SUCCESS in verdicts else Outcome.NEUTRAL

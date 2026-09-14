@@ -72,6 +72,7 @@ COUNTERS: tuple[str, ...] = (
     "guidance_served",
     "guidance_silent",
     "snapshot_unreadable",
+    "snapshot_write_failed",
     "snapshot_written",
     "steps_duplicate",
     "steps_recorded",
@@ -187,6 +188,10 @@ class EpisodicStore(Protocol):
 
     def close_sequence(self, key: SequenceKey, at: datetime) -> None:
         """Mark the sequence *key* names as having ended at *at*."""
+        ...
+
+    def derive_outcome(self, key: SequenceKey, outcome: str) -> None:
+        """Record the rules' verdict *outcome* on *key* (FR-034, FR-036)."""
         ...
 
     def record(self, step: EpisodicStep) -> bool:
@@ -361,6 +366,19 @@ class SQLiteEpisodicStore:
             self._connection.execute(
                 f"UPDATE sequences SET status = 'closed', ended_at = ?{_SEQUENCE_WHERE}",
                 (at.isoformat(), *_key_params(key)),
+            )
+
+    def derive_outcome(self, key: SequenceKey, outcome: str) -> None:
+        """Write the rules' verdict *outcome* on *key*, leaving the declared one alone.
+
+        The mirror of `declare_outcome`: the two verdicts live in their own
+        columns so that a rule change re-derives one without touching what an
+        agent said about the turn (FR-036).
+        """
+        with self._connection:
+            self._connection.execute(
+                f"UPDATE sequences SET derived_outcome = ?{_SEQUENCE_WHERE}",
+                (outcome, *_key_params(key)),
             )
 
     def record(self, step: EpisodicStep) -> bool:
