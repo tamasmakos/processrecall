@@ -24,7 +24,7 @@ import json
 import logging
 import sqlite3
 import uuid
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -218,6 +218,18 @@ class EpisodicStore(Protocol):
 
     def iter_steps(self, since: int = 0) -> Iterator[EpisodicStep]:
         """Every step recorded after ``step_id`` *since*, oldest first."""
+        ...
+
+    def sequences_before(self, cutoff: datetime, project_key: str) -> tuple[SequenceKey, ...]:
+        """Every turn *project_key* names that began before *cutoff*, oldest first."""
+        ...
+
+    def delete_sequences(self, keys: Iterable[SequenceKey]) -> None:
+        """Delete the turns *keys* names with every step of them.
+
+        The only deletion this seam offers, and nothing calls it but `prune`
+        (FR-057): history is kept indefinitely unless an operator says otherwise.
+        """
         ...
 
     def write_annotation(self, project_key: str, annotation: Annotation) -> None:
@@ -529,6 +541,39 @@ class SQLiteEpisodicStore:
             (since,),
         )
         return (_step_from_row(row) for row in rows)
+
+    def sequences_before(self, cutoff: datetime, project_key: str) -> tuple[SequenceKey, ...]:
+        """Every turn *project_key* names that began before *cutoff*, oldest first.
+
+        Scoped to one project rather than the whole store: `prune` re-derives
+        only the snapshot of the project it was pointed at, so a turn this
+        misses would leave that snapshot correct while a turn it caught from
+        another project would leave that other project's snapshot stale.
+
+        Compared as stored text, like every other ordering here: the column
+        holds `datetime.isoformat` output, which sorts by instant as long as it
+        is written in one zone — and everything written through this store is.
+        """
+        rows = self._connection.execute(
+            "SELECT conversation_id, session_epoch, prompt_id, agent_id FROM sequences"
+            " WHERE started_at < ? AND project_dir_key = ? ORDER BY started_at",
+            (cutoff.isoformat(), project_key),
+        )
+        return tuple(
+            SequenceKey(str(row[0]), int(row[1]), str(row[2]), str(row[3])) for row in rows
+        )
+
+    def delete_sequences(self, keys: Iterable[SequenceKey]) -> None:
+        """Delete the turns *keys* names with every step of them.
+
+        Steps first and both in one transaction: a turn whose rows outlived it
+        would be a step the foreign key says belongs to nothing, and a crash
+        between the two deletions must leave the store as it was.
+        """
+        parameters = [_key_params(key) for key in keys]
+        with self._connection:
+            self._connection.executemany(f"DELETE FROM steps{_SEQUENCE_WHERE}", parameters)
+            self._connection.executemany(f"DELETE FROM sequences{_SEQUENCE_WHERE}", parameters)
 
     def write_annotation(self, project_key: str, annotation: Annotation) -> None:
         """Store *annotation* against *project_key*, in the annotations table of its own (FR-038).
