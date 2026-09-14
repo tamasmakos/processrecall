@@ -35,6 +35,7 @@ def manifest_declared(key: str) -> dict[str, Any]:
     assert path.is_file(), f"{declared} is declared by the manifest but not shipped"
     return json.loads(path.read_text(encoding="utf-8"))
 
+
 # Belt-and-suspenders against a model download on first extract: whichever
 # module ends up loading one reads the offline switches at import, before this
 # module's own import can react, so the session sets them here, before any

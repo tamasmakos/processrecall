@@ -55,9 +55,7 @@ def _payload(hook_event_name: str, fixture: str = "replayed_duplicate.json") -> 
     """The first payload of *hook_event_name* in *fixture*'s synthetic corpus."""
     envelope = json.loads((PAYLOADS / fixture).read_text(encoding="utf-8"))
     return next(
-        payload
-        for payload in envelope["payloads"]
-        if payload["hook_event_name"] == hook_event_name
+        payload for payload in envelope["payloads"] if payload["hook_event_name"] == hook_event_name
     )
 
 

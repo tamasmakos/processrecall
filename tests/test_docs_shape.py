@@ -40,7 +40,9 @@ def test_docs_name_no_absent_symbols() -> None:
         doc_path = REPO_ROOT / "docs" / doc_name
         text = doc_path.read_text(encoding="utf-8")
         for symbol in absent_symbols:
-            assert symbol not in text, f"{doc_name} still names {symbol}, absent from processrecall/"
+            assert symbol not in text, (
+                f"{doc_name} still names {symbol}, absent from processrecall/"
+            )
         assert "web server" not in text.lower(), f"{doc_name} still names the web server"
 
 

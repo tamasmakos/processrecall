@@ -34,6 +34,7 @@ ENV_PREFIX = "PROCESSRECALL_"
 #: The directory name every processrecall store lives under, home or project.
 STORE_DIR = ".processrecall"
 
+
 def home_dir() -> Path:
     """The one store root every processrecall file lives under (FR-052).
 
@@ -45,6 +46,7 @@ def home_dir() -> Path:
     would throw that away.
     """
     return Path.home() / STORE_DIR
+
 
 #: The three levels of generality every node materialises (FR-023), coarsest
 #: first. ``Config.level`` picks which of them guidance is served at; the other

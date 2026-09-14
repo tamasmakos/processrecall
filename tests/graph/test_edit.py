@@ -151,7 +151,9 @@ def test_a_revise_that_strands_the_retargeted_nodes_only_incoming_move_is_refuse
     editor = GraphEditor(base_graph())
     before = edge_keys(editor.graph)
 
-    rejection = editor.revise("Inspection/Read -> ChangeImplementation/Edit", "ArtifactEvaluation/Pytest")
+    rejection = editor.revise(
+        "Inspection/Read -> ChangeImplementation/Edit", "ArtifactEvaluation/Pytest"
+    )
 
     assert rejection is not None
     assert rejection.reason is RejectionReason.UNREACHABLE

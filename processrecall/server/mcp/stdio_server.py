@@ -123,7 +123,11 @@ server: Server[object, Any] = Server(
 )
 
 
-@server.list_tools()
+# `Server.list_tools` carries no annotations of its own upstream, unlike
+# `call_tool` below, so calling it to build the decorator is an untyped call in
+# this typed module. Ignored at the one line it happens on rather than loosened
+# for the file: everything the handler itself does stays checked.
+@server.list_tools()  # type: ignore[no-untyped-call]
 async def _list_tools() -> list[types.Tool]:
     """Answer `tools/list` with the inventory, and nothing besides it."""
     return [spec.declare() for spec in TOOLS]

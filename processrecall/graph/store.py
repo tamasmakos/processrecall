@@ -293,6 +293,12 @@ _STEP_COLUMNS = (
 
 #: The predicate every `SequenceKey` lookup shares — a fifth key field would
 #: otherwise mean editing this in four places.
+#:
+#: This and `_STEP_COLUMNS` are the only things any statement in this module
+#: interpolates, which is why each of their call sites carries `# nosec B608`:
+#: both are module constants of column names and `?` placeholders, fixed at
+#: import and reachable by no caller. Every value a caller supplies is bound
+#: through the parameter tuple, never formatted into the text.
 _SEQUENCE_WHERE = (
     " WHERE conversation_id = ? AND session_epoch = ? AND prompt_id = ? AND agent_id = ?"
 )
@@ -374,7 +380,7 @@ class SQLiteEpisodicStore:
         """
         with self._connection:
             self._connection.execute(
-                f"UPDATE sequences SET status = 'closed', ended_at = ?{_SEQUENCE_WHERE}",
+                f"UPDATE sequences SET status = 'closed', ended_at = ?{_SEQUENCE_WHERE}",  # nosec B608
                 (at.isoformat(), *_key_params(key)),
             )
 
@@ -387,7 +393,7 @@ class SQLiteEpisodicStore:
         """
         with self._connection:
             self._connection.execute(
-                f"UPDATE sequences SET derived_outcome = ?{_SEQUENCE_WHERE}",
+                f"UPDATE sequences SET derived_outcome = ?{_SEQUENCE_WHERE}",  # nosec B608
                 (outcome, *_key_params(key)),
             )
 
@@ -450,7 +456,7 @@ class SQLiteEpisodicStore:
             "  AND steps.session_epoch = sequences.session_epoch"
             "  AND steps.prompt_id = sequences.prompt_id"
             "  AND steps.agent_id = sequences.agent_id) FROM sequences"
-            f"{_SEQUENCE_WHERE}",
+            f"{_SEQUENCE_WHERE}",  # nosec B608
             _key_params(key),
         ).fetchone()
         if row is None:
@@ -530,14 +536,14 @@ class SQLiteEpisodicStore:
         """
         with self._connection:
             self._connection.execute(
-                f"UPDATE sequences SET declared_outcome = ?{_SEQUENCE_WHERE}",
+                f"UPDATE sequences SET declared_outcome = ?{_SEQUENCE_WHERE}",  # nosec B608
                 (outcome, *_key_params(key)),
             )
 
     def steps(self, key: SequenceKey) -> tuple[EpisodicStep, ...]:
         """Every step of *key*, in the order it was carried out."""
         rows = self._connection.execute(
-            f"SELECT {_STEP_COLUMNS} FROM steps{_SEQUENCE_WHERE} ORDER BY position",
+            f"SELECT {_STEP_COLUMNS} FROM steps{_SEQUENCE_WHERE} ORDER BY position",  # nosec B608
             _key_params(key),
         )
         return tuple(_step_from_row(row) for row in rows)
@@ -581,7 +587,7 @@ class SQLiteEpisodicStore:
         memory.
         """
         rows = self._connection.execute(
-            f"SELECT {_STEP_COLUMNS} FROM steps WHERE step_id > ? ORDER BY step_id",
+            f"SELECT {_STEP_COLUMNS} FROM steps WHERE step_id > ? ORDER BY step_id",  # nosec B608
             (since,),
         )
         return (_step_from_row(row) for row in rows)
@@ -616,8 +622,8 @@ class SQLiteEpisodicStore:
         """
         parameters = [_key_params(key) for key in keys]
         with self._connection:
-            self._connection.executemany(f"DELETE FROM steps{_SEQUENCE_WHERE}", parameters)
-            self._connection.executemany(f"DELETE FROM sequences{_SEQUENCE_WHERE}", parameters)
+            self._connection.executemany(f"DELETE FROM steps{_SEQUENCE_WHERE}", parameters)  # nosec B608
+            self._connection.executemany(f"DELETE FROM sequences{_SEQUENCE_WHERE}", parameters)  # nosec B608
 
     def write_annotation(self, project_key: str, annotation: Annotation) -> None:
         """Store *annotation* against *project_key*, in the annotations table of its own (FR-038).

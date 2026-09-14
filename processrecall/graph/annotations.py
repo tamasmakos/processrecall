@@ -26,8 +26,8 @@ from datetime import datetime
 from difflib import get_close_matches
 from typing import NoReturn
 
+from processrecall.config import Counters
 from processrecall.exceptions import AnnotationRejected
-from processrecall.graph.snapshot import Counters
 
 #: How many existing moves a `no_such_edge` refusal names, so the agent can
 #: retry against a real one rather than guess again (R12).

@@ -338,9 +338,7 @@ class TestAnalysisToolRemoved:
         )
 
     def test_sonar_directory_is_gitignored(self) -> None:
-        _assert_gitignored(
-            ".sonar", "the local analysis-tool cache could be committed by accident"
-        )
+        _assert_gitignored(".sonar", "the local analysis-tool cache could be committed by accident")
 
     @pytest.mark.parametrize("path", [PRE_COMMIT_CONFIG, CI_WORKFLOW, RELEASE_WORKFLOW])
     def test_no_sonar_references(self, path: Path) -> None:

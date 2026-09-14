@@ -250,9 +250,10 @@ def _merge_node(existing: Mapping[str, Any], delta: Mapping[str, Any]) -> dict[s
 
 def _merged_edges(existing: Seq[object], delta: Seq[object]) -> list[dict[str, Any]]:
     """Every edge of *existing*, counted against what *delta* adds to it, in key order."""
-    merged = {edge_key(str(body["source"]), str(body["target"])): dict(body) for body in (
-        _as_mapping(edge) for edge in existing
-    )}
+    merged = {
+        edge_key(str(body["source"]), str(body["target"])): dict(body)
+        for body in (_as_mapping(edge) for edge in existing)
+    }
     for edge in delta:
         incoming = _as_mapping(edge)
         key = edge_key(str(incoming["source"]), str(incoming["target"]))

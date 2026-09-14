@@ -79,9 +79,7 @@ def test_the_hook_process_records_in_silence_and_exits_zero(
     assert result.returncode == 0, result.stderr
     assert result.stdout == ""
     if store_is_a_directory:
-        fallback = (tmp_path / ".processrecall" / "log" / "hooks.jsonl").read_text(
-            encoding="utf-8"
-        )
+        fallback = (tmp_path / ".processrecall" / "log" / "hooks.jsonl").read_text(encoding="utf-8")
         assert "capture_store_busy" in fallback
     else:
         with closing(open_index(tmp_path / ".processrecall" / "episodes.db")) as index:
