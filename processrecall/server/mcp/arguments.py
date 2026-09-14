@@ -23,6 +23,13 @@ class RecallArguments(BaseModel):
         default=None,
         description="The procedure to recall. Omitted: guidance for where the work is now.",
     )
+    level: str | None = Field(
+        default=None,
+        description=(
+            "How general the guidance should be: `class`, `class/program` or "
+            "`class/program/ext`. Omitted: the configured serving level."
+        ),
+    )
 
 
 class RememberArguments(BaseModel):

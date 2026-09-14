@@ -60,8 +60,12 @@ def test_stdio_server_exposes_exactly_the_four_memory_tools(
 #: must supply. `recall` without a procedure means the work's current position
 #: (FR-065) and `mark_outcome` without a prompt means the current prompt
 #: (FR-035), so neither name is required; `inspect` takes nothing at all.
+#: `recall`'s `level` is the second optional argument of contracts/mcp-tools.md
+#: — absent, the configured serving level applies (FR-023). It is named here
+#: because this map is an equality, not a subset: an argument the contract
+#: declares and the model omits is as much a mismatch as a stray one.
 EXPECTED_ARGUMENTS = {
-    "recall": ({"procedure"}, set()),
+    "recall": ({"procedure", "level"}, set()),
     "remember": ({"edge", "note"}, {"edge", "note"}),
     "mark_outcome": ({"prompt_id", "outcome"}, {"outcome"}),
     "inspect": (set(), set()),
