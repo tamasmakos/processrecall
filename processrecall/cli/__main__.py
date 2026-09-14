@@ -67,6 +67,12 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="compare instead of writing, exiting non-zero on any difference",
     )
+    rebuild_command.add_argument(
+        "--release-lock",
+        type=Path,
+        default=None,
+        help="remove this file once the rebuild finishes (the session-end job's own lock)",
+    )
     return parser
 
 
@@ -119,18 +125,29 @@ def _rebuild(arguments: argparse.Namespace, store: EpisodicStore) -> int:
     A divergence is an exit code as well as a line of output: `--check` is what
     a tree is judged consistent by, and a judgement nothing downstream can read
     is no judgement (SC-004).
+
+    `--release-lock` removes the named file once this finishes, whether it
+    wrote or merely compared: it is the session-end job's own lock (FR-050),
+    freed here rather than left for the next session's staleness check to time
+    out (`processrecall.integrations.claude_code.hooks._take_session_end_lock`).
     """
-    config = load_config()
-    level = arguments.level or config.level
-    source = Derivation(store=store, project_dir=arguments.project, level=level, config=config)
-    if not arguments.check:
-        print(rebuild(source))
-        return 0
-    if (divergence := check(source)) is None:
-        print("both snapshots match the episodic index")
-        return 0
-    print(divergence)
-    return 1
+    try:
+        config = load_config()
+        level = arguments.level or config.level
+        source = Derivation(
+            store=store, project_dir=arguments.project, level=level, config=config
+        )
+        if not arguments.check:
+            print(rebuild(source))
+            return 0
+        if (divergence := check(source)) is None:
+            print("both snapshots match the episodic index")
+            return 0
+        print(divergence)
+        return 1
+    finally:
+        if arguments.release_lock is not None:
+            arguments.release_lock.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

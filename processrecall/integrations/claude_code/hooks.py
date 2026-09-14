@@ -23,11 +23,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
+import subprocess
+import sys
 from collections.abc import Callable, Mapping
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, TextIO
@@ -81,6 +84,11 @@ DENY_LIST = "deny.txt"
 #: the condition the sequence's ``Start`` is stored under — and the one its
 #: successors are read for — is the deterministic default until it ships.
 PROMPT_PROCESS_TYPE = ProcessType.UNKNOWN
+
+
+def _project_dir(payload: Mapping[str, Any]) -> str:
+    """The ``cwd`` *payload* names, or ``""`` where it names none."""
+    return str(payload.get("cwd") or "")
 
 
 def is_excluded(project_dir: str, counters: Counters) -> bool:
@@ -162,7 +170,7 @@ def _adapt(
     sequence, so it increments ``capture_payload_malformed`` and the caller
     moves on.
     """
-    if is_excluded(str(payload.get("cwd") or ""), counters):
+    if is_excluded(_project_dir(payload), counters):
         return None
     if payload.get("hook_event_name") != hook_event:
         return None
@@ -179,7 +187,7 @@ def _adapt(
         # never held in this process longer than it takes to slice it (FR-010).
         tool_call_result=str(payload.get("tool_result") or "")[:RESULT_CEILING],
         prompt_id=str(payload.get("prompt_id") or ""),
-        project_dir=str(payload.get("cwd") or ""),
+        project_dir=_project_dir(payload),
         record_ref=_record_ref(payload),
         occurred_at=datetime.now(UTC),
         source_kind=SourceKind.LIVE,
@@ -282,7 +290,7 @@ def open_prompt(
     test driving this directly, gets one struck here instead.
     """
     store = SQLiteEpisodicStore(connection)
-    project_dir = str(payload.get("cwd") or "")
+    project_dir = _project_dir(payload)
     if is_excluded(project_dir, store):
         return ""
     opening = _Opening(
@@ -623,14 +631,133 @@ def close(payload: Mapping[str, Any]) -> Response:
         log_fallback(home_dir() / "log" / "hooks.jsonl", "capture_store_busy", exc)
         return None
     with closing(connection):
-        if is_excluded(str(payload.get("cwd") or ""), SQLiteEpisodicStore(connection)):
+        if is_excluded(_project_dir(payload), SQLiteEpisodicStore(connection)):
             return None
     return {"additionalContext": REMEMBER_NUDGE}
 
 
+#: Where the detached session-end job takes its lock, under the home store
+#: directory: one job per machine rather than one per project, because the job
+#: rewrites the cross-project snapshot as well as the project's own and two of
+#: them would race on that one file.
+SESSION_END_LOCK = "session-end.lock"
+
+#: How long an unreleased lock means "a job is still running". The job itself
+#: removes the lock when it finishes (`--release-lock`), so this is a
+#: crash-recovery backstop rather than the normal throttle: only a job that
+#: died mid-run leaves a lock for this to judge, and it is longer than
+#: re-deriving the whole index takes, so a job that really is running is
+#: never doubled.
+SESSION_END_MAX_RUNTIME = timedelta(hours=1)
+
+
+def _take_session_end_lock(path: Path) -> bool:
+    """Whether this session may run the job, taking the lock at *path* when it may.
+
+    A lock a job is still running behind is left alone, and so is this session's
+    job (``contracts/agent-hooks.md``). Exclusive creation is the claim itself,
+    so two sessions ending at once cannot both spawn one; losing that race, like
+    an unwritable home directory, is an ``OSError`` and means the same thing
+    here — this session does not run the job.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if _job_is_running(path):
+            return False
+        path.unlink(missing_ok=True)
+        os.close(os.open(path, os.O_CREAT | os.O_EXCL, 0o600))
+    except OSError as exc:
+        _logger.debug("the session-end lock %s was not taken: %s", path, exc)
+        return False
+    return True
+
+
+def _job_is_running(path: Path) -> bool:
+    """Whether the lock at *path* is one a job of a previous session still holds."""
+    try:
+        taken = datetime.fromtimestamp(path.stat().st_mtime, UTC)
+    except FileNotFoundError:
+        return False
+    return datetime.now(UTC) - taken < SESSION_END_MAX_RUNTIME
+
+
+def _spawn_session_end(project_dir: str, lock: Path) -> None:
+    """Start the enrichment job for *project_dir*, detached from this process.
+
+    ``processrecall rebuild`` is the job: it re-derives both graphs from the
+    whole episodic index, which is where classification (FR-059) and symbol
+    attribution (FR-063) get to run at all, since neither may run on the hot
+    path (FR-064). Detached, with none of this process's streams held open, so
+    the child outlives the hook and the harness's timeout never reaches it.
+
+    *lock* is passed as ``--release-lock`` so the job frees it on the way out:
+    the next session's job is then blocked on nothing but the run itself,
+    rather than on `SESSION_END_MAX_RUNTIME`.
+
+    A child that cannot be started is logged rather than raised, as every other
+    failure on a hook path is: enrichment is the optional layer, and its absence
+    is what the rules-only graph already stands without (FR-060).
+    """
+    try:
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "processrecall.cli",
+                "rebuild",
+                "--project",
+                project_dir,
+                "--release-lock",
+                str(lock),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        _logger.warning("the session-end job could not be started: %s", exc)
+
+
 def end(payload: Mapping[str, Any]) -> Response:
-    """``SessionEnd``: spawn the detached session-end job and return (T074)."""
+    """``SessionEnd``: spawn the detached session-end job and return (T074).
+
+    The whole of the verb: whatever the job costs, the developer has already
+    left this session and the next one waits on nothing (FR-050). What it costs
+    is why it is a job at all — classification and code parsing are exactly the
+    work FR-064 keeps off the hot path.
+
+    Three things stop it. A session naming no project has nothing per-project
+    to fold, and the payload of this event is not required to name one. An
+    excluded project (FR-058, checked first as in :func:`close`) gets no job,
+    since one would write under its `.processrecall/` regardless of what it
+    folds. And a job a previous session left running holds the lock, in which
+    case this session leaves it alone rather than starting a second: the job
+    releases the lock itself on the way out (`--release-lock`), so the next
+    session to end is blocked on the run, not on `SESSION_END_MAX_RUNTIME`.
+    """
+    project_dir = _project_dir(payload)
+    if not project_dir or _is_excluded_project(project_dir):
+        return None
+    if _take_session_end_lock(home_dir() / SESSION_END_LOCK):
+        _spawn_session_end(project_dir, home_dir() / SESSION_END_LOCK)
     return None
+
+
+def _is_excluded_project(project_dir: str) -> bool:
+    """Whether *project_dir* opted out, counting it as in :func:`close`.
+
+    A store that cannot be opened is not treated as excluded: an unwritable
+    home directory already stops the job at the lock, and a project should
+    not be read as opted out because of that.
+    """
+    try:
+        connection = open_index()
+    except sqlite3.Error as exc:
+        log_fallback(home_dir() / "log" / "hooks.jsonl", "capture_store_busy", exc)
+        return False
+    with closing(connection):
+        return is_excluded(project_dir, SQLiteEpisodicStore(connection))
 
 
 #: The six verbs of ``contracts/agent-hooks.md``, the only names ``hooks.json``
