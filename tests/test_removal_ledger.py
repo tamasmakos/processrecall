@@ -126,7 +126,10 @@ def test_removed_modules_are_absent() -> None:
     survivors = sorted(str(Path(p)) for p in REMOVED_PATHS if (PKG_ROOT / p).exists())
     assert not survivors, f"R18 deletes these, but they are still in the package: {survivors}"
 
-    ranking = sorted(p.name for p in (PKG_ROOT / "ranking").iterdir())
+    # `__pycache__` is the interpreter's, not the ledger's: importing `rrf` at all
+    # creates it, so counting it as a survivor makes this test fail whenever the
+    # suite runs without a `git clean -fdX` first.
+    ranking = sorted(p.name for p in (PKG_ROOT / "ranking").iterdir() if p.name != "__pycache__")
     assert ranking == RANKING_SURVIVORS, (
         f"processrecall/ranking: expected only {RANKING_SURVIVORS}, found {ranking}"
     )
