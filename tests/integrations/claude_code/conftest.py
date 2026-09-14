@@ -14,9 +14,9 @@ from typing import Any
 import pytest
 
 from processrecall.graph.episodic import open_index
+from tests.conftest import PAYLOADS  # noqa: F401 - re-exported for this dir's tests
 
 ROOT = Path(__file__).resolve().parents[3]
-PAYLOADS = ROOT / "tests" / "fixtures" / "payloads"
 
 
 def hook(verb: str, payload: Mapping[str, Any], home: Path) -> subprocess.CompletedProcess[str]:

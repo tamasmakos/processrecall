@@ -21,6 +21,7 @@ if _project_root not in sys.path:
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = REPO_ROOT / ".claude-plugin" / "plugin.json"
+PAYLOADS = REPO_ROOT / "tests" / "fixtures" / "payloads"
 
 
 def manifest_declared(key: str) -> dict[str, Any]:
