@@ -1,13 +1,8 @@
 """Repo-shape contract: pins the post-cleanup state issue #203 describes.
 
-The image build never read `uv.lock` — the Dockerfile resolved fresh from
-`pyproject.toml`'s ranges via a lock-free `uv pip install`, disagreeing with
-what CI and every developer resolve from. Around that defect sat a four-stage
-image (`builder`->`models`->`runtime`->`dev`) whose only reason to exist was a
-shipped deployment artifact (`docker-compose.prod.yaml`) that no longer
-exists now the PyPI wheel is the product. Everything else pinned here is the
-same root cause's debris: a runtime-only HEALTHCHECK/HF_HUB_OFFLINE/model-bake
-stage, a lock-hash staleness guard for a lock the image never used, an
+The Dockerfile and its deployment stack are gone entirely (the PyPI wheel is
+the product now); what remains pinned here is the rest of that cleanup's
+debris: a lock-hash staleness guard for a lock the image never used, an
 unpinned SonarQube CLI install and the skip_sonar plumbing threaded through
 CI, and pytest.ini/ruff.toml/.devcontainer/Node ignore rules a Python-only
 repo does not need.
@@ -34,7 +29,6 @@ import pytest
 pytestmark = pytest.mark.unit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DOCKERFILE = REPO_ROOT / "Dockerfile"
 GATE_SH = REPO_ROOT / "scripts" / "gate.sh"
 PREFLIGHT = REPO_ROOT / "scripts" / "preflight.py"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
@@ -42,189 +36,8 @@ CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
 PRE_COMMIT_CONFIG = REPO_ROOT / ".pre-commit-config.yaml"
 README = REPO_ROOT / "README.md"
-CONTRIBUTING = REPO_ROOT / "CONTRIBUTING.md"
 GITIGNORE = REPO_ROOT / ".gitignore"
-DOCKERIGNORE = REPO_ROOT / ".dockerignore"
 MAKEFILE = REPO_ROOT / "Makefile"
-
-
-# ─── Dockerfile: one stage, lock-respecting install ─────────────────────────
-
-
-class TestDockerfile:
-    def setup_method(self) -> None:
-        assert DOCKERFILE.is_file(), f"{DOCKERFILE}: missing"
-        self.text = DOCKERFILE.read_text(encoding="utf-8")
-
-    def test_single_stage(self) -> None:
-        from_lines = re.findall(r"^FROM ", self.text, re.MULTILINE)
-        assert len(from_lines) == 1, (
-            f"{DOCKERFILE}: expected exactly one `FROM` line (one-stage build), "
-            f"found {len(from_lines)} — the builder/models/runtime/dev split "
-            "must be collapsed"
-        )
-
-    def test_no_pip_install(self) -> None:
-        assert "pip install" not in self.text, (
-            f"{DOCKERFILE}: still contains `pip install` — the image must "
-            "install with `uv sync` so it reads uv.lock, not a lock-free resolve"
-        )
-
-    def test_uv_copied_from_pinned_tag(self) -> None:
-        match = re.search(r"COPY --from=ghcr\.io/astral-sh/uv:(\S+)", self.text)
-        assert match is not None, (
-            f"{DOCKERFILE}: no `COPY --from=ghcr.io/astral-sh/uv:` line found — "
-            "uv must be brought in via the official image, not `pip install uv`"
-        )
-        assert match.group(1) != "latest", (
-            f"{DOCKERFILE}: uv is copied from the `:latest` tag — pin to a "
-            "concrete tag so the build is reproducible"
-        )
-
-    def test_two_pass_sync_with_no_install_project_first(self) -> None:
-        occurrences = list(re.finditer(r"uv sync", self.text))
-        assert len(occurrences) >= 2, (
-            f"{DOCKERFILE}: expected `uv sync` at least twice (a manifests-only "
-            "pass, then a pass after `COPY processrecall`), found "
-            f"{len(occurrences)} — this ordering is what lets the dependency "
-            "layer cache independently of source changes"
-        )
-        first_line_start = self.text.rfind("\n", 0, occurrences[0].start()) + 1
-        first_line_end = self.text.find("\n", occurrences[0].start())
-        first_line = self.text[first_line_start:first_line_end]
-        assert "--no-install-project" in first_line, (
-            f"{DOCKERFILE}: the first `uv sync` does not carry "
-            f"`--no-install-project` — got: {first_line.strip()!r}"
-        )
-
-    def test_uv_cache_mount(self) -> None:
-        assert "--mount=type=cache,target=/root/.cache/uv" in self.text, (
-            f"{DOCKERFILE}: no `--mount=type=cache,target=/root/.cache/uv` — "
-            "uv's own cache must be a build-cache mount, not baked into a layer"
-        )
-
-    def test_project_environment_outside_bind_mount_path(self) -> None:
-        match = re.search(r"^\s*ENV.*UV_PROJECT_ENVIRONMENT=(\S+)", self.text, re.MULTILINE)
-        assert match is not None, (
-            f"{DOCKERFILE}: `UV_PROJECT_ENVIRONMENT` is never set — uv would "
-            "default the venv under /app, which the compose bind mount hides"
-        )
-        value = match.group(1).strip('"').strip("'")
-        assert not value.startswith("/app"), (
-            f"{DOCKERFILE}: UV_PROJECT_ENVIRONMENT={value!r} starts with /app — "
-            "the compose bind mount would hide the venv at container start"
-        )
-
-    def test_no_workdir_app_before_final_sync(self) -> None:
-        last_sync = list(re.finditer(r"uv sync", self.text))[-1]
-        before_last_sync = self.text[: last_sync.start()]
-        assert not re.search(r"^WORKDIR /app", before_last_sync, re.MULTILINE), (
-            f"{DOCKERFILE}: `WORKDIR /app` appears before the last `uv sync` — "
-            "the dependency layers must resolve outside /app so they are not "
-            "invalidated by the bind mount"
-        )
-
-    @pytest.mark.parametrize(
-        "needle",
-        ["HEALTHCHECK", "HF_HUB_OFFLINE", "sha256sum", "docker-smoke", "sonar"],
-    )
-    def test_removed_runtime_only_debris(self, needle: str) -> None:
-        assert needle.lower() not in self.text.lower(), (
-            f"{DOCKERFILE}: still contains {needle!r} — this belonged to the "
-            "removed runtime-only stage (HEALTHCHECK/HF_HUB_OFFLINE/model bake) "
-            "or the lock-hash staleness guard, or the analysis tool"
-        )
-
-    @pytest.mark.parametrize("stage", ["AS builder", "AS models", "AS runtime", "AS dev"])
-    def test_removed_named_stages(self, stage: str) -> None:
-        assert stage not in self.text, (
-            f"{DOCKERFILE}: still declares `{stage}` — the four-stage split "
-            "must be collapsed to a single stage"
-        )
-
-    def test_non_root_user_survives(self) -> None:
-        assert "USER processrecall" in self.text, (
-            f"{DOCKERFILE}: `USER processrecall` is gone — the existing non-root "
-            "user must survive the collapse to one stage"
-        )
-        useradd_lines = re.findall(r"^RUN .*useradd", self.text, re.MULTILINE)
-        assert len(useradd_lines) == 1, (
-            f"{DOCKERFILE}: expected exactly one `useradd` invocation, found {len(useradd_lines)}"
-        )
-
-
-# ─── Compose: one file, no shipped deployment stack ──────────────────────────
-
-
-class TestCompose:
-    def test_prod_compose_file_gone(self) -> None:
-        prod = REPO_ROOT / "docker-compose.prod.yaml"
-        assert not prod.exists(), (
-            f"{prod}: still exists — the shipped deployment stack must be "
-            "removed now the PyPI wheel is the product"
-        )
-
-    def test_exactly_one_compose_file(self) -> None:
-        matches = sorted(REPO_ROOT.glob("docker-compose*.y*ml"))
-        assert len(matches) == 1, (
-            f"{REPO_ROOT}: expected exactly one docker-compose*.y*ml file, "
-            f"found {[m.name for m in matches]}"
-        )
-
-    def _compose_text(self) -> str:
-        matches = sorted(REPO_ROOT.glob("docker-compose*.y*ml"))
-        assert matches, f"{REPO_ROOT}: no docker-compose*.y*ml file found"
-        return matches[0].read_text(encoding="utf-8")
-
-    def test_no_langfuse(self) -> None:
-        text = self._compose_text()
-        assert "langfuse" not in text.lower(), (
-            "compose file: still references langfuse — an observability stack "
-            "the single dev compose file should not carry"
-        )
-
-    def test_sonarqube_is_profile_gated(self) -> None:
-        # Scope note: what the cleanup removed was SonarQube CLOUD and the CI
-        # plumbing around it (skip_sonar, sonar-publish.sh, the unpinned CLI
-        # install in the Dockerfile) — all still pinned gone by
-        # TestAnalysisToolRemoved below. A LOCAL analysis server is allowed
-        # back: `make sonar` reports to it and nothing it reads leaves the
-        # machine.
-        #
-        # What this pins is that it never joins the everyday stack. It is a JVM
-        # plus an embedded Elasticsearch next to ArcadeDB's 16G heap, and
-        # `docker compose up -d` must not start it for someone who only wanted
-        # a shell.
-        text = self._compose_text()
-        if "sonarqube:" not in text:
-            pytest.skip("no sonarqube service declared in the compose file")
-        service = re.search(r"^  sonarqube:\n((?:^ {4,}.*\n|^\n)*)", text, re.MULTILINE)
-        assert service is not None, (
-            "compose file: `sonarqube` appears but not as a top-level service — "
-            "this test can no longer tell whether it is profile-gated"
-        )
-        assert re.search(r'^\s*profiles:\s*\[\s*"?sonar"?\s*\]', service.group(1), re.MULTILINE), (
-            "compose file: the sonarqube service is not gated behind the `sonar` "
-            "profile — `docker compose up -d` would start it for everyone"
-        )
-
-    def test_named_volume_backs_model_cache_paths(self) -> None:
-        text = self._compose_text()
-        assert "HF_HOME" in text, "compose file: HF_HOME is never set"
-        assert "NLTK_DATA" in text, "compose file: NLTK_DATA is never set"
-        top_level_volumes = re.search(r"^volumes:\n((?:^  \S.*\n?)+)", text, re.MULTILINE)
-        assert top_level_volumes is not None, (
-            "compose file: no top-level `volumes:` block declaring a named volume"
-        )
-        named_volume = re.search(r"^  (\S+):", top_level_volumes.group(1), re.MULTILINE)
-        assert named_volume is not None, (
-            "compose file: top-level `volumes:` block declares no named volume"
-        )
-        volume_name = named_volume.group(1)
-        assert re.search(rf"- {re.escape(volume_name)}:", text), (
-            f"compose file: named volume {volume_name!r} is declared but never "
-            "mounted via a `- <name>:<path>` service volume entry"
-        )
 
 
 # ─── scripts/: only what a single-stage build and CI need ──────────────────
@@ -401,8 +214,8 @@ class TestNoRuntimeDownloads:
         new = self._offenders() - _KNOWN_RUNTIME_DOWNLOADS
         assert not new, (
             f"library code downloads a corpus at runtime: {sorted(new)}. A missing corpus is an "
-            "ENVIRONMENT defect — provision it in the Dockerfile/compose/scripts (see "
-            "scripts/bake_models.py, which already fetches these) and fail loud here instead."
+            "ENVIRONMENT defect — provision it in scripts (see scripts/bake_models.py, which "
+            "already fetches these) and fail loud here instead."
         )
 
     def test_the_ledger_shrinks_and_is_never_padded(self) -> None:
@@ -686,11 +499,6 @@ class TestRootDecluttered:
                 f"{GITIGNORE}: still ignores {needle!r} — no Node in this repo"
             )
 
-    def test_dockerignore_has_no_stale_rules(self) -> None:
-        text = DOCKERIGNORE.read_text(encoding="utf-8")
-        for needle in ["node_modules", ".pnpm-store", ".turbo", "memory-bank", ".devcontainer"]:
-            assert needle not in text, f"{DOCKERIGNORE}: still ignores {needle!r}"
-
     def test_makefile_has_no_removed_targets(self) -> None:
         text = MAKEFILE.read_text(encoding="utf-8")
         # NOT "python -m build": build-wheel legitimately uses it (see
@@ -716,28 +524,6 @@ class TestDocs:
         assert "docker-smoke" not in text, f"{README}: still references docker-smoke"
         assert "bake all of them at build time" not in text, (
             f"{README}: still claims the Docker images bake models at build time"
-        )
-
-    def test_contributing_reflects_cleanup(self) -> None:
-        text = CONTRIBUTING.read_text(encoding="utf-8")
-        assert "docker-compose.prod.yaml" not in text, (
-            f"{CONTRIBUTING}: still references docker-compose.prod.yaml"
-        )
-        assert "make hooks" not in text, (
-            f"{CONTRIBUTING}: still tells contributors to run `make hooks`"
-        )
-        assert "SonarQube" not in text and "Sonar" not in text, (
-            f"{CONTRIBUTING}: still mentions SonarQube/Sonar"
-        )
-        assert "pre-commit install" in text, (
-            f"{CONTRIBUTING}: does not mention `pre-commit install` — the "
-            "surviving path to set up hooks"
-        )
-        assert "diff coverage" in text, (
-            f"{CONTRIBUTING}: does not name diff coverage as an accepted loss"
-        )
-        assert "secret scan" in text, (
-            f"{CONTRIBUTING}: does not name secret scanning as an accepted loss"
         )
 
 

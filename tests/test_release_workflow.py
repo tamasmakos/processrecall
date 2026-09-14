@@ -177,6 +177,9 @@ def test_publishes_wheel_as_private_release_asset() -> None:
     assert "pypa/gh-action-pypi-publish" not in text, (
         f"{RELEASE}: still publishes to PyPI; the artifact must stay private"
     )
+    assert "pypi" not in text.lower(), (
+        f"{RELEASE}: mentions PyPI at all; the artifact must stay private"
+    )
     for forbidden, why in (
         ("secrets.PYPI", "a stored PyPI token"),
         ("password:", "a stored password"),
