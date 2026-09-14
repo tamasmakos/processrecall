@@ -115,8 +115,7 @@ class MemoryMode(StrEnum):
 
     The mode picks the decoder and, as a preset, the topic layer — which stays
     independently overridable. Ontology injection plus the FrameNet layer are
-    mode-independent. See :data:`_PRESETS` for the expansion and
-    ``docs/modes.md`` for the rationale.
+    mode-independent. See :data:`_PRESETS` for the expansion.
 
     - ``llm_free``: no network LLM call on the ingestion or retrieval hot path.
     - ``llm_assisted``: the LLM decoder replaces the local extraction stack, and

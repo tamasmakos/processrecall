@@ -27,19 +27,22 @@ from processrecall.graph.store import EpisodicStore, SQLiteEpisodicStore
 #: The subjects `show` answers for, in the order `contracts/cli.md` lists them.
 SUBJECTS = ("graph", "counters", "sequences", "config")
 
+#: The subcommands this CLI offers, in the order `_parser` registers them.
+COMMANDS = ("bootstrap", "backfill", "show", "rebuild", "prune")
+
 
 def _parser() -> argparse.ArgumentParser:
     """The command line of `contracts/cli.md`, as far as it is implemented."""
     parser = argparse.ArgumentParser(prog="processrecall")
     commands = parser.add_subparsers(dest="command", required=True)
     bootstrap_command = commands.add_parser(
-        "bootstrap", help="prepare the plugin's runtime environment as the hook does"
+        COMMANDS[0], help="prepare the plugin's runtime environment as the hook does"
     )
     bootstrap_command.add_argument(
         "--force", action="store_true", help="sync again even when the ready marker matches"
     )
     backfill_command = commands.add_parser(
-        "backfill", help="replay the harness's own past sessions through the live seam"
+        COMMANDS[1], help="replay the harness's own past sessions through the live seam"
     )
     backfill_command.add_argument(
         "--project", type=Path, default=Path.cwd(), help="the project whose sessions to replay"
@@ -50,13 +53,13 @@ def _parser() -> argparse.ArgumentParser:
     backfill_command.add_argument(
         "--dry-run", action="store_true", help="report what would be written without writing it"
     )
-    show_command = commands.add_parser("show", help="inspect the memory, printing no payloads")
+    show_command = commands.add_parser(COMMANDS[2], help="inspect the memory, printing no payloads")
     show_command.add_argument("subject", choices=SUBJECTS)
     show_command.add_argument(
         "--project", type=Path, default=Path.cwd(), help="the project to report on"
     )
     rebuild_command = commands.add_parser(
-        "rebuild", help="re-derive both snapshots from the episodic index"
+        COMMANDS[3], help="re-derive both snapshots from the episodic index"
     )
     rebuild_command.add_argument(
         "--project", type=Path, default=Path.cwd(), help="the project whose snapshot to rebuild"
@@ -76,7 +79,7 @@ def _parser() -> argparse.ArgumentParser:
         help="remove this file once the rebuild finishes (the session-end job's own lock)",
     )
     prune_command = commands.add_parser(
-        "prune", help="delete the episodic history recorded before a date"
+        COMMANDS[4], help="delete the episodic history recorded before a date"
     )
     prune_command.add_argument(
         "--project", type=Path, default=Path.cwd(), help="the project whose snapshot to re-derive"

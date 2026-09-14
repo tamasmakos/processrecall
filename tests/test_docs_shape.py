@@ -4,7 +4,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from processrecall.cli.__main__ import COMMANDS, SUBJECTS
+from processrecall.guidance.triggers import Trigger
+from processrecall.integrations.claude_code.hooks import DENY_LIST, OPTOUT_MARKER
+from processrecall.server.mcp.stdio_server import TOOLS
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _package_source() -> str:
+    """The concatenated text of every module under `processrecall/`."""
+    return "\n".join(
+        p.read_text(encoding="utf-8") for p in (REPO_ROOT / "processrecall").rglob("*.py")
+    )
 
 
 def test_docs_name_no_absent_symbols() -> None:
@@ -18,9 +30,7 @@ def test_docs_name_no_absent_symbols() -> None:
     """
     absent_symbols = {"community_boost", "shape_score", "ArcadeDBSTMStore", "ArcadeDBLTMStore"}
 
-    code_text = "\n".join(
-        p.read_text(encoding="utf-8") for p in (REPO_ROOT / "processrecall").rglob("*.py")
-    )
+    code_text = _package_source()
     for symbol in absent_symbols:
         assert symbol not in code_text, (
             f"{symbol} exists in processrecall/ — the FR-026 doc claim is stale"
@@ -32,3 +42,52 @@ def test_docs_name_no_absent_symbols() -> None:
         for symbol in absent_symbols:
             assert symbol not in text, f"{doc_name} still names {symbol}, absent from processrecall/"
         assert "web server" not in text.lower(), f"{doc_name} still names the web server"
+
+
+def test_docs_describe_the_plugin_not_the_service() -> None:
+    """The README must document every surface a reader can reach (T081).
+
+    Read off the code rather than written out here: the four `Trigger`
+    occasions, the five subcommands `processrecall.cli.__main__` registers,
+    the four `TOOLS` the stdio server exposes, the subjects `show` reports —
+    the counters among them — and the two exclusion markers capture is
+    suppressed by. A rename that misses the README must fail here.
+    """
+    assert len(COMMANDS) == 5, f"expected five subcommands, found {COMMANDS}"
+
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    named = (
+        tuple(trigger.value for trigger in Trigger)
+        + COMMANDS
+        + tuple(tool.name for tool in TOOLS)
+        + SUBJECTS
+        + (OPTOUT_MARKER.as_posix(), DENY_LIST)
+    )
+    missing = [name for name in named if name not in readme]
+    assert not missing, f"README.md documents none of {missing}, which the plugin ships"
+
+
+def test_docs_name_no_removed_service() -> None:
+    """The documentation must describe the plugin a reader installs, not the fork's source.
+
+    Checked the way `test_docs_name_no_absent_symbols` checks its own:
+    `ingest_memory` and `recall_memory` are absent from `processrecall/`, so a
+    document naming either instructs a reader to call code that isn't there.
+    The dated design record is exempt: what the fork dropped is part of what
+    it records.
+    """
+    absent = {"ingest_memory", "recall_memory"}
+    code_text = _package_source()
+    for symbol in absent:
+        assert symbol not in code_text, f"{symbol} is back in processrecall/ — this check is stale"
+
+    service_words = absent | {"ArcadeDB", "docker compose"}
+    documents = [REPO_ROOT / "README.md", *sorted((REPO_ROOT / "docs").glob("*.md"))]
+    for document in documents:
+        if document.name == "design.md":
+            continue
+        text = document.read_text(encoding="utf-8")
+        still_sold = sorted(word for word in service_words if word in text)
+        assert not still_sold, (
+            f"{document.relative_to(REPO_ROOT)} still documents the service: {still_sold}"
+        )
