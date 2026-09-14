@@ -728,7 +728,7 @@ def _transitions(chain: _Chain, level: Level) -> Iterator[_Move]:
         source=START_KEY,
         target=key_at(first, level),
         supporting_step=first,
-        condition=Condition(chain.process_type, None, None),
+        condition=Condition(chain.process_type, None, None, _intended_activity(first)),
     )
     for before, after in pairwise(steps):
         yield _Move(
@@ -736,15 +736,36 @@ def _transitions(chain: _Chain, level: Level) -> Iterator[_Move]:
             target=key_at(after, level),
             supporting_step=after,
             condition=Condition(
-                chain.process_type, shares_a_file(before, after), Outcome(before.outcome)
+                chain.process_type,
+                shares_a_file(before, after),
+                Outcome(before.outcome),
+                _intended_activity(after),
             ),
         )
     yield _Move(
         source=key_at(last, level),
         target=END_KEY,
         supporting_step=last,
-        condition=Condition(chain.process_type, None, Outcome(last.outcome)),
+        condition=Condition(
+            chain.process_type, None, Outcome(last.outcome), _intended_activity(last)
+        ),
     )
+
+
+def _intended_activity(step: EpisodicStep) -> ActivityClass | None:
+    """What a classifier read *step* as having intended, where one ran (FR-059).
+
+    The row the move landed on is the one that carries the label, for the same
+    reason its outcome is the edge's: a transition is evidence for the step it
+    led to. ``None`` on the rules-only path, which is every row nothing
+    enriched — the label conditions the move and never names it (FR-061).
+
+    This wiring — reading ``rationale_label`` into the condition at all — is
+    the implementation FR-061 needs and T034 left undone; it lands here
+    because T075's additivity assertion is meaningless without somewhere for
+    the label to surface, not because a task named this fold.
+    """
+    return None if step.rationale_label is None else ActivityClass(step.rationale_label)
 
 
 def _repetition_runs(chain: _Chain, level: Level, k: int) -> Counter[str]:
