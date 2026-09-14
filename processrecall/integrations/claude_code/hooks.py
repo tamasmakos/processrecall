@@ -27,7 +27,7 @@ import os
 import sqlite3
 import subprocess
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -197,6 +197,29 @@ def _adapt(
     return event
 
 
+class HookSource:
+    """The live :class:`~processrecall.trajectory.protocol.TrajectorySource` (FR-002).
+
+    One ``PostToolUse`` payload, at most one event: the harness runs a hook per
+    action, so the unbounded stream the seam describes arrives here one process
+    at a time. A payload naming no routable action yields nothing — already
+    counted by :func:`adapt_post_tool_use` — which is what keeps the caller free
+    of a branch the backfill source does not need either.
+    """
+
+    def __init__(self, payload: Mapping[str, Any], counters: Counters) -> None:
+        self._payload = payload
+        self._counters = counters
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(tool_name={self._payload.get('tool_name')!r})"
+
+    def events(self) -> Iterator[TrajectoryEvent]:
+        """The action this payload completed, if it describes a routable one."""
+        if (event := adapt_post_tool_use(self._payload, self._counters)) is not None:
+            yield event
+
+
 def capture(payload: Mapping[str, Any], connection: sqlite3.Connection) -> tuple[EpisodicStep, ...]:
     """Record the action *payload* describes; the steps that landed, in order.
 
@@ -240,6 +263,27 @@ def emit(response: Mapping[str, Any], stream: TextIO) -> None:
     """Write *response* to *stream* as the one JSON object the harness reads."""
     json.dump(response, stream)
     stream.write("\n")
+
+
+class AdditionalContextSink:
+    """The live :class:`~processrecall.trajectory.protocol.GuidanceSink` (FR-002).
+
+    Text out on the channel Claude Code reads it on: the ``additionalContext``
+    object of ``contracts/agent-hooks.md``, written to the stream the hook was
+    handed. Guidance a verb returns reaches the harness the same way, through
+    :func:`emit` in ``__main__``; this is that channel for a caller holding the
+    stream itself rather than a verb's response.
+    """
+
+    def __init__(self, stream: TextIO) -> None:
+        self._stream = stream
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(stream={self._stream!r})"
+
+    def emit(self, text: str) -> None:
+        """Deliver *text* as the one JSON object the harness reads."""
+        emit({"additionalContext": text}, self._stream)
 
 
 def bootstrap(payload: Mapping[str, Any]) -> Response:
