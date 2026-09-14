@@ -11,14 +11,13 @@ merely re-exports it.
 Semver applies to the **documented public surface** only:
 
 - the names in `processrecall.__all__` (the package root);
-- `processrecall.integrations.client` (the out-of-process SDK);
-- `processrecall.integrations.*` (framework adapters);
-- the `processrecall-mcp` CLI entry point and the MCP tool contract.
+- the four tools of the MCP tool contract;
+- the `processrecall-mcp` entry point and the `python -m processrecall.cli`
+  commands;
+- the hook verbs `hooks/hooks.json` invokes.
 
-Everything else — including underscore-free names inside internal modules such
-as `processrecall.memory.*`, `processrecall.runtime` internals, and the ArcadeDB
-store classes — is implementation detail and may change in any release. The
-public surface is pinned by `tests/api/test_public_surface.py`.
+Everything else — the modules behind those seams, the snapshot layout and the
+episodic index schema — is implementation detail and may change in any release.
 
 ## Deprecation
 
@@ -26,22 +25,17 @@ A deprecated public name keeps working for **at least one minor release** and
 emits a `DeprecationWarning` pointing at the replacement, then is removed in the
 next major. There are no current deprecations.
 
-### Removed in 2.0
-
-| Removed | Use instead |
-| --- | --- |
-| `processrecall.GraphKnowsRuntime` | `processrecall.Memory` |
-| `processrecall.ports.*` | `processrecall.storage.arcadedb.graph_store` (`GraphStore`) |
-| `processrecall.llm._get_openrouter_api_key` | `processrecall.llm.get_openrouter_api_key` |
+The plugin's own version lives in `.claude-plugin/plugin.json` and must be
+bumped with it: the bootstrap's ready marker holds that version, and a bump is
+the whole of the upgrade path for an installed plugin.
 
 ## Releasing
 
-1. Bump `__version__` in `processrecall/_version.py`.
-2. Update `CHANGELOG.md` (Keep a Changelog format) with an entry for the new version.
-3. `make ci` (the pre-push gate — ruff, `mypy --strict`, import-linter, bandit,
+1. Bump `__version__` in `processrecall/_version.py` and the `version` in
+   `.claude-plugin/plugin.json`.
+2. `make ci` (the pre-push gate — ruff, `mypy --strict`, import-linter, bandit,
    unit tests at the coverage floor, dependency audit — plus wheel size + py.typed).
-4. `make eval-smoke` against a live ArcadeDB for end-to-end acceptance.
-5. Commit, then `git tag vX.Y.Z` and push the tag: `git push origin vX.Y.Z`.
+3. Commit, then `git tag vX.Y.Z` and push the tag: `git push origin vX.Y.Z`.
 
 Pushing the tag is what triggers `.github/workflows/release.yml` — the rest is
 automated. It reruns the full CI gate (`ci.yml`, called by reference), then
@@ -77,7 +71,7 @@ along with the public index it served.
 ### Recovering from a failed release
 
 A pushed tag is not cleanly re-pushable. Recover **fix-forward**: bump to the
-next version, add a CHANGELOG entry, and tag again. Never delete and re-push a
+next version and tag again. Never delete and re-push a
 tag — it is not recoverable the way a normal bump-and-retag is.
 
 Re-running the upload for the *same* tag is safe (assets are attached with

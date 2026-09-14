@@ -1,217 +1,125 @@
-# GraphKnows
+# processrecall
 
-Agentic memory for LLM applications: it reads a conversation or document stream,
-builds a **knowledge graph** of entities, relations and temporal facts over
-[ArcadeDB](https://arcadedb.com/), and serves **hybrid retrieval** (vector ANN +
-graph traversal + BM25, fused with RRF) back to your agent.
+Procedural graph memory for a coding agent. It records what the agent *did* —
+every completed action as a node in a temporal procedural graph — and serves
+back what usually comes next from that position, at the four moments worth
+interrupting for.
 
-Two extraction modes:
-
-- **`llm_free`** — deterministic extraction (GLiNER2 entities + spaCy relations) and
-  deterministic retrieval. No LLM in the ingest or retrieval path; local embeddings by
-  default, so it runs with **zero API keys**.
-- **`llm_assisted`** — the same extraction from **one structured LLM call per chunk**,
-  over the same injectable ontology, so the graph stays domain-specific. Needs only an
-  API key: `Memory(mode="llm_assisted")`, no extra to install.
-
-Use it two ways from the same core: as a **Python library**, or as an **MCP stdio
-server** (Claude Desktop / Claude Code).
+It ships as a Claude Code plugin and runs inside the session: no background
+service, no listening port, and no network call on the capture or guidance
+path (the bootstrap sync below is the one exception, once per plugin
+version). What it keeps is shape — action templates, counts, conditions and
+annotations — never prompt text, file contents or credentials.
 
 ## Install
 
+The plugin is this repository. Point Claude Code at a checkout of it:
+
 ```bash
-pip install processrecall              # both modes + MCP server
-pip install "processrecall[ontology]"  # + load your own RDF/OWL ontology file
-python -m spacy download en_core_web_lg   # required: not on PyPI, so pip cannot pull it
+git clone https://github.com/tamasmakos/processrecall.git
+claude --plugin-dir processrecall
 ```
 
-spaCy models aren't PyPI packages, so this one can't be declared as a dependency or
-an extra — skip it and the first spaCy-dependent call fails with an error naming this
-same command.
+`SessionStart` runs [bin/bootstrap.sh](https://github.com/tamasmakos/processrecall/blob/main/bin/bootstrap.sh),
+which syncs the plugin's own virtual environment under `$CLAUDE_PLUGIN_DATA/venv`
+with [uv](https://docs.astral.sh/uv/) — once per plugin version, and a no-op on
+every session after that. Every hook and the tool server invoke that interpreter
+by absolute path, so nothing here depends on what `python` means on your `PATH`.
 
-| Extra | Adds |
+Outside the harness, `pip install processrecall` installs the same package: the
+`processrecall-mcp` console script is the stdio tool server, launchable by any
+MCP client, and `python -m processrecall.cli` is the command line below.
+
+## What it records
+
+Each completed tool call is abstracted to a template — the program, the activity
+class it belongs to and the files it touched, with no arguments carried over —
+and appended to the episodic index at `~/.processrecall/episodes.db`. End of work
+folds those rows into two adjacency snapshots by counting: `graph.json` under the
+project's own `.processrecall/` directory, and a cross-project one under
+`~/.processrecall/` for procedures this project has not seen yet.
+
+## The four triggers
+
+Silence is the default. Guidance is offered on four occasions and no fifth, and
+never from an edge supported by fewer than `min_support` episodes — a single
+observation is silence, not low-confidence advice.
+
+| Trigger | Fires | Serves |
+| --- | --- | --- |
+| `prompt_start` | a prompt begins, before any action | the usual first moves for this kind of work |
+| `after_write` | a write whose usual successor verifies it | the verification that usually follows |
+| `repetition` | the same procedure `k` times running | the loop, once per procedure and sequence |
+| `pitfall` | the likeliest next move fails often | the warning, one step before the move |
+
+Every statement shows the number of episodes behind it. Rendering is
+deterministic and no language model takes part in it.
+
+## The five commands
+
+```bash
+python -m processrecall.cli show counters
+```
+
+| Command | Does |
 | --- | --- |
-| `ontology` | Loading your own RDF/OWL ontology file (rdflib + networkx) |
-| `langgraph` | LangGraph `BaseStore` adapter |
+| `bootstrap` | prepare the plugin's environment as `SessionStart` does |
+| `backfill` | replay the harness's own past sessions into the episodic index |
+| `rebuild` | re-derive both snapshots; `--check` compares instead of writing |
+| `prune` | delete episodic history before `--before`, then re-derive |
+| `show` | print the memory's shape, never a payload |
 
-`pip install processrecall` is batteries-included: GLiNER/GLiNER2 extraction, local
-embeddings, BM25, community detection, document parsers, the MCP server **and the
-LLM decoder** are all base dependencies — both modes are the supported surface, so
-neither sits behind an extra. The extras above are the RDF loader and framework
-adapters.
+`show` takes one subject: `graph` (nodes, edges, conditions, annotations),
+`counters`, `sequences` (recent prompts and how they ended) or `config` (every
+value with where it came from).
 
-The `processrecall.integrations.client` SDK (drive the server out-of-process) needs no extras.
+## The four tools
 
-`pip install processrecall` gives you the library plus the `processrecall-mcp`
-console script — no repo checkout needed.
+The plugin's stdio server exposes four tools, in the order the agent meets them:
 
-It is not standalone-runnable, though: GraphKnows stores its graph in
-[ArcadeDB](https://arcadedb.com/), and every ingest or recall call needs a
-reachable server. Point the library at one with `GRAPHKNOWS_ARCADEDB_URL`
-(default `http://localhost:2480`) and `GRAPHKNOWS_ARCADEDB_USER` /
-`GRAPHKNOWS_ARCADEDB_PASSWORD` (default `root` / `changeme` — refused in
-production). Either an ArcadeDB you already have running is fine, or spin
-one up from a checkout of this repo:
+| Tool | Answers |
+| --- | --- |
+| `recall` | guidance for a named procedure, or for where the work already is |
+| `remember` | attach one note to one move, so the next run reads the reason |
+| `mark_outcome` | declare how a piece of work turned out, beside the derived outcome |
+| `inspect` | the graph in counts: nodes, edges, conditions, annotations, counters |
 
-```bash
-docker compose up -d arcadedb
-```
+The shipped [remember skill](https://github.com/tamasmakos/processrecall/blob/main/skills/remember/SKILL.md)
+says when a note is worth writing.
 
-> A `pip` install downloads its models on first use (the relex extractor, the
-> embedder and the reranker — a few GB). The two NLTK corpora (FrameNet,
-> WordNet) are the exception: they are never fetched at runtime, so provision
-> them ahead of time — a missing FrameNet corpus raises, a missing WordNet
-> corpus only disables sense-anchored expansion.
-> To warm everything ahead of time from a repo clone/checkout: `python scripts/bake_models.py`
-> (the wheel ships only the `processrecall` package, so this script isn't
-> available to a plain `pip install`).
-> The dev image downloads the relex extractor, embedder and reranker on first
-> use into a compose named volume, so a rebuild never re-downloads gigabytes of
-> weights; the NLTK corpora still need baking ahead of time as above.
-> `python scripts/bake_models.py` warms the volume. CPU by default; for a GPU host:
-> `docker compose build --build-arg TORCH_BACKEND=cu126`.
-> See [.env.example](https://github.com/tamasmakos/processrecall/blob/main/.env.example) and [docs/configuration.md](https://github.com/tamasmakos/processrecall/blob/main/docs/configuration.md).
+## The counters
 
-## Quickstart
+Nothing here fails loudly against a developer's own turn, so every suppression
+is counted instead: `guidance_silent`, `guidance_below_support`,
+`guidance_deadline_exceeded`, `capture_excluded`, `capture_store_busy`,
+`steps_recorded` and the rest. `show counters` prints the full table — every
+counter the package can increment against what the store kept — and the
+`inspect` tool serves the same table to the agent.
 
-`Memory` is the single entrypoint — in-process, transport-neutral:
+## Excluding a project
 
-```python
-import asyncio
-from processrecall import Memory
+Recording is on by default for every project. Two ways out, both checked before
+anything is written, so an excluded project leaves no step, no snippet and no
+prompt text behind:
 
-async def main():
-    async with Memory() as mem:
-        await mem.ingest_memory("Alex joined Acme as CTO in March.", session_id="s1")
-        hits = await mem.recall_memory("Where does Alex work?", session_id="s1")
-        print(hits)
-
-asyncio.run(main())
-```
-
-Out-of-process (no ML deps in your process), drive the MCP server directly:
-
-```python
-from processrecall.integrations.client import GraphKnowsMCPClient
-
-async with GraphKnowsMCPClient(command="processrecall-mcp") as client:
-    await client.call_tool(
-        "memory_ingest",
-        {"text": "Alex joined Acme as CTO in March.", "session_id": "s1"},
-    )
-    hits = await client.call_tool(
-        "memory_query", {"query": "Where does Alex work?", "session_id": "s1"}
-    )
-```
-
-Configuration is via `GRAPHKNOWS_*` environment variables (or a `.env` file) — see
-[.env.example](https://github.com/tamasmakos/processrecall/blob/main/.env.example) and [docs/configuration.md](https://github.com/tamasmakos/processrecall/blob/main/docs/configuration.md).
-
-## Running the server
-
-```bash
-docker compose up -d            # arcadedb + mcp
-```
-
-> Runs from a repo clone/checkout: the wheel ships only the `processrecall` package, so
-> `docker-compose.yaml` isn't available to a plain `pip install`.
-
-**MCP** (Claude Desktop / Claude Code) — register the stdio server:
-
-```json
-{
-  "mcpServers": {
-    "processrecall": {
-      "command": "processrecall-mcp",
-      "env": { "GRAPHKNOWS_ARCADEDB_URL": "http://localhost:2480" }
-    }
-  }
-}
-```
-
-## Integrating into an agent framework
-
-Wire your framework's memory hooks to the `Memory` verbs. The
-LangGraph adapter is shipped as the reference; the generic recipe (write →
-`ingest_memory`, read → `recall_memory`, thread id → `session_id`, end of
-episode → `flush_memory`) covers any framework — see
-[docs/integrations.md](https://github.com/tamasmakos/processrecall/blob/main/docs/integrations.md) and
-[examples/langgraph_agent.py](https://github.com/tamasmakos/processrecall/blob/main/examples/langgraph_agent.py).
-
-Domain vocabulary is data, not code: a **domain pack** supplies the concepts,
-predicates, labels and identity rules of one domain, and `load_packs` merges
-them all-or-nothing — see
-[docs/packs.md](https://github.com/tamasmakos/processrecall/blob/main/docs/packs.md).
-For Claude Code, the shipped hook block maps each event to one verb of `python -m
-processrecall.integrations.claude_code`.
-
-
-### LangGraph
-
-`GraphKnowsMemory` binds a session to ready-to-use LangGraph nodes — three
-`add_node` calls instead of hand-wiring `recall`/`remember` with
-`functools.partial`. Turns go to the STM buffer as you converse; `flush()` at
-end of session ingests them into the knowledge graph so a later session can
-recall them.
-
-```python
-from processrecall.integrations.langgraph import GraphKnowsMemory
-
-async with GraphKnowsMemory("s1") as mem:
-    graph.add_node("recall", mem.recall)
-    graph.add_node("remember", mem.remember)  # before respond: both hooks read
-    graph.add_node("respond", respond)        # the LAST message, and respond
-    ...                                       # appends the assistant's reply
-    await app.ainvoke({"messages": [...]})
-    await mem.flush()
-```
-
-```bash
-python examples/langgraph_agent.py --session s1   # teach it something
-python examples/langgraph_agent.py --session s2   # recall it in a new session
-```
-
-Full runnable example: [examples/langgraph_agent.py](https://github.com/tamasmakos/processrecall/blob/main/examples/langgraph_agent.py).
-
-## Benchmarks
-
-Full [LoCoMo](https://arxiv.org/abs/2402.17753) run — 1540 questions across all 10
-conversations, `llm_free` mode (deterministic, zero API keys), ontology injection +
-extractive topics on, deterministic retrieval:
-
-| metric | value |
-|---|---|
-| accuracy (LLM judge) | **0.814** |
-| — single_hop (n=841) | 0.860 |
-| — knowledge_synthesis (n=282) | 0.798 |
-| — temporal (n=321) | 0.741 |
-| — open_ended (n=96) | 0.698 |
-| evidence recall @ probe | 0.983 |
-| evidence recall in generator context | 0.921 |
-| gold context coverage | 0.843 |
-| cost per question | $0.0026 |
-
-Retrieval delivers the evidence on ~98% of questions; the residual gap is
-generation, not retrieval. See
-[evaluation/README.md](https://github.com/tamasmakos/processrecall/blob/main/evaluation/README.md)
-for how to reproduce.
+- **A project marker** — create `.processrecall/optout` in the project
+  directory. Its presence is the whole signal; the contents are ignored.
+- **A home deny list** — `~/.processrecall/deny.txt`, one glob pattern per line
+  matched against the project's absolute path. Blank lines and `#` comments are
+  ignored, and an absent list denies nothing. This is the one to use for a
+  repository you would rather not add a marker file to.
 
 ## Documentation
 
-Full index: **[docs/](https://github.com/tamasmakos/processrecall/blob/main/docs/README.md)**.
-
-- [docs/services.md](https://github.com/tamasmakos/processrecall/blob/main/docs/services.md) — the main services and how they stack
-- [docs/architecture.md](https://github.com/tamasmakos/processrecall/blob/main/docs/architecture.md) — lifecycle states, consolidation, RRF retrieval
-- [docs/modes.md](https://github.com/tamasmakos/processrecall/blob/main/docs/modes.md) — llm_free vs llm_assisted
-- [docs/ontology.md](https://github.com/tamasmakos/processrecall/blob/main/docs/ontology.md) — the bundled CCO ontology, and injecting your own
-- [docs/packs.md](https://github.com/tamasmakos/processrecall/blob/main/docs/packs.md) — domain packs: the shipped code and agent vocabularies
-- [docs/configuration.md](https://github.com/tamasmakos/processrecall/blob/main/docs/configuration.md) — full settings reference
-- [docs/integrations.md](https://github.com/tamasmakos/processrecall/blob/main/docs/integrations.md) — framework integration recipe
-- [docs/multi-tenancy.md](https://github.com/tamasmakos/processrecall/blob/main/docs/multi-tenancy.md) — namespaces, isolation and scaling
-- [docs/versioning.md](https://github.com/tamasmakos/processrecall/blob/main/docs/versioning.md) — semver & deprecation policy
-
-The `evaluation/` directory is internal LoCoMo/BEAM/LongMemEval benchmarking — not part
-of the installed package.
+- [docs/architecture.md](https://github.com/tamasmakos/processrecall/blob/main/docs/architecture.md)
+  — capture, derivation, serving and what each module owns
+- [docs/configuration.md](https://github.com/tamasmakos/processrecall/blob/main/docs/configuration.md)
+  — every setting, its default and where it can be set
+- [docs/design.md](https://github.com/tamasmakos/processrecall/blob/main/docs/design.md)
+  — historical design record: the GraphKnows fork this plugin was cut from,
+  kept for provenance, not a description of what ships here
+- [docs/versioning.md](https://github.com/tamasmakos/processrecall/blob/main/docs/versioning.md)
+  — semver and deprecation policy
 
 ## License
 
