@@ -130,6 +130,21 @@ known_first_party = ["processrecall"]
 [tool.bandit]
 skips = ["B101"]
 
+# Coverage is measured wherever the tests happened to run and read back inside
+# the sonar-scanner container, which mounts this tree somewhere else entirely.
+# Absolute paths bake the measuring machine into the report: the last one carried
+# `<source>/app/processrecall</source>` from the workspace container, the scanner
+# resolved none of the 59 files under its own mount, and it dropped every
+# coverage measure with an ERROR the scan itself still reported as SUCCESS -- a
+# 0% dashboard and a `new_coverage < 80` gate condition judged on nothing.
+# Relative paths resolve under any mount point, so the report travels.
+[tool.coverage.run]
+source = ["processrecall"]
+relative_files = true
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
