@@ -508,6 +508,16 @@ class TestPreflight:
 # ─── Analysis tool gone ──────────────────────────────────────────────────────
 
 
+def _assert_gitignored(entry: str, why: str) -> None:
+    # Asserting the .gitignore rule, not the entry's absence on disk: the rule
+    # is what survives a clone, while the entry can legitimately exist
+    # untracked in a developer tree. (`git ls-files` is not usable here: a
+    # linked worktree's .git file names an absolute host path a container
+    # mount cannot resolve.)
+    entries = GITIGNORE.read_text(encoding="utf-8").splitlines()
+    assert entry in entries, f"{GITIGNORE}: no `{entry}` entry — {why}"
+
+
 class TestAnalysisToolRemoved:
     def test_no_sonar_project_properties(self) -> None:
         assert not (REPO_ROOT / "sonar-project.properties").exists(), (
@@ -515,16 +525,8 @@ class TestAnalysisToolRemoved:
         )
 
     def test_sonar_directory_is_gitignored(self) -> None:
-        # A local tool cache can exist untracked on disk in both a clean
-        # checkout and a developer tree — asserting it's absent from the
-        # filesystem fails on both. What must be true is that it can never
-        # be committed by accident, i.e. it stays in .gitignore. (`git
-        # ls-files` is not usable here: a linked worktree's .git file names
-        # an absolute host path that a container mount cannot resolve.)
-        text = GITIGNORE.read_text(encoding="utf-8")
-        assert ".sonar" in text.splitlines(), (
-            f"{GITIGNORE}: no `.sonar` entry — the local analysis-tool cache "
-            "could be committed by accident"
+        _assert_gitignored(
+            ".sonar", "the local analysis-tool cache could be committed by accident"
         )
 
     @pytest.mark.parametrize("path", [PRE_COMMIT_CONFIG, CI_WORKFLOW, RELEASE_WORKFLOW])
@@ -737,3 +739,15 @@ class TestDocs:
         assert "secret scan" in text, (
             f"{CONTRIBUTING}: does not name secret scanning as an accepted loss"
         )
+
+
+# ─── Per-project graph snapshot ──────────────────────────────────────────────
+
+
+def test_project_snapshot_is_gitignored() -> None:
+    # The per-project snapshot is written into the project it describes, so
+    # every working tree grows one; it stays out of commits by default and a
+    # deliberate `git add -f` remains possible.
+    _assert_gitignored(
+        ".processrecall/", "the per-project graph snapshot would be committed by accident"
+    )
