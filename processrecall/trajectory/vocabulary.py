@@ -1,8 +1,8 @@
 """The harness vocabulary: one pack per harness, tool name to procedure class.
 
 FR-003 keeps this mapping out of the code. A harness calls its tools whatever it
-likes, and the classes the graph reasons over are the closed set of
-:mod:`processrecall.symbolic.packs` — so the join between the two lives in a
+likes, and the classes the graph reasons over are the closed set
+:class:`~processrecall.config.ActivityClass` — so the join between the two lives in a
 hand-edited JSON pack that a second harness supplies for itself, with no edit
 here (FR-004). Read the way ``symbolic/packs.py`` reads its own: plain
 ``json``, every defect surfacing as a :class:`~processrecall.exceptions.PackError`.
@@ -15,8 +15,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from processrecall.config import ActivityClass
 from processrecall.exceptions import PackError
-from processrecall.symbolic.packs import ActivityClass
 
 #: The one harness pack this phase ships (FR-005), beside the code that reads it.
 CLAUDE_CODE = Path(__file__).parent / "vocab" / "claude_code.json"

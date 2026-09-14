@@ -14,13 +14,9 @@ from pathlib import Path
 
 import pytest
 
+from processrecall.config import ActivityClass, ProcessType
 from processrecall.exceptions import PackError
-from processrecall.symbolic.packs import (
-    SEON_ACTIVITIES,
-    ActivityClass,
-    ProcessType,
-    load_pack,
-)
+from processrecall.symbolic.packs import SEON_ACTIVITIES, load_pack
 
 #: The vocabulary of FR-019, spelled out rather than derived from the enum: a
 #: label added or renamed here is a spec change, and the test is where it shows.

@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from processrecall.config import ActivityClass
 from processrecall.graph.store import EpisodicStep, SequenceKey
-from processrecall.symbolic.packs import ActivityClass
 
 PAYLOADS = Path(__file__).resolve().parents[1] / "fixtures" / "payloads"
 

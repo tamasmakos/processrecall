@@ -8,10 +8,9 @@ the recorder and the renderer will, and never reach into the spelling underneath
 
 from __future__ import annotations
 
-from processrecall.config import LEVELS
+from processrecall.config import LEVELS, ActivityClass
 from processrecall.procedures.step import SubActivity
 from processrecall.procedures.taxonomy import identify_procedure
-from processrecall.symbolic.packs import ActivityClass
 
 
 def test_an_action_on_a_file_is_identified_down_to_its_file_type() -> None:

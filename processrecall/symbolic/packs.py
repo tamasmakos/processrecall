@@ -3,8 +3,11 @@
 FR-019 fixes the activity classes and FR-024 makes them a hand-edited pack —
 digested once from SEON's relevant classes rather than reasoned over at runtime,
 so nothing here imports a semantic-web library and nothing here reaches the
-network. The enums below are the closed sets the rest of the package spells; the
-pack beside them is where each member's meaning and parent live.
+network. The closed sets the rest of the package spells are
+:class:`~processrecall.config.ActivityClass` and
+:class:`~processrecall.config.ProcessType` — declared at the bottom of the
+layering because the trajectory reads them (R17); the pack here is where each
+member's meaning and parent live.
 """
 
 from __future__ import annotations
@@ -12,10 +15,10 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import TypeVar
 
+from processrecall.config import ActivityClass, ProcessType
 from processrecall.exceptions import PackError
 
 #: The one pack this package ships, beside the code that reads it.
@@ -23,43 +26,6 @@ SEON_ACTIVITIES = Path(__file__).parent / "data" / "seon_activities.json"
 
 #: A curated dataclass — either ``Concept`` or ``Relation`` — for `_index_by_label`.
 _Entry = TypeVar("_Entry")
-
-
-class ActivityClass(StrEnum):
-    """The engineering activity a sub-activity belongs to (FR-019).
-
-    ``UNKNOWN`` is a member of the vocabulary, not a failure mode (FR-022): an
-    action that lands there is stored with its full template and counted, so the
-    residue stays visible and reclassifiable without re-ingesting.
-    """
-
-    INSPECTION = "Inspection"
-    SEARCH = "Search"
-    CHANGE_IMPLEMENTATION = "ChangeImplementation"
-    ARTIFACT_EVALUATION = "ArtifactEvaluation"
-    SCRIPT_EXECUTION = "ScriptExecution"
-    CHECKIN = "Checkin"
-    CHECKOUT = "Checkout"
-    ENVIRONMENT_CONFIGURATION = "EnvironmentConfiguration"
-    NETWORK_RETRIEVAL = "NetworkRetrieval"
-    DELEGATION = "Delegation"
-    UNKNOWN = "Unknown"
-
-
-class ProcessType(StrEnum):
-    """What a prompt is about — the condition a sequence's ``Start`` carries (FR-020).
-
-    Coarser than an activity class and set once per prompt: the activity
-    vocabulary says what an action *did*, this says what the turn was *for*.
-    """
-
-    BUG_FIX = "BugFix"
-    FEATURE_ADDITION = "FeatureAddition"
-    ENHANCEMENT = "Enhancement"
-    INVESTIGATION = "Investigation"
-    DOCUMENTATION = "Documentation"
-    RELEASE_MANAGEMENT = "ReleaseManagement"
-    UNKNOWN = "Unknown"
 
 
 @dataclass(frozen=True, slots=True)

@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from processrecall.config import ActivityClass
 from processrecall.exceptions import PackError
-from processrecall.symbolic.packs import ActivityClass
 from processrecall.trajectory.vocabulary import CLAUDE_CODE, load_vocabulary
 
 

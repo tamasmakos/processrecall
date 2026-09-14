@@ -8,8 +8,8 @@ command grammar underneath.
 
 from __future__ import annotations
 
+from processrecall.config import ActivityClass
 from processrecall.procedures.step import SubActivity, steps_from
-from processrecall.symbolic.packs import ActivityClass
 from tests.trajectory.factories import make_event
 
 

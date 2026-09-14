@@ -17,9 +17,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from processrecall.config import ActivityClass, ProcessType
 from processrecall.graph.episodic import open_index
 from processrecall.graph.store import EpisodicStep, Sequence, SequenceKey, SQLiteEpisodicStore
-from processrecall.symbolic.packs import ActivityClass, ProcessType
 from processrecall.trajectory.paths import project_key
 
 #: When the fixture turn was carried out; fixed so a rebuild of it is comparable.

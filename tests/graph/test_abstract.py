@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from processrecall.config import ActivityClass
 from processrecall.graph.abstract import (
     END_KEY,
     START_KEY,
@@ -21,7 +22,6 @@ from processrecall.graph.abstract import (
 )
 from processrecall.graph.store import EpisodicStep, SequenceKey
 from processrecall.procedures.outcome import Outcome
-from processrecall.symbolic.packs import ActivityClass
 
 KEY = SequenceKey(conversation_id="c1", session_epoch=0, prompt_id="p1")
 

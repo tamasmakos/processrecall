@@ -4,9 +4,11 @@ R17 puts this module at the bottom of the layering and forbids ``pydantic``
 above it: importing a settings framework costs more than the whole hook's
 latency budget (R9), so configuration here is ``dataclasses`` and ``json``.
 
-Every field is a decision the spec records rather than a preference, and each
-ships as configuration precisely so that the measurement which revises it
-changes a default instead of code (R6).
+Every configurable field is a decision the spec records rather than a
+preference, and ships as configuration precisely so that the measurement
+which revises it changes a default instead of code (R6). The two closed
+vocabularies below are not configurable — they live here because R17 puts
+this module at the bottom of the layering, where every layer may spell them.
 
 Example:
     from processrecall.config import load_config
@@ -20,6 +22,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, fields
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -53,6 +56,48 @@ LEVELS = ("class", "class/program", "class/program/ext")
 #: backfilled — cuts to it at its own boundary, and the store holds it again at
 #: the write seam for any source that skips the cut.
 RESULT_CEILING = 2048
+
+
+class ActivityClass(StrEnum):
+    """The engineering activity a sub-activity belongs to (FR-019).
+
+    Declared here rather than beside the concept pack that defines each
+    member's meaning: the harness vocabulary of `trajectory.vocabulary` names
+    these classes, and R17 puts `trajectory` below `symbolic`, so the closed
+    set lives at the bottom of the layering where every layer may spell it.
+
+    ``UNKNOWN`` is a member of the vocabulary, not a failure mode (FR-022): an
+    action that lands there is stored with its full template and counted, so the
+    residue stays visible and reclassifiable without re-ingesting.
+    """
+
+    INSPECTION = "Inspection"
+    SEARCH = "Search"
+    CHANGE_IMPLEMENTATION = "ChangeImplementation"
+    ARTIFACT_EVALUATION = "ArtifactEvaluation"
+    SCRIPT_EXECUTION = "ScriptExecution"
+    CHECKIN = "Checkin"
+    CHECKOUT = "Checkout"
+    ENVIRONMENT_CONFIGURATION = "EnvironmentConfiguration"
+    NETWORK_RETRIEVAL = "NetworkRetrieval"
+    DELEGATION = "Delegation"
+    UNKNOWN = "Unknown"
+
+
+class ProcessType(StrEnum):
+    """What a prompt is about — the condition a sequence's ``Start`` carries (FR-020).
+
+    Coarser than an activity class and set once per prompt: the activity
+    vocabulary says what an action *did*, this says what the turn was *for*.
+    """
+
+    BUG_FIX = "BugFix"
+    FEATURE_ADDITION = "FeatureAddition"
+    ENHANCEMENT = "Enhancement"
+    INVESTIGATION = "Investigation"
+    DOCUMENTATION = "Documentation"
+    RELEASE_MANAGEMENT = "ReleaseManagement"
+    UNKNOWN = "Unknown"
 
 
 class Counters(Protocol):

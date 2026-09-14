@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import processrecall
-from processrecall.config import Config
+from processrecall.config import ActivityClass, Config, ProcessType
 from processrecall.graph.episodic import open_index
 from processrecall.graph.snapshot import Snapshot, SnapshotFile
 from processrecall.graph.store import (
@@ -22,7 +22,6 @@ from processrecall.graph.store import (
     SequenceKey,
     SQLiteEpisodicStore,
 )
-from processrecall.symbolic.packs import ActivityClass, ProcessType
 from processrecall.trajectory.paths import project_key
 
 

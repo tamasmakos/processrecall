@@ -19,12 +19,12 @@ from pathlib import Path
 
 import pytest
 
+from processrecall.config import ActivityClass
 from processrecall.graph.episodic import open_index
 from processrecall.graph.record import record_event
 from processrecall.graph.store import EpisodicStep, SQLiteEpisodicStore
 from processrecall.procedures.step import SubActivity
 from processrecall.procedures.taxonomy import identify_procedure
-from processrecall.symbolic.packs import ActivityClass
 from processrecall.trajectory.vocabulary import load_vocabulary
 from tests.trajectory.factories import make_event
 

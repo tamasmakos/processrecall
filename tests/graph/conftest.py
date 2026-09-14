@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from processrecall.config import ActivityClass, ProcessType
 from processrecall.graph.abstract import AbstractGraph, TransitionEdge
 from processrecall.graph.store import EpisodicStep, Sequence, SequenceKey
-from processrecall.symbolic.packs import ActivityClass, ProcessType
 
 
 def sequence(prompt_id: str) -> SequenceKey:

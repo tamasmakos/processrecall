@@ -9,13 +9,13 @@ at the lexer inside it.
 
 from __future__ import annotations
 
+from processrecall.config import ActivityClass
 from processrecall.procedures.shell import (
     artifacts_in,
     classify_program,
     subcommands,
     unwrap,
 )
-from processrecall.symbolic.packs import ActivityClass
 
 
 def test_pipeline_yields_one_command_per_stage() -> None:

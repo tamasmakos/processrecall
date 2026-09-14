@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from processrecall.config import ActivityClass
 from processrecall.procedures.shell import artifacts_in, classify_program, subcommands
-from processrecall.symbolic.packs import ActivityClass
 from processrecall.trajectory.event import TrajectoryEvent
 
 

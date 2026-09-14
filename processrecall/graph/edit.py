@@ -24,6 +24,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
+from processrecall.config import ProcessType
 from processrecall.graph.abstract import (
     END_KEY,
     START_KEY,
@@ -33,7 +34,6 @@ from processrecall.graph.abstract import (
     TransitionEdge,
     edge_key,
 )
-from processrecall.symbolic.packs import ProcessType
 
 #: The context an authored edge applies in: every one of them. No observation
 #: narrowed it, and a condition invented here would claim a context nothing was

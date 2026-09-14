@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from processrecall.config import STORE_DIR, home_dir
+from processrecall.config import STORE_DIR, ProcessType, home_dir
 from processrecall.graph.abstract import (
     START_KEY,
     AbstractGraph,
@@ -33,7 +33,6 @@ from processrecall.graph.snapshot import SNAPSHOT_NAME, SnapshotFile
 from processrecall.graph.store import SequenceKey, SQLiteEpisodicStore
 from processrecall.integrations.claude_code.hooks import OPTOUT_MARKER, open_prompt
 from processrecall.procedures.outcome import Outcome
-from processrecall.symbolic.packs import ProcessType
 from processrecall.trajectory.paths import project_key
 
 from .conftest import hook
