@@ -6,9 +6,11 @@ insert below is belt-and-suspenders for direct invocations.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -16,6 +18,21 @@ import pytest
 _project_root = str(Path(__file__).parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+MANIFEST = REPO_ROOT / ".claude-plugin" / "plugin.json"
+
+
+def manifest_declared(key: str) -> dict[str, Any]:
+    """Load the manifest-declared file for ``key``, asserting it ships.
+
+    Shared by the hooks and MCP declaration tests: both resolve a path out of
+    ``plugin.json`` and read the JSON it points at.
+    """
+    declared = json.loads(MANIFEST.read_text(encoding="utf-8"))[key]
+    path = REPO_ROOT / declared
+    assert path.is_file(), f"{declared} is declared by the manifest but not shipped"
+    return json.loads(path.read_text(encoding="utf-8"))
 
 # Belt-and-suspenders against a model download on first extract: whichever
 # module ends up loading one reads the offline switches at import, before this
