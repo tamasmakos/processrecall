@@ -34,8 +34,13 @@ _NO_GRAPH: Mapping[str, Any] = {
 }
 
 
-def inspect(arguments: InspectArguments) -> dict[str, Any]:
-    """What this home's graph holds. *arguments* carries nothing: the graph is the answer."""
+def inspect(_arguments: InspectArguments) -> dict[str, Any]:
+    """What this home's graph holds.
+
+    The parameter is the uniform handler signature every tool is dispatched
+    through, underscored because this is the one tool whose arguments carry
+    nothing: the graph is the whole answer (FR-065).
+    """
     with closing(open_index()) as connection:
         return _held(SQLiteEpisodicStore(connection), Path.cwd())
 

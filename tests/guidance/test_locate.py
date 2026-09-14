@@ -51,5 +51,7 @@ def test_the_key_is_spelled_at_the_full_level() -> None:
 
 def test_an_unknown_level_is_rejected() -> None:
     """`locate` cannot spell a key at a level `LEVELS` does not materialise."""
+    steps = walk(READ)
+
     with pytest.raises(ValueError):
-        locate(walk(READ), level="bogus")
+        locate(steps, level="bogus")
