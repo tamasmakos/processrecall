@@ -1,15 +1,18 @@
 """README install section must tell a `pip install processrecall` user what they get.
 
-The section documents the ArcadeDB requirement only as `docker compose up -d
-arcadedb` and never names the setting that points at an ArcadeDB the user
-already runs (`GRAPHKNOWS_ARCADEDB_URL`, default `http://localhost:2480` —
-processrecall/settings.py). It also tells that pip user to run
-`python scripts/bake_models.py`, but the wheel ships only the `processrecall`
+What survives the fork are the claims that hold for any wheel: the install
+section names the console entry points `[project.scripts]` declares, its links
+are absolute because the README is the PyPI long description, and a `scripts/`
+path is qualified as checkout-only — the wheel ships only the `processrecall`
 package (`[tool.hatch.build.targets.wheel] packages = ["processrecall"]`), so
-`scripts/` does not exist after `pip install processrecall` — the instruction is
-executable only from a repo checkout. Nothing states that a pip install is a
-library plus its console entry points, not a standalone-runnable app without
-a reachable graph database.
+`scripts/` does not exist after a pip install.
+
+The two ArcadeDB assertions that stood here are gone with the service. R18
+drops the graph database, the five runtime dependencies do not include it, and
+a test demanding the README document `GRAPHKNOWS_ARCADEDB_URL` would have made
+the documentation rewrite unpassable. The entry-point and link assertions are
+deliberately untouched: they read `[project.scripts]` and the link targets at
+run time, so they follow the rewrite instead of pinning what it replaces.
 """
 
 from __future__ import annotations
@@ -33,18 +36,6 @@ def _pyproject() -> dict:
     return tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
 
 
-def test_states_arcadedb_url_setting_and_default() -> None:
-    section = _install_section()
-    assert "GRAPHKNOWS_ARCADEDB_URL" in section, (
-        "Install section never names the setting (GRAPHKNOWS_ARCADEDB_URL) that "
-        "points the library at an ArcadeDB instance"
-    )
-    assert "http://localhost:2480" in section, (
-        "Install section never states GRAPHKNOWS_ARCADEDB_URL's default "
-        "(http://localhost:2480, see processrecall/settings.py field arcadedb_url)"
-    )
-
-
 def test_states_console_entry_points() -> None:
     section = _install_section()
     scripts = _pyproject()["project"]["scripts"]
@@ -53,18 +44,6 @@ def test_states_console_entry_points() -> None:
     assert not missing, (
         f"Install section never mentions console script(s) {missing} declared in "
         "pyproject.toml [project.scripts], so it doesn't say what a pip install actually gives you"
-    )
-
-
-def test_arcadedb_requirement_is_satisfiable_without_compose() -> None:
-    section = _install_section()
-    lowered = section.lower()
-    assert "arcadedb" in lowered, "Install section never mentions arcadedb"
-    phrases = ("existing", "already running", "already have", "reachable")
-    assert any(p in lowered for p in phrases), (
-        "Install section presents ArcadeDB only via 'docker compose up -d arcadedb' and "
-        f"never states it can point at an {phrases[1]}/{phrases[2]} ArcadeDB instead "
-        "(no mention of: " + ", ".join(phrases) + ")"
     )
 
 
