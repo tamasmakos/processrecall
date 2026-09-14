@@ -48,6 +48,7 @@ from processrecall.graph.episodic import SequenceIdentity, open_index
 from processrecall.graph.record import record_event
 from processrecall.graph.snapshot import SNAPSHOT_NAME, SnapshotFile
 from processrecall.graph.store import (
+    FALLBACK_LOG,
     RESULT_CEILING,
     EpisodicStep,
     Sequence,
@@ -464,7 +465,7 @@ def prompt(payload: Mapping[str, Any]) -> Response:
     try:
         connection = open_index()
     except sqlite3.Error as exc:
-        log_fallback(home_dir() / "log" / "hooks.jsonl", "capture_store_busy", exc)
+        log_fallback(home_dir() / FALLBACK_LOG, "capture_store_busy", exc)
         return None
     with closing(connection):
         served = open_prompt(payload, connection, deadline)
@@ -487,7 +488,7 @@ def record(payload: Mapping[str, Any]) -> Response:
     try:
         connection = open_index()
     except sqlite3.Error as exc:
-        log_fallback(home_dir() / "log" / "hooks.jsonl", "capture_store_busy", exc)
+        log_fallback(home_dir() / FALLBACK_LOG, "capture_store_busy", exc)
         return None
     with closing(connection):
         capture(payload, connection)
@@ -607,7 +608,7 @@ def enforce(payload: Mapping[str, Any]) -> Response:
     try:
         connection = open_index()
     except sqlite3.Error as exc:
-        log_fallback(home_dir() / "log" / "hooks.jsonl", "capture_store_busy", exc)
+        log_fallback(home_dir() / FALLBACK_LOG, "capture_store_busy", exc)
         return None
     with closing(connection):
         reason = deny_reason(payload, connection, config)
@@ -728,7 +729,7 @@ def close(payload: Mapping[str, Any]) -> Response:
     try:
         connection = open_index()
     except sqlite3.Error as exc:
-        log_fallback(home_dir() / "log" / "hooks.jsonl", "capture_store_busy", exc)
+        log_fallback(home_dir() / FALLBACK_LOG, "capture_store_busy", exc)
         return None
     with closing(connection):
         store = SQLiteEpisodicStore(connection)
@@ -856,7 +857,7 @@ def _is_excluded_project(project_dir: str) -> bool:
     try:
         connection = open_index()
     except sqlite3.Error as exc:
-        log_fallback(home_dir() / "log" / "hooks.jsonl", "capture_store_busy", exc)
+        log_fallback(home_dir() / FALLBACK_LOG, "capture_store_busy", exc)
         return False
     with closing(connection):
         return is_excluded(project_dir, SQLiteEpisodicStore(connection))

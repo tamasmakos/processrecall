@@ -97,10 +97,12 @@ def test_null_classifier_is_what_loads_without_the_extra(
 
     classifiers = load_classifiers(counters)
 
-    assert [
-        type(classifiers.rationale_activity),
-        type(classifiers.prompt_process_type),
-        type(classifiers.unknown_command_activity),
-    ] == [NullClassifier] * 3
+    seats = (
+        classifiers.rationale_activity,
+        classifiers.prompt_process_type,
+        classifiers.unknown_command_activity,
+    )
+
+    assert [type(seat) for seat in seats] == [NullClassifier] * 3
     classifiers.rationale_activity.label("anything")
     assert counters.counted["enrichment_unavailable"] == 1

@@ -43,6 +43,12 @@ _logger = logging.getLogger("processrecall")
 #: unbounded.
 _LOG_ROTATE_BYTES = 5 * 1024 * 1024
 
+#: The R16 fallback log, under :func:`~processrecall.config.home_dir`: where a
+#: counter goes when the store that would have kept it is the thing that would
+#: not open. Named here rather than at each caller because every one of them
+#: reaches it through :func:`log_fallback`, which lives in this module.
+FALLBACK_LOG = Path("log") / "hooks.jsonl"
+
 #: `RESULT_CEILING` is imported above from :mod:`processrecall.config`, where
 #: every source that produces a `TrajectoryEvent` reads the same ceiling.
 #: FR-010's other half — 600 characters of a prompt — has no counterpart here:
@@ -328,7 +334,7 @@ class SQLiteEpisodicStore:
 
     def __init__(self, connection: sqlite3.Connection, log_path: Path | None = None) -> None:
         self._connection = connection
-        self._log_path = log_path if log_path is not None else home_dir() / "log" / "hooks.jsonl"
+        self._log_path = log_path if log_path is not None else home_dir() / FALLBACK_LOG
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}(connection={self._connection!r})"

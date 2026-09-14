@@ -690,13 +690,13 @@ def _edge_from(body: Mapping[str, Any]) -> TransitionEdge:
 
 def _condition_from(body: Mapping[str, Any]) -> Condition:
     """The context a move applies in, back from the plain JSON values it was written as."""
+    went = body["previous_outcome"]
+    labelled = body["intended_activity"]
     return Condition(
         process_type=ProcessType(body["process_type"]),
         same_file_as_previous=body["same_file_as_previous"],
-        previous_outcome=None if (went := body["previous_outcome"]) is None else Outcome(went),
-        intended_activity=(
-            None if (labelled := body["intended_activity"]) is None else ActivityClass(labelled)
-        ),
+        previous_outcome=None if went is None else Outcome(went),
+        intended_activity=None if labelled is None else ActivityClass(labelled),
     )
 
 
