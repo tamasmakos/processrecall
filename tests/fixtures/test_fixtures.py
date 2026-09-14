@@ -17,8 +17,7 @@ from typing import Any
 
 import pytest
 
-from processrecall.config import LEVELS
-from processrecall.symbolic.packs import ActivityClass
+from processrecall.config import LEVELS, ActivityClass
 from processrecall.trajectory.vocabulary import load_vocabulary
 
 FIXTURES = Path(__file__).parent

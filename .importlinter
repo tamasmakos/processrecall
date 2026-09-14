@@ -1,11 +1,10 @@
 [importlinter]
 root_package = processrecall
 unmatched_ignore_imports_alerting = none
-
-# R17: this file is the finished layering. `processrecall.cli` and
-# `processrecall.config` are declared as R17 specifies, but neither module
-# exists yet (T002 deleted cli/*; config.py lands in T010) — `lint-imports`
-# stays red until those tasks land, by design rather than by omission.
+# The hot-path contract forbids third-party modules, and import-linter only
+# builds the graph it needs to see them when it is told so here, at the top
+# level (the per-contract flag below is the one it reports on).
+include_external_packages = True
 
 [importlinter:contract:layers]
 name = Declared architecture layers

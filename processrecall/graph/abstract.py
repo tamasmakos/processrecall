@@ -31,14 +31,13 @@ from enum import StrEnum
 from itertools import pairwise
 from typing import Any, cast
 
-from processrecall.config import LEVELS, Config
+from processrecall.config import LEVELS, ActivityClass, Config, ProcessType
 from processrecall.graph.annotations import Annotation
 from processrecall.graph.keys import group_by_sequence, key_at, keys_of, shares_a_file
 from processrecall.graph.snapshot import Snapshot
 from processrecall.graph.store import CLOSED, EpisodicStep, Sequence, SequenceKey
 from processrecall.procedures.outcome import Outcome
 from processrecall.procedures.taxonomy import NO_FILE_TYPE
-from processrecall.symbolic.packs import ActivityClass, ProcessType
 
 #: How many of a node's action templates the graph keeps. They are what guidance
 #: is rendered from (FR-044) and they are ordered by count, so the tail is both

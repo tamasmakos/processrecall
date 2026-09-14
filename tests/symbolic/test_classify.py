@@ -17,6 +17,7 @@ from collections.abc import Mapping, Sequence
 
 import pytest
 
+from processrecall.config import ActivityClass
 from processrecall.symbolic.classify import (
     Classifier,
     NullClassifier,
@@ -25,7 +26,6 @@ from processrecall.symbolic.classify import (
     UnknownCommandActivity,
     load_classifiers,
 )
-from processrecall.symbolic.packs import ActivityClass
 
 
 class FakeCounters:

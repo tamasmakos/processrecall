@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from processrecall.config import STORE_DIR, load_config
+from processrecall.config import STORE_DIR, ProcessType, load_config
 from processrecall.graph.abstract import (
     AbstractGraph,
     Condition,
@@ -30,7 +30,6 @@ from processrecall.graph.abstract import (
 from processrecall.graph.snapshot import SNAPSHOT_NAME, SnapshotFile
 from processrecall.integrations.claude_code.hooks import capture, deny_reason
 from processrecall.procedures.outcome import Outcome
-from processrecall.symbolic.packs import ProcessType
 
 from .conftest import hook
 

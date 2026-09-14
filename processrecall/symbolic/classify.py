@@ -15,8 +15,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import ClassVar, Protocol
 
-from processrecall.config import Counters
-from processrecall.symbolic.packs import ActivityClass, ProcessType
+from processrecall.config import ActivityClass, Counters, ProcessType
 
 _logger = logging.getLogger("processrecall")
 

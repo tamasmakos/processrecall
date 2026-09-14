@@ -35,7 +35,7 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, TextIO
 
-from processrecall.config import STORE_DIR, Config, Counters, home_dir, load_config
+from processrecall.config import STORE_DIR, Config, Counters, ProcessType, home_dir, load_config
 from processrecall.exceptions import PackError
 from processrecall.graph.abstract import (
     START_KEY,
@@ -62,7 +62,6 @@ from processrecall.guidance.render import BulletRenderer, Deadline, GuidanceStat
 from processrecall.guidance.triggers import Triggers
 from processrecall.procedures.step import steps_from
 from processrecall.procedures.taxonomy import identify_procedure
-from processrecall.symbolic.packs import ProcessType
 from processrecall.trajectory.event import SourceKind, TrajectoryEvent
 from processrecall.trajectory.paths import lexical_path, project_key
 from processrecall.trajectory.vocabulary import load_vocabulary

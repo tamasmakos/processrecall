@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from processrecall.config import ActivityClass, ProcessType
 from processrecall.graph.abstract import AbstractGraph, TransitionEdge, aggregate
 from processrecall.graph.store import EpisodicStep, SequenceKey
 from processrecall.procedures.outcome import Outcome
-from processrecall.symbolic.packs import ActivityClass, ProcessType
 
 from .conftest import make_sequence
 

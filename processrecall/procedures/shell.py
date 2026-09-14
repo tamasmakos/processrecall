@@ -18,7 +18,7 @@ import re
 import shlex
 from pathlib import Path
 
-from processrecall.symbolic.packs import ActivityClass
+from processrecall.config import ActivityClass
 
 #: Interpreters whose ``-c`` body is itself a command line, not an argument.
 _SHELLS = frozenset({"sh", "bash", "zsh", "pwsh", "powershell"})

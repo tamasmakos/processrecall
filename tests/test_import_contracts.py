@@ -23,6 +23,8 @@ different assertion with a different cost, and it lives beside this one.
 from __future__ import annotations
 
 import configparser
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -94,6 +96,7 @@ def _module_names(section: configparser.SectionProxy, option: str) -> set[str]:
 def test_importlinter_declares_the_r17_contracts() -> None:
     contracts = _contracts()
     assert contracts["importlinter"]["root_package"] == "processrecall"
+    assert contracts["importlinter"].getboolean("include_external_packages") is True
 
     layers = contracts["importlinter:contract:layers"]
     assert layers["type"] == "layers"
@@ -114,3 +117,25 @@ def test_importlinter_declares_the_r17_contracts() -> None:
 
     hot_path = contracts["importlinter:contract:hot-path-stdlib-only"]
     assert hot_path.getboolean("include_external_packages") is True
+
+
+def test_lint_imports_passes_on_the_new_layout() -> None:
+    """The declaration above, actually enforced over the finished tree (SC-011).
+
+    Declaring a contract and honouring it are two claims: the assertion above
+    reads `.importlinter` and would stay green over a layout that violates
+    every line of it. This one runs the enforcer — the same console script
+    `make gate` runs, so a green suite and a green gate cannot disagree — and
+    lets its own report be the failure message.
+    """
+    lint_imports = shutil.which("lint-imports")
+    assert lint_imports is not None, "import-linter is not installed in this environment"
+
+    result = subprocess.run(
+        [lint_imports],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

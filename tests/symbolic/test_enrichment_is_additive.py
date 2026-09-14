@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+from processrecall.config import ActivityClass
 from processrecall.graph.abstract import AbstractGraph, TransitionEdge, aggregate
 from processrecall.graph.episodic import open_index
 from processrecall.graph.keys import group_by_sequence
@@ -37,7 +38,6 @@ from processrecall.graph.store import (
     SQLiteEpisodicStore,
 )
 from processrecall.symbolic.classify import Classifier, NullClassifier, RationaleActivity
-from processrecall.symbolic.packs import ActivityClass
 from processrecall.trajectory.transcript import TranscriptSource
 
 #: The anonymised session the corpus is folded from (FR-073).

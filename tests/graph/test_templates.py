@@ -8,9 +8,9 @@ what it says.
 
 from __future__ import annotations
 
+from processrecall.config import ActivityClass
 from processrecall.graph.templates import template_of
 from processrecall.procedures.step import SubActivity
-from processrecall.symbolic.packs import ActivityClass
 
 
 def test_a_template_keeps_the_command_shape_and_drops_its_paths() -> None:

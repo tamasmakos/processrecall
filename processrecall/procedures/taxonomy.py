@@ -14,9 +14,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
-from processrecall.config import LEVELS
+from processrecall.config import LEVELS, ActivityClass
 from processrecall.procedures.step import SubActivity
-from processrecall.symbolic.packs import ActivityClass
 
 #: The segment a key spells where it has no file type to name. A key is
 #: ``/``-joined and positional, so the finest level needs a segment even when the

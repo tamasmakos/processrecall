@@ -15,9 +15,9 @@ from typing import Any
 
 import pytest
 
+from processrecall.config import ActivityClass
 from processrecall.graph.store import SequenceKey, SQLiteEpisodicStore
 from processrecall.integrations.claude_code.hooks import capture
-from processrecall.symbolic.packs import ActivityClass
 
 from .conftest import PAYLOADS
 

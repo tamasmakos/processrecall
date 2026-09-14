@@ -31,9 +31,8 @@ from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from processrecall.config import RESULT_CEILING, home_dir
+from processrecall.config import RESULT_CEILING, ActivityClass, ProcessType, home_dir
 from processrecall.graph.annotations import Annotation
-from processrecall.symbolic.packs import ActivityClass, ProcessType
 
 if TYPE_CHECKING:
     from processrecall.trajectory.event import TrajectoryEvent
