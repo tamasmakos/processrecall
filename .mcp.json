@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "processrecall": {
+      "type": "stdio",
+      "command": "${CLAUDE_PLUGIN_DATA}/venv/bin/python",
+      "args": ["-m", "processrecall.server.mcp.stdio_server"]
+    }
+  }
+}

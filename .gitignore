@@ -83,7 +83,6 @@ evaluation/results/.judge_cache/
 # gate layout). Ignoring it is how this repo ended up with a CLAUDE.md
 # describing an entirely different project -- so it is tracked, and the rule that
 # ignored it anyway five lines below this comment is gone.
-.mcp.json
 
 graphify-out
 prototypes
@@ -100,5 +99,4 @@ processrecall/symbolic/ontology/assets/cco-extensions/candidates/
 # machine-written run reports; the rules beside runs/ stay tracked
 docs/agents/runs/
 docs\adr
-.mcp.json
 .claude\settings.local.json
