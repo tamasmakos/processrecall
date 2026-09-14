@@ -80,6 +80,19 @@ PLANNED_LAYERS = ["artifacts", "graph", "guidance", "procedures", "trajectory"]
 # the shape `processrecall/packs/data/` already has.
 PLANNED_DATA_DIRS = ["symbolic/data", "trajectory/vocab"]
 
+# design §6's last line, resolved to paths: the deployment and release machinery,
+# deleted after everything it deployed. Repo-relative, not package-relative.
+DEPLOYMENT_PATHS = [
+    "deploy",
+    "Dockerfile",
+    "evaluation",
+    "docs/adr",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+]
+DEPLOYMENT_TESTS = ["tests/test_deploy_ops.py", "tests/test_offline.py"]
+COMPOSE_GLOB = "docker-compose*.y*ml"
+
 
 def _strays(glob: str) -> list[Path]:
     return sorted(p.relative_to(REPO_ROOT) for p in PKG_ROOT.rglob(glob))
@@ -148,3 +161,28 @@ def test_package_layout_matches_plan() -> None:
     assert marker.is_file(), (
         f"{marker.relative_to(REPO_ROOT)}: missing — the new layers ship untyped"
     )
+
+
+def test_deployment_machinery_is_absent() -> None:
+    """R18's last line: the deployment and release machinery is gone from the repo.
+
+    None of this lives inside the package, so the paths are repo-relative rather
+    than package-relative — a Dockerfile still ships nothing, but it still
+    documents a stack this fork does not have.
+
+    "with their tests" is asserted for the two suites whose entire subject is the
+    deleted stack. `tests/test_repo_hygiene.py` and `tests/test_docs_shape.py` are
+    deliberately absent from that list: each also pins files that survive, so what
+    the deletion orphans there is assertions, not the file.
+    """
+    survivors = sorted(str(Path(p)) for p in DEPLOYMENT_PATHS if (REPO_ROOT / p).exists())
+    assert not survivors, f"R18 deletes these, but they are still in the repo: {survivors}"
+
+    # Globbed, not named: the `TestCompose` class this deletion orphans in
+    # `test_repo_hygiene.py` also pinned that no *second* compose file
+    # (`docker-compose.prod.yaml`) comes back, and that outlives the one R18 names.
+    composes = sorted(p.name for p in REPO_ROOT.glob(COMPOSE_GLOB))
+    assert not composes, f"a shipped deployment stack survives the fork: {composes}"
+
+    stray_tests = sorted(str(Path(p)) for p in DEPLOYMENT_TESTS if (REPO_ROOT / p).exists())
+    assert not stray_tests, f"tests of the deleted deployment stack survive it: {stray_tests}"
