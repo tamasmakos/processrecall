@@ -102,7 +102,9 @@ def _drive(harness: _Harness) -> _Run:
     store = SQLiteEpisodicStore(connection)
     try:
         with pytest.MonkeyPatch.context() as pointed_at:
-            pointed_at.setattr(record_module, "load_vocabulary", lambda: load_vocabulary(harness.pack))
+            pointed_at.setattr(
+                record_module, "load_vocabulary", lambda: load_vocabulary(harness.pack)
+            )
             for event in harness.source.events():
                 record_event(event, connection)
         steps = tuple(store.iter_steps())

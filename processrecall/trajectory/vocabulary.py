@@ -14,6 +14,7 @@ import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from processrecall.config import ActivityClass
 from processrecall.exceptions import PackError
@@ -74,7 +75,7 @@ def load_vocabulary(path: Path = CLAUDE_CODE) -> Vocabulary:
         raise PackError(str(path), str(defect)) from defect
 
 
-def _entry_from(tool_name: str, entry: dict) -> ToolEntry:
+def _entry_from(tool_name: str, entry: Mapping[str, Any]) -> ToolEntry:
     """One table row as the dataclass, refusing a row that routes nowhere.
 
     A class outside the closed set, or a null class that names no grammar to

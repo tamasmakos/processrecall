@@ -69,8 +69,8 @@ def test_the_manifest_metadata_matches_pyproject(
     """Author, homepage and license have one source of truth; the plugin
     description is user-facing and intentionally distinct from the package's."""
     author = project["authors"][0]
-    assert manifest["author"] == {"name": author["name"], "email": author["email"]}, (
-        manifest.get("author")
+    assert manifest["author"] == {"name": author["name"], "email": author["email"]}, manifest.get(
+        "author"
     )
     assert manifest["homepage"] == project["urls"]["Homepage"], manifest.get("homepage")
     assert manifest["license"] == project["license"], manifest.get("license")

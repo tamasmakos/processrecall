@@ -25,7 +25,7 @@ import json
 import logging
 import os
 import sqlite3
-import subprocess
+import subprocess  # nosec B404
 import sys
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import closing
@@ -35,7 +35,15 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, TextIO
 
-from processrecall.config import STORE_DIR, Config, Counters, ProcessType, home_dir, load_config
+from processrecall.config import (
+    RESULT_CEILING,
+    STORE_DIR,
+    Config,
+    Counters,
+    ProcessType,
+    home_dir,
+    load_config,
+)
 from processrecall.exceptions import PackError
 from processrecall.graph.abstract import (
     START_KEY,
@@ -49,7 +57,6 @@ from processrecall.graph.record import record_event
 from processrecall.graph.snapshot import SNAPSHOT_NAME, SnapshotFile
 from processrecall.graph.store import (
     FALLBACK_LOG,
-    RESULT_CEILING,
     EpisodicStep,
     Sequence,
     SequenceKey,
@@ -802,7 +809,9 @@ def _spawn_session_end(project_dir: str, lock: Path) -> None:
     is what the rules-only graph already stands without (FR-060).
     """
     try:
-        subprocess.Popen(
+        # No shell, and the argument vector is this interpreter plus fixed
+        # module arguments -- nothing a payload reached (B603).
+        subprocess.Popen(  # nosec B603
             [
                 sys.executable,
                 "-m",

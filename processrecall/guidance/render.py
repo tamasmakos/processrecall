@@ -22,8 +22,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol
 
+from processrecall.config import Counters
 from processrecall.graph.annotations import Annotation
-from processrecall.graph.snapshot import Counters
 
 #: The ceiling FR-042's ~300 tokens becomes without a tokeniser on the hot
 #: path, at the conventional four characters per token (R8).

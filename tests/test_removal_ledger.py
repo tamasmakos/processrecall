@@ -113,7 +113,9 @@ def test_prototypes_live_in_research() -> None:
     assert RESEARCH.is_dir(), f"{RESEARCH}: missing — the prototypes have nowhere to live"
 
     prototypes = sorted(p.name for p in RESEARCH.glob(PROTOTYPE_GLOB))
-    assert prototypes == EXPECTED_PROTOTYPES, f"{RESEARCH}: expected {EXPECTED_PROTOTYPES}, found {prototypes}"
+    assert prototypes == EXPECTED_PROTOTYPES, (
+        f"{RESEARCH}: expected {EXPECTED_PROTOTYPES}, found {prototypes}"
+    )
 
 
 def test_removed_modules_are_absent() -> None:

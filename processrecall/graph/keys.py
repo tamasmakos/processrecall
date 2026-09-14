@@ -63,4 +63,6 @@ def group_by_sequence(steps: Iterable[EpisodicStep]) -> dict[SequenceKey, tuple[
     rows: dict[SequenceKey, list[EpisodicStep]] = {}
     for step in steps:
         rows.setdefault(step.sequence_key, []).append(step)
-    return {key: tuple(sorted(group, key=lambda step: step.position)) for key, group in rows.items()}
+    return {
+        key: tuple(sorted(group, key=lambda step: step.position)) for key, group in rows.items()
+    }

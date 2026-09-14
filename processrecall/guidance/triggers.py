@@ -23,10 +23,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
-from processrecall.config import Config
+from processrecall.config import Config, Counters
 from processrecall.graph.abstract import Level, PitfallKind, TransitionEdge
 from processrecall.graph.keys import ARTIFACT_EVALUATION, CHANGE_IMPLEMENTATION, class_of, key_at
-from processrecall.graph.snapshot import Counters
 from processrecall.graph.store import EpisodicStep, SequenceKey
 from processrecall.guidance.neighborhood import Neighborhood
 
@@ -96,7 +95,9 @@ class Triggers:
             self._warned.add(latch)
         return firing
 
-    def _repetition(self, steps: Sequence[EpisodicStep], neighborhood: Neighborhood) -> _Candidate | None:
+    def _repetition(
+        self, steps: Sequence[EpisodicStep], neighborhood: Neighborhood
+    ) -> _Candidate | None:
         """The warning for a procedure *steps* has just done `k` times running.
 
         Latched per (node, sequence): once a node has been warned about inside

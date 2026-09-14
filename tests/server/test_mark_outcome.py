@@ -105,8 +105,7 @@ def test_a_prompt_the_store_never_opened_is_rejected_rather_than_created(
         "stored": False,
         "prompt_id": "prompt-b",
         "reason": (
-            "no sequence was opened for prompt prompt-b; omit prompt_id to judge the"
-            " current turn"
+            "no sequence was opened for prompt prompt-b; omit prompt_id to judge the current turn"
         ),
     }
 

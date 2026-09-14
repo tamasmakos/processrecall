@@ -38,8 +38,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
+from processrecall.config import Counters
 from processrecall.graph.abstract import TransitionEdge
-from processrecall.graph.snapshot import Counters
 from processrecall.ranking.rrf import rrf_score
 
 

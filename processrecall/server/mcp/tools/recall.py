@@ -112,9 +112,7 @@ def _answer(ask: _Ask) -> dict[str, Any]:
     }
 
 
-def _supported(
-    candidates: tuple[FusedEdge, ...], counters: EpisodicStore
-) -> tuple[FusedEdge, ...]:
+def _supported(candidates: tuple[FusedEdge, ...], counters: EpisodicStore) -> tuple[FusedEdge, ...]:
     """*candidates* whose edge clears the configured support floor (FR-045a).
 
     A call here is the occasion no trigger gates, but a single observation is

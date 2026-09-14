@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
+import subprocess  # nosec B404
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -71,7 +71,12 @@ def prepare(force: bool) -> str | None:
         )
     if force:
         installation.ready.unlink(missing_ok=True)
-    finished = subprocess.run(
+    # No shell, and no caller string in the argument vector: the only interpolation
+    # is `installation.root`, which `Installation.from_environment` read from the
+    # harness's own variables, joined to the fixed `SCRIPT` path (B603). `sh` is
+    # deliberately resolved through PATH rather than hard-coded to /bin/sh, which
+    # is not where every platform this installs on keeps it (B607).
+    finished = subprocess.run(  # nosec B603 B607
         ["sh", str(installation.root / SCRIPT)], capture_output=True, text=True, check=False
     )
     if finished.returncode != 0:

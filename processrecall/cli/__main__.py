@@ -156,9 +156,7 @@ def _rebuild(arguments: argparse.Namespace, store: EpisodicStore) -> int:
     try:
         config = load_config()
         level = arguments.level or config.level
-        source = Derivation(
-            store=store, project_dir=arguments.project, level=level, config=config
-        )
+        source = Derivation(store=store, project_dir=arguments.project, level=level, config=config)
         if not arguments.check:
             print(rebuild(source))
             return 0

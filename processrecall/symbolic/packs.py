@@ -75,9 +75,7 @@ def load_pack(path: Path = SEON_ACTIVITIES) -> ConceptPack:
     return pack
 
 
-def _index_by_label(
-    cls: type[_Entry], entries: list[dict], path: Path
-) -> Mapping[str, _Entry]:
+def _index_by_label(cls: type[_Entry], entries: list[dict], path: Path) -> Mapping[str, _Entry]:
     """Build a label-keyed mapping, refusing a pack that repeats a label."""
     index: dict[str, _Entry] = {}
     for entry in entries:

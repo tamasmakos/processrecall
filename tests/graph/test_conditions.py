@@ -130,7 +130,9 @@ def test_a_tied_condition_breaks_by_the_condition_s_own_repr() -> None:
     ``"Investigation"`` — so that is the one the edge is required to carry.
     """
     bug_fix_key = SequenceKey(conversation_id="c1", session_epoch=0, prompt_id="p-bugfix")
-    investigation_key = SequenceKey(conversation_id="c1", session_epoch=0, prompt_id="p-investigation")
+    investigation_key = SequenceKey(
+        conversation_id="c1", session_epoch=0, prompt_id="p-investigation"
+    )
     steps = (
         make_step("Inspection/Read/py", position=0, step_id=1, files=("a.py",), key=bug_fix_key),
         make_step(
