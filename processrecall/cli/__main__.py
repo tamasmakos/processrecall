@@ -15,6 +15,7 @@ from contextlib import closing
 from pathlib import Path
 
 from processrecall.cli.backfill import Replay, backfill, parse_since
+from processrecall.cli.bootstrap import prepare
 from processrecall.cli.rebuild import Derivation, check, rebuild
 from processrecall.cli.show import Inspection, show
 from processrecall.config import LEVELS, load_config
@@ -29,6 +30,12 @@ def _parser() -> argparse.ArgumentParser:
     """The command line of `contracts/cli.md`, as far as it is implemented."""
     parser = argparse.ArgumentParser(prog="processrecall")
     commands = parser.add_subparsers(dest="command", required=True)
+    bootstrap_command = commands.add_parser(
+        "bootstrap", help="prepare the plugin's runtime environment as the hook does"
+    )
+    bootstrap_command.add_argument(
+        "--force", action="store_true", help="sync again even when the ready marker matches"
+    )
     backfill_command = commands.add_parser(
         "backfill", help="replay the harness's own past sessions through the live seam"
     )
@@ -66,6 +73,8 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the command named in *argv*, printing what it found; 0 when it answered."""
     arguments = _parser().parse_args(argv)
+    if arguments.command == "bootstrap":
+        return _bootstrap(arguments)
     with closing(open_index()) as connection:
         if arguments.command == "rebuild":
             return _rebuild(arguments, SQLiteEpisodicStore(connection))
@@ -74,6 +83,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         view = Inspection(store=SQLiteEpisodicStore(connection), project_dir=arguments.project)
         print(show(arguments.subject, view))
     return 0
+
+
+def _bootstrap(arguments: argparse.Namespace) -> int:
+    """Prepare the plugin's environment, saying whether it is (`contracts/cli.md`)."""
+    if (failure := prepare(arguments.force)) is None:
+        print("the plugin environment is prepared")
+        return 0
+    print(failure)
+    return 1
 
 
 def _backfill(arguments: argparse.Namespace, connection: sqlite3.Connection) -> int:
