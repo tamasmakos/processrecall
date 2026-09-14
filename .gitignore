@@ -34,6 +34,10 @@ demo_*.py
 three_pass_benchmark.py
 scripts/demo_*.py
 
+# Per-project graph snapshot: node names, abstracted templates, counts and
+# annotations only. Untracked by default, `git add -f` to share one.
+.processrecall/
+
 # ─── Editor / OS ──────────────────────────────────────────────────────────────
 .vscode/settings.json
 .idea
