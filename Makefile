@@ -125,19 +125,47 @@ SONAR_SCANNER_IMAGE ?= sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1
 # host, and an accidental commit of an analyzer cache is what that entry guards.)
 SONAR_CACHE_VOLUME ?= processrecall_sonar_cache
 
-sonar-up: ## Start the local SonarQube server (opt-in profile — `make up` does not)
-	$(COMPOSE) --profile sonar up -d sonarqube
-	@echo "  waiting for SonarQube to report UP (first boot takes minutes)…"
-	@until [ "$$(docker inspect -f '{{.State.Health.Status}}' processrecall-sonarqube 2>/dev/null)" = "healthy" ]; do \
-	  if [ -z "$$(docker ps -q -f name=processrecall-sonarqube)" ]; then \
-	    echo "  sonarqube is not running — see 'make logs SVC=sonarqube'"; exit 1; \
+# Started by `docker run`, not by $(COMPOSE): the deployment stack left with the
+# Dockerfile, and `tests/test_removal_ledger.py` pins that no docker-compose*.yaml
+# comes back, so a compose-based target here is one that can never run again.
+# The three volumes stay NAMED for the reason they were under compose: `data`
+# holds the embedded H2 database and the Elasticsearch indexes and `extensions`
+# the downloaded analyzers, so stopping the server must not take the issue
+# history with it. The healthcheck is declared on the container rather than
+# polled in the loop below, which reads `.State.Health.Status`: /api/system/status
+# reports UP only once the migration and the ES indexes are ready, while a plain
+# port probe goes green minutes earlier and every scan still 503s.
+SONARQUBE_IMAGE ?= sonarqube:26.9.0.129388-community
+SONARQUBE_CONTAINER ?= processrecall-sonarqube
+
+sonar-up: ## Start the local SonarQube server (opt-in, `make up` does not)
+	@if [ -n "$$(docker ps -aq -f name='^$(SONARQUBE_CONTAINER)$$')" ]; then \
+	  docker start $(SONARQUBE_CONTAINER) >/dev/null; \
+	else \
+	  docker run -d --name $(SONARQUBE_CONTAINER) \
+	    -p $(SONAR_PORT):9000 \
+	    -e SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true \
+	    -v $(SONARQUBE_CONTAINER)_data:/opt/sonarqube/data \
+	    -v $(SONARQUBE_CONTAINER)_logs:/opt/sonarqube/logs \
+	    -v $(SONARQUBE_CONTAINER)_extensions:/opt/sonarqube/extensions \
+	    --restart unless-stopped \
+	    --health-cmd "curl -sf http://localhost:9000/api/system/status | grep -q '\"status\":\"UP\"'" \
+	    --health-interval 15s --health-timeout 10s \
+	    --health-retries 20 --health-start-period 180s \
+	    $(SONARQUBE_IMAGE) >/dev/null; \
+	fi
+	@echo "  waiting for SonarQube to report UP (first boot takes minutes)"
+	@until [ "$$(docker inspect -f '{{.State.Health.Status}}' $(SONARQUBE_CONTAINER) 2>/dev/null)" = "healthy" ]; do \
+	  if [ -z "$$(docker ps -q -f name='^$(SONARQUBE_CONTAINER)$$')" ]; then \
+	    echo "  sonarqube is not running - see 'docker logs $(SONARQUBE_CONTAINER)'"; exit 1; \
 	  fi; \
 	  sleep 5; \
 	done
 	@echo "  SonarQube is up: $(SONAR_HOST_URL)"
 
 sonar-down: ## Stop the local SonarQube server (history survives in named volumes)
-	$(COMPOSE) --profile sonar stop sonarqube
+	@docker stop $(SONARQUBE_CONTAINER) >/dev/null
+	@echo "  stopped $(SONARQUBE_CONTAINER) - data, logs and extensions volumes kept"
 
 sonar-token: ## How to mint the two tokens the sonar targets need
 	@echo "  $(SONAR_HOST_URL) -> My Account -> Security -> Generate Token."
