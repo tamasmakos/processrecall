@@ -10,8 +10,13 @@ Two files are written, because there are two: the project's own snapshot, folded
 from the rows recorded against that project, and the cross-project one in the
 home directory, folded from every row (`contracts/storage.md`).
 
+The fold itself is `processrecall.graph.derive`, shared with the `close` hook
+that lands a project's own snapshot in process (FR-050); what lives here is the
+command around it.
+
 Example:
-    from processrecall.cli.rebuild import Derivation, rebuild
+    from processrecall.cli.rebuild import rebuild
+    from processrecall.graph.derive import Derivation
 
     print(rebuild(Derivation(store=store, project_dir=Path.cwd(), level="class/program")))
 """
@@ -19,88 +24,11 @@ Example:
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any, cast
 
-from processrecall.config import STORE_DIR, Config, home_dir, load_config
-from processrecall.graph.abstract import aggregate, edge_key, reattach, served
-from processrecall.graph.keys import group_by_sequence
-from processrecall.graph.snapshot import SNAPSHOT_NAME, Snapshot, SnapshotFile
-from processrecall.graph.store import EpisodicStep, EpisodicStore, Sequence, SequenceKey
-from processrecall.trajectory.paths import project_key
-
-#: The stamp an empty index derives, since `max` needs a default with none.
-_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
-
-
-@dataclass(frozen=True, slots=True)
-class Derivation:
-    """What one rebuild re-derives the graph from.
-
-    Attributes:
-        store: The episodic index, opened by the caller and closed by it.
-        project_dir: The project whose own snapshot is rebuilt beside the
-            cross-project one.
-        level: The generality every node and edge is named at (FR-023).
-        config: The tuning to fold with. Defaults to the project's own, loaded
-            once here rather than a second time by every caller that already
-            read it to resolve *level*.
-    """
-
-    store: EpisodicStore
-    project_dir: Path
-    level: str
-    config: Config = field(default_factory=load_config)
-
-    def snapshots(self) -> tuple[tuple[Path, Snapshot, int], ...]:
-        """Both snapshots this derives, each against the path it belongs at.
-
-        Derived together from one read of the index so that the two files agree
-        about the rows they saw: a second read could catch a step the first
-        missed and leave the project's graph ahead of the cross-project one.
-
-        The third element of each tuple is how many stored annotations
-        `reattach` (FR-038) could not find a move for on this rebuild —
-        reported by the caller rather than dropped, since an orphan is a fact
-        about the rebuild and not a defect to run silently.
-        """
-        steps = tuple(self.store.iter_steps())
-        sequences = _sequences(self.store, steps)
-        mine_key = project_key(str(self.project_dir))
-        mine = _recorded_against(steps, sequences, mine_key)
-        mine_reattached = reattach(
-            aggregate(mine, self.level, sequences, self.config),
-            self.store.annotations_for(mine_key),
-        )
-        every_reattached = reattach(
-            aggregate(steps, self.level, sequences, self.config),
-            self.store.annotations_for(None),
-        )
-        return (
-            (
-                self.project_dir / STORE_DIR / SNAPSHOT_NAME,
-                served(mine_reattached.graph, _generated_at(mine)),
-                len(mine_reattached.orphaned),
-            ),
-            (
-                home_dir() / SNAPSHOT_NAME,
-                served(every_reattached.graph, _generated_at(steps)),
-                len(every_reattached.orphaned),
-            ),
-        )
-
-
-def _generated_at(steps: Iterable[EpisodicStep]) -> datetime:
-    """When the graph folded from *steps* was derived.
-
-    The most recent `occurred_at` among the rows folded in, not the wall
-    clock: a pure function of the rows is what lets two rebuilds of the same
-    index, or a rebuild and the incremental writer, land on the same instant
-    without coordinating (FR-032).
-    """
-    return max((step.occurred_at for step in steps), default=_EPOCH)
+from processrecall.graph.abstract import edge_key
+from processrecall.graph.derive import Derivation
+from processrecall.graph.snapshot import Snapshot, SnapshotFile
 
 
 def rebuild(source: Derivation) -> str:
@@ -113,36 +41,6 @@ def rebuild(source: Derivation) -> str:
             f"  annotations_orphaned={orphaned}"
         )
     return "\n".join(lines)
-
-
-def _sequences(store: EpisodicStore, steps: Iterable[EpisodicStep]) -> dict[SequenceKey, Sequence]:
-    """The prompt behind each of *steps*, for the rows whose prompt was recorded.
-
-    The fold reads a sequence for its process type and for whether it ended
-    cleanly (FR-020, FR-027); a row whose prompt nothing opened is left out and
-    folded as unknown rather than invented here.
-    """
-    opened = ((key, store.sequence(key)) for key in group_by_sequence(steps))
-    return {key: sequence for key, sequence in opened if sequence is not None}
-
-
-def _recorded_against(
-    steps: Iterable[EpisodicStep],
-    sequences: Mapping[SequenceKey, Sequence],
-    wanted: str,
-) -> tuple[EpisodicStep, ...]:
-    """The rows of *steps* whose prompt ran in the project *wanted* names.
-
-    A row whose prompt is missing from *sequences* belongs to no project this
-    can name, so it is left to the cross-project snapshot rather than filed
-    under whichever project happened to ask.
-    """
-    return tuple(
-        step
-        for step in steps
-        if (sequence := sequences.get(step.sequence_key)) is not None
-        and sequence.project_dir_key == wanted
-    )
 
 
 def check(source: Derivation) -> str | None:

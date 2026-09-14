@@ -17,9 +17,10 @@ from pathlib import Path
 from processrecall.cli.backfill import Replay, backfill, parse_since
 from processrecall.cli.bootstrap import prepare
 from processrecall.cli.prune import Removal, episodes_before, prune
-from processrecall.cli.rebuild import Derivation, check, rebuild
+from processrecall.cli.rebuild import check, rebuild
 from processrecall.cli.show import Inspection, show
 from processrecall.config import LEVELS, load_config
+from processrecall.graph.derive import Derivation
 from processrecall.graph.episodic import open_index
 from processrecall.graph.store import EpisodicStore, SQLiteEpisodicStore
 

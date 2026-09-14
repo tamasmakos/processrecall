@@ -44,6 +44,7 @@ from processrecall.graph.abstract import (
     TransitionEdge,
     edges_from,
 )
+from processrecall.graph.derive import Derivation
 from processrecall.graph.episodic import SequenceIdentity, open_index
 from processrecall.graph.record import record_event
 from processrecall.graph.snapshot import SNAPSHOT_NAME, SnapshotFile
@@ -60,6 +61,7 @@ from processrecall.guidance.locate import locate
 from processrecall.guidance.neighborhood import Neighborhood
 from processrecall.guidance.render import BulletRenderer, Deadline, GuidanceStatement
 from processrecall.guidance.triggers import Triggers
+from processrecall.procedures.outcome import sequence_outcome
 from processrecall.procedures.step import steps_from
 from processrecall.procedures.taxonomy import identify_procedure
 from processrecall.trajectory.event import SourceKind, TrajectoryEvent
@@ -342,13 +344,17 @@ def open_prompt(
         config=load_config(),
         deadline=deadline or Deadline(),
     )
-    key = SequenceIdentity(connection, str(payload.get("session_id") or "")).key(
-        str(payload.get("prompt_id") or ""), str(payload.get("agent_id") or "")
-    )
-    _open_turn(store, opening.project_dir, key)
+    _open_turn(store, opening.project_dir, _sequence_key(payload, connection))
     served = _opening_guidance(opening)
     store.bump("guidance_served" if served else "guidance_silent")
     return served
+
+
+def _sequence_key(payload: Mapping[str, Any], connection: sqlite3.Connection) -> SequenceKey:
+    """The turn *payload* belongs to, at the conversation's current epoch (FR-011)."""
+    return SequenceIdentity(connection, str(payload.get("session_id") or "")).key(
+        str(payload.get("prompt_id") or ""), str(payload.get("agent_id") or "")
+    )
 
 
 def _open_turn(store: SQLiteEpisodicStore, project_dir: str, key: SequenceKey) -> None:
@@ -656,17 +662,89 @@ REMEMBER_NUDGE = (
 )
 
 
+def close_turn(
+    payload: Mapping[str, Any],
+    connection: sqlite3.Connection,
+    store: SQLiteEpisodicStore | None = None,
+) -> None:
+    """End the piece of work *payload* closes: score the turn, fold it in (FR-050).
+
+    The two steps of ``contracts/agent-hooks.md``, in its order. The verdict is
+    recomputed from the rows the turn recorded rather than kept in step with
+    them as they land, because it is a fact about the whole turn and only the
+    end of one knows every row (FR-034, FR-036); the project's graph is then
+    folded again from those rows, which is what makes the turn readable to the
+    next one before any job has run.
+
+    *store* lets :func:`close` hand in the one it already built for its
+    exclusion check, rather than a second one opened on the same connection;
+    a caller with no store of its own, such as a test driving this directly,
+    gets one built here instead.
+    """
+    store = store or SQLiteEpisodicStore(connection)
+    _end_turn(store, _sequence_key(payload, connection))
+    _refold_project(store, _project_dir(payload))
+
+
+def _end_turn(store: SQLiteEpisodicStore, key: SequenceKey) -> None:
+    """Close *key* and write the verdict its own rows derive (FR-034, FR-036).
+
+    A store that will not take the writes is counted rather than raised, as
+    :func:`_open_turn` counts the same failure at the other end of the turn
+    (FR-014).
+    """
+    try:
+        store.close_sequence(key, datetime.now(UTC))
+        store.derive_outcome(key, sequence_outcome(step.outcome for step in store.steps(key)))
+    except sqlite3.Error:
+        store.bump("capture_store_busy")
+
+
+def _refold_project(store: SQLiteEpisodicStore, project_dir: str) -> None:
+    """Land *project_dir*'s snapshot again, folded from the rows alone (FR-050).
+
+    The fold is `processrecall.graph.derive`'s own, shared with `rebuild`, so
+    the file this leaves behind agrees with what a from-scratch rebuild of the
+    same index would leave behind (FR-032, SC-004) — a second fold written to
+    agree with that one would only be a copy of it that could drift. Nothing
+    here enriches: classification and symbol attribution are the detached
+    session-end job's (FR-064).
+
+    A store that will not take the fold's reads is counted rather than raised,
+    as :func:`_end_turn` counts the same failure at the other end of the turn:
+    a faulted fold must not take the nudge `close` still owes down with it
+    (FR-014). How many annotations the fold could not find a move for is
+    dropped rather than reported: a hook has no operator to report it to, and
+    `rebuild` remains where an orphan is named. A project directory that will
+    not take the file — gone, or read-only — is counted the same way.
+    """
+    config = load_config()
+    try:
+        path, snapshot, _orphaned = Derivation(
+            store=store, project_dir=Path(project_dir), level=config.level, config=config
+        ).project_snapshot()
+    except sqlite3.Error:
+        store.bump("capture_store_busy")
+        return
+    try:
+        SnapshotFile(path, store).write(snapshot)
+    except OSError as exc:
+        _logger.warning("%s: the snapshot could not be written: %s", path, exc)
+        store.bump("snapshot_write_failed")
+
+
 def close(payload: Mapping[str, Any]) -> Response:
-    """``Stop`` and ``SubagentStop``: nudge for a note on the work just ended (T060).
+    """``Stop`` and ``SubagentStop``: end the work, and nudge for a note on it.
 
     The harness runs this verb once per sequence, which is what "at end of work
-    rather than on every step" means for a nudge — so it is emitted here, on
-    every sequence but one an excluded project ran (FR-058, checked first as in
-    :func:`open_prompt`): an agent whose project opted out is told nothing,
-    matching the "suppress capture entirely" of R13. Short of that, the nudge
-    is unconditional — an agent that has nothing to say declines, and the store
-    holds no signal for whether it does. Closing the sequence and scoring it,
-    the rest of the verb's contract, lands with T049.
+    rather than on every step" means for both halves — so the turn is ended
+    here (:func:`close_turn`) and the nudge emitted here, on every sequence but
+    one an excluded project ran (FR-058, checked first as in
+    :func:`open_prompt`): an agent whose project opted out is told nothing and
+    leaves nothing written under its project, matching the "suppress capture
+    entirely" of R13. Short of that, the nudge is unconditional — an agent that
+    has nothing to say declines, and the store holds no signal for whether it
+    does (FR-040).
     """
     try:
         connection = open_index()
@@ -674,8 +752,10 @@ def close(payload: Mapping[str, Any]) -> Response:
         log_fallback(home_dir() / "log" / "hooks.jsonl", "capture_store_busy", exc)
         return None
     with closing(connection):
-        if is_excluded(_project_dir(payload), SQLiteEpisodicStore(connection)):
+        store = SQLiteEpisodicStore(connection)
+        if is_excluded(_project_dir(payload), store):
             return None
+        close_turn(payload, connection, store)
     return {"additionalContext": REMEMBER_NUDGE}
 
 

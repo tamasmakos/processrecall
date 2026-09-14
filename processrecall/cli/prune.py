@@ -23,7 +23,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from processrecall.cli.rebuild import Derivation, rebuild
+from processrecall.cli.rebuild import rebuild
+from processrecall.graph.derive import Derivation
 from processrecall.graph.store import EpisodicStore, SequenceKey
 from processrecall.trajectory.paths import project_key
 
