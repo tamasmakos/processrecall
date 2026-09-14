@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c '\"$CLAUDE_PLUGIN_DATA/venv/bin/python\" -m processrecall.integrations.claude_code bootstrap'",
-            "timeout": 5
+            "command": "sh \"$CLAUDE_PLUGIN_ROOT/bin/bootstrap.sh\"",
+            "timeout": 120
           }
         ]
       }

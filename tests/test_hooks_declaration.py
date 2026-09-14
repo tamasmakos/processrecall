@@ -57,25 +57,34 @@ def test_every_contract_event_is_declared(declaration: dict[str, Any]) -> None:
     assert set(declaration["hooks"]) == set(CONTRACT), sorted(declaration["hooks"])
 
 
+#: `SessionStart` runs `bin/bootstrap.sh` directly (R14): the interpreter the
+#: other six verbs are named through is exactly what that script must
+#: prepare, so it cannot be the one invoking it.
+SCRIPTED_EVENTS = {"SessionStart"}
+
+
 def test_each_event_invokes_the_verb_the_contract_gives_it(
     declaration: dict[str, Any],
 ) -> None:
     """`Stop` and `SubagentStop` share `close`; every name is one that exists."""
     for event, expected in CONTRACT.items():
+        if event in SCRIPTED_EVENTS:
+            continue
         for command in commands(declaration, event):
             named = re.findall(r"claude_code (\w+)", command["command"])
             assert named == [expected], f"{event} invokes {named}, not {expected!r}"
             assert expected in VERBS, f"{expected!r} is not a verb of the package"
 
 
-def test_every_entry_is_a_command_bounded_at_five_seconds(
+def test_every_entry_is_a_command_bounded_by_a_timeout(
     declaration: dict[str, Any],
 ) -> None:
     """The harness default of 600 s would let a wedged hook hang a session."""
     for event in CONTRACT:
+        expected = 5 if event not in SCRIPTED_EVENTS else 120
         for command in commands(declaration, event):
             assert command["type"] == "command", command
-            assert command["timeout"] == 5, f"{event}: {command.get('timeout')}"
+            assert command["timeout"] == expected, f"{event}: {command.get('timeout')}"
 
 
 def test_every_command_names_the_bootstrapped_interpreter_by_absolute_path(
@@ -83,6 +92,8 @@ def test_every_command_names_the_bootstrapped_interpreter_by_absolute_path(
 ) -> None:
     """FR-068: a bare `python` would resolve against whatever is on `PATH`."""
     for event in CONTRACT:
+        if event in SCRIPTED_EVENTS:
+            continue
         for command in commands(declaration, event):
             shell = command["command"]
             assert shell.startswith("sh -c "), f"{event}: {shell}"
@@ -90,6 +101,13 @@ def test_every_command_names_the_bootstrapped_interpreter_by_absolute_path(
             assert shell.count("python") == shell.count(INTERPRETER), (
                 f"{event} names a python other than the bootstrapped one: {shell}"
             )
+
+
+def test_session_start_runs_bootstrap_sh_directly(declaration: dict[str, Any]) -> None:
+    """R14: `bin/bootstrap.sh` prepares the interpreter, so it cannot be run by it."""
+    for command in commands(declaration, "SessionStart"):
+        shell = command["command"]
+        assert shell == 'sh "$CLAUDE_PLUGIN_ROOT/bin/bootstrap.sh"', shell
 
 
 def test_no_command_carries_its_own_exit_code(declaration: dict[str, Any]) -> None:

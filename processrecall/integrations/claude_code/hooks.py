@@ -236,7 +236,14 @@ def emit(response: Mapping[str, Any], stream: TextIO) -> None:
 
 
 def bootstrap(payload: Mapping[str, Any]) -> Response:
-    """``SessionStart``: prepare the plugin's interpreter, once (T067)."""
+    """``SessionStart``: unreachable by design (FR-068, R14).
+
+    R14 has ``hooks.json`` run ``bin/bootstrap.sh`` directly — a POSIX shell
+    is the one thing a freshly installed plugin is sure to have, and this
+    interpreter does not exist yet on the session the environment still needs
+    preparing. This entry stays in :data:`VERBS` for the contract's six
+    names, not because anything still calls it.
+    """
     return None
 
 
