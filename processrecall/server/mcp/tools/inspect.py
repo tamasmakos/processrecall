@@ -14,9 +14,8 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any, cast
 
-from processrecall.config import STORE_DIR
 from processrecall.graph.episodic import open_index
-from processrecall.graph.snapshot import SNAPSHOT_NAME, Snapshot, SnapshotFile
+from processrecall.graph.snapshot import Snapshot, served_snapshot
 from processrecall.graph.store import EpisodicStore, SQLiteEpisodicStore, counter_table
 from processrecall.server.mcp.arguments import InspectArguments
 
@@ -48,7 +47,7 @@ def _held(store: EpisodicStore, project_dir: Path) -> dict[str, Any]:
     cannot serve is already counted as ``snapshot_unreadable`` by the time the
     table is taken (R11).
     """
-    snapshot = SnapshotFile(project_dir / STORE_DIR / SNAPSHOT_NAME, store).read()
+    snapshot = served_snapshot(project_dir, store)
     graph = _NO_GRAPH if snapshot is None else _graph(snapshot)
     return {**graph, "counters": counter_table(store)}
 

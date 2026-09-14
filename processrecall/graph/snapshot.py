@@ -33,7 +33,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from processrecall.config import Counters
+from processrecall.config import STORE_DIR, Counters
 
 #: The snapshot's filename, under `~/.processrecall` and under
 #: `<project>/.processrecall` (`contracts/storage.md`).
@@ -134,6 +134,17 @@ def _as_document(snapshot: Snapshot) -> dict[str, Any]:
         "nodes": dict(snapshot.nodes),
         "edges": list(snapshot.edges),
     }
+
+
+def served_snapshot(project_dir: Path, counters: Counters) -> Snapshot | None:
+    """The snapshot *project_dir* serves, or ``None`` when it cannot be read.
+
+    Every reader of a project's abstract graph — `inspect`, `remember`, and
+    whatever else asks what a project's graph holds — wants the same file at
+    the same path; this is that one lookup rather than each reader spelling
+    `SnapshotFile(project_dir / STORE_DIR / SNAPSHOT_NAME, ...)` itself.
+    """
+    return SnapshotFile(project_dir / STORE_DIR / SNAPSHOT_NAME, counters).read()
 
 
 def _snapshot_from(document: Mapping[str, Any]) -> Snapshot:
