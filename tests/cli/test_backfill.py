@@ -25,6 +25,9 @@ SESSION = Path(__file__).resolve().parents[1] / "fixtures" / "session.jsonl"
 #: The project directory the fixture session was recorded in.
 PROJECT = "/work/demo"
 
+#: What one pass over the fixture session records, in the order it recorded it.
+ONE_PASS = ["Inspection/Read/py", "ArtifactEvaluation/pytest/py", "ChangeImplementation/Edit/py"]
+
 
 def place_transcript(home: Path, project: str, name: str = "sess-fixture.jsonl") -> Path:
     """Put the fixture session where the harness keeps *project*'s transcripts."""
@@ -65,11 +68,7 @@ def test_backfill_records_the_actions_the_session_completed(tmp_path: Path) -> N
     finished = run_backfill(home, PROJECT)
 
     assert finished.returncode == 0, finished.stderr
-    assert recorded_node_keys(home) == [
-        "Inspection/Read/py",
-        "ArtifactEvaluation/pytest/py",
-        "ChangeImplementation/Edit/py",
-    ]
+    assert recorded_node_keys(home) == ONE_PASS
     assert "sessions=1" in finished.stdout
     assert "steps=3" in finished.stdout
 
