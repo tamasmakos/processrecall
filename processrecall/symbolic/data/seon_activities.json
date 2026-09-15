@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "concepts": [
+    {
+      "label": "EngineeringActivity",
+      "definition": "The root of the activity vocabulary: one thing an agent did to a software artifact.",
+      "parent": null
+    },
+    {
+      "label": "Inspection",
+      "definition": "Reading a software artifact without changing it.",
+      "parent": "EngineeringActivity"
+    },
+    {
+      "label": "Search",
+      "definition": "Locating artifacts or occurrences by a query rather than by name.",
+      "parent": "EngineeringActivity"
+    },
+    {
+      "label": "ChangeImplementation",
+      "definition": "Modifying a source artifact.",
+      "parent": "EngineeringActivity"
+    },
+    {
+      "label": "ArtifactEvaluation",
+      "definition": "Running a check that returns a verdict on an artifact — a test suite, a linter, a type checker.",
+      "parent": "EngineeringActivity"
+    },
+    {
+      "label": "ScriptExecution",
+      "definition": "Running a program for its effect rather than for a verdict on an artifact.",
+      "parent": "EngineeringActivity"
+    },
+    {
+      "label": "Checkin",
+      "definition": "Committing a change into the configuration management repository.",
+      "parent": "EngineeringActivity"
+    },
+    {
+      "label": "Checkout",
+      "definition": "Retrieving a version or its history from the configuration management repository.",
+      "parent": "EngineeringActivity"
+    },
+    {
+      "label": "EnvironmentConfiguration",
+      "definition": "Preparing what a build or a run depends on — dependencies, tooling, settings.",
+      "parent": "EngineeringActivity"
+    },
+    {
+      "label": "NetworkRetrieval",
+      "definition": "Fetching an artifact or a document from outside the project.",
+      "parent": "EngineeringActivity"
+    },
+    {
+      "label": "Delegation",
+      "definition": "Handing a unit of work to another agent, which performs its own sequence.",
+      "parent": "EngineeringActivity"
+    },
+    {
+      "label": "SoftwareProcess",
+      "definition": "The root of the prompt-level vocabulary: what one user turn was for.",
+      "parent": null
+    },
+    {
+      "label": "BugFix",
+      "definition": "A prompt whose goal is to correct behaviour that is already wrong.",
+      "parent": "SoftwareProcess"
+    },
+    {
+      "label": "FeatureAddition",
+      "definition": "A prompt whose goal is a capability the system does not have yet.",
+      "parent": "SoftwareProcess"
+    },
+    {
+      "label": "Enhancement",
+      "definition": "A prompt whose goal is to improve existing behaviour rather than add a capability.",
+      "parent": "SoftwareProcess"
+    },
+    {
+      "label": "Investigation",
+      "definition": "A prompt whose goal is understanding rather than change.",
+      "parent": "SoftwareProcess"
+    },
+    {
+      "label": "Documentation",
+      "definition": "A prompt whose goal is to write or revise documentation.",
+      "parent": "SoftwareProcess"
+    },
+    {
+      "label": "ReleaseManagement",
+      "definition": "A prompt whose goal is to version, package or publish the system.",
+      "parent": "SoftwareProcess"
+    },
+    {
+      "label": "Unknown",
+      "definition": "No rule determined an activity class or a process type. A member of both vocabularies and a root of neither: what is kept whole, and counted, so it can be reclassified without re-ingesting.",
+      "parent": null
+    }
+  ],
+  "relations": [
+    {
+      "label": "followedBy",
+      "definition": "A permissible transition between procedures, evidenced by at least one episodic sequence.",
+      "domain": "Procedure",
+      "range": "Procedure"
+    },
+    {
+      "label": "subClassOf",
+      "definition": "The coarser procedure identity that a finer one specialises.",
+      "domain": "Procedure",
+      "range": "Procedure"
+    },
+    {
+      "label": "supportedBy",
+      "definition": "The episodic steps that evidence an abstract transition.",
+      "domain": "Transition",
+      "range": "Step"
+    }
+  ]
+}

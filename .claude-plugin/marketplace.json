@@ -1,0 +1,14 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "processrecall",
+  "description": "Procedural graph memory for Claude Code, published from its own repository.",
+  "owner": { "name": "Tamás Mákos", "url": "https://github.com/tamasmakos" },
+  "plugins": [
+    {
+      "name": "processrecall",
+      "description": "Procedural graph memory: captures what the agent does, recalls how it was done before.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "description": "A whole prompt worked in a project holding .processrecall/optout. FR-058: the exclusion check on cwd runs first and suppresses capture entirely, so none of these actions may reach the store.",
+  "payloads": [
+    {
+      "hook_event_name": "UserPromptSubmit",
+      "session_id": "sess-private",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/private-client",
+      "transcript_path": "/work/private-client/.transcripts/sess-private.jsonl",
+      "prompt": "Reconcile the billing totals for the quarter."
+    },
+    {
+      "hook_event_name": "PostToolUse",
+      "session_id": "sess-private",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/private-client",
+      "transcript_path": "/work/private-client/.transcripts/sess-private.jsonl",
+      "tool_use_id": "toolu_40",
+      "tool_name": "Read",
+      "tool_input": {"file_path": "/work/private-client/src/billing.py"},
+      "tool_result": "1  RATE = 0.19\n",
+      "agent_id": "",
+      "agent_type": ""
+    },
+    {
+      "hook_event_name": "Stop",
+      "session_id": "sess-private",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/private-client",
+      "agent_id": ""
+    }
+  ]
+}

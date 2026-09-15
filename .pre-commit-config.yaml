@@ -1,0 +1,69 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args:
+          - --maxkb=1000
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: check-case-conflict
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.0
+    hooks:
+      # `ruff-check`, not the deprecated `ruff` alias. The rev is pinned to the
+      # same ruff the pre-push gate runs inside the container: two versions
+      # disagree on formatting, and a gate that disagrees with itself is noise.
+      - id: ruff-check
+        args:
+          - --fix
+          - --exit-non-zero-on-fix
+        types_or:
+          - python
+          - pyi
+      - id: ruff-format
+        types_or:
+          - python
+          - pyi
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.16.0
+    hooks:
+      - id: mypy
+        name: mypy (processrecall)
+        files: ^processrecall/
+        args:
+          - --strict
+          - --ignore-missing-imports
+          - --allow-untyped-decorators
+          - --no-warn-unused-ignores
+        additional_dependencies:
+          - pydantic>=2.7.0
+          - pydantic-settings>=2.2.0
+          - python-dotenv>=1.0.0
+          - types-PyYAML>=6.0.0
+  - repo: https://github.com/pycqa/bandit
+    rev: 1.8.3
+    hooks:
+      - id: bandit
+        name: bandit (security scan)
+        args:
+          - -r
+          - processrecall/
+          - --skip
+          - B101,B104,B105,B110,B112
+        pass_filenames: false
+  - repo: local
+    hooks:
+      # The pre-push gate: full suite, whole-package types, coverage floor,
+      # dependency audit, run inside the workspace container. `pre-commit
+      # install --hook-type pre-push` (CONTRIBUTING.md) is what wires this in.
+      - id: gate
+        name: pre-push gate (scripts/gate.sh)
+        entry: bash scripts/gate.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

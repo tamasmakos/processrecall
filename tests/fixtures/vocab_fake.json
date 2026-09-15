@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "harness": "fixture_harness",
+  "tools": {
+    "open_file": {"class": "Inspection", "program": "open_file"},
+    "find_in_files": {"class": "Search", "program": "find_in_files"},
+    "apply_patch": {"class": "ChangeImplementation", "program": "apply_patch"},
+    "create_file": {"class": "ChangeImplementation", "program": "create_file"},
+    "spawn_worker": {"class": "Delegation", "program": "spawn_worker"},
+    "run_command": {"class": null, "program": null, "decompose": "shell"}
+  }
+}

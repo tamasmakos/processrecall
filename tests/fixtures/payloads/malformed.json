@@ -1,0 +1,41 @@
+{
+  "description": "Post-action payloads missing one routing field each: session_id, then prompt_id, then tool_name. Rule 5 of contracts/trajectory-event.md: the adapter drops the event and increments capture_payload_malformed instead of raising into the agent path.",
+  "payloads": [
+    {
+      "hook_event_name": "PostToolUse",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "tool_use_id": "toolu_50",
+      "tool_name": "Read",
+      "tool_input": {"file_path": "/work/demo/src/app.py"},
+      "tool_result": "1  def render(items):\n",
+      "agent_id": "",
+      "agent_type": ""
+    },
+    {
+      "hook_event_name": "PostToolUse",
+      "session_id": "sess-demo",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "tool_use_id": "toolu_51",
+      "tool_name": "Grep",
+      "tool_input": {"pattern": "render"},
+      "tool_result": "src/app.py:1:def render(items):",
+      "agent_id": "",
+      "agent_type": ""
+    },
+    {
+      "hook_event_name": "PostToolUse",
+      "session_id": "sess-demo",
+      "prompt_id": "prompt-1",
+      "cwd": "/work/demo",
+      "transcript_path": "/work/demo/.transcripts/sess-demo.jsonl",
+      "tool_use_id": "toolu_52",
+      "tool_input": {"command": "pytest -q"},
+      "tool_result": "1 passed in 0.10s",
+      "agent_id": "",
+      "agent_type": ""
+    }
+  ]
+}
