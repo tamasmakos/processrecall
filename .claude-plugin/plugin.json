@@ -1,0 +1,9 @@
+{
+  "name": "processrecall",
+  "description": "Procedural graph memory: captures what the agent does, recalls how it was done before.",
+  "author": { "name": "Tamás Mákos", "email": "tamasmakos@gmail.com" },
+  "homepage": "https://github.com/tamasmakos/processrecall",
+  "license": "Apache-2.0",
+  "mcpServers": "./.claude-plugin/mcp.json",
+  "skills": ["./skills/remember"]
+}

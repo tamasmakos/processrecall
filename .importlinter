@@ -1,0 +1,59 @@
+[importlinter]
+root_package = processrecall
+unmatched_ignore_imports_alerting = none
+# The hot-path contract forbids third-party modules, and import-linter only
+# builds the graph it needs to see them when it is told so here, at the top
+# level (the per-contract flag below is the one it reports on).
+include_external_packages = True
+
+[importlinter:contract:layers]
+name = Declared architecture layers
+type = layers
+layers =
+    processrecall.cli | processrecall.server | processrecall.integrations
+    processrecall.guidance
+    processrecall.graph
+    processrecall.artifacts | processrecall.symbolic
+    processrecall.procedures
+    processrecall.trajectory
+    processrecall.config
+    processrecall.exceptions
+
+[importlinter:contract:guidance-is-rules-only]
+name = Guidance is rules only — never the classifiers, never code structure
+type = forbidden
+source_modules =
+    processrecall.guidance
+forbidden_modules =
+    processrecall.symbolic
+    processrecall.artifacts
+
+[importlinter:contract:hot-path-stdlib-only]
+name = The hot path imports no third-party module
+type = forbidden
+include_external_packages = True
+source_modules =
+    processrecall.integrations.claude_code
+    processrecall.trajectory
+    processrecall.procedures
+    processrecall.graph
+    processrecall.guidance
+    processrecall.config
+forbidden_modules =
+    pydantic
+    pydantic_settings
+    mcp
+    tree_sitter
+    tree_sitter_language_pack
+    gliner2
+    torch
+    transformers
+
+[importlinter:contract:artifacts-off-the-hot-path]
+name = Code structure stays off the hot path
+type = forbidden
+source_modules =
+    processrecall.graph
+    processrecall.trajectory
+forbidden_modules =
+    processrecall.artifacts

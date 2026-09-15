@@ -1,0 +1,148 @@
+{
+  "format": 1,
+  "generated_at": "2026-09-12T10:04:11Z",
+  "level": "class/program",
+  "episode_high_water": 800,
+  "nodes": {
+    "Start": {
+      "level": "class/program",
+      "is_a": [],
+      "templates": [],
+      "support": 96,
+      "outcome_counts": {"success": 71, "failure": 14, "neutral": 11},
+      "last_seen": "2026-09-12T09:58:02Z"
+    },
+    "Inspection/Read": {
+      "level": "class/program",
+      "is_a": ["Inspection"],
+      "templates": [["Read file_path", 208]],
+      "support": 208,
+      "outcome_counts": {"success": 201, "failure": 4, "neutral": 3},
+      "last_seen": "2026-09-12T09:57:12Z"
+    },
+    "Search/Grep": {
+      "level": "class/program",
+      "is_a": ["Search"],
+      "templates": [["Grep path pattern", 74], ["Grep pattern", 19]],
+      "support": 93,
+      "outcome_counts": {"success": 88, "failure": 2, "neutral": 3},
+      "last_seen": "2026-09-12T09:55:40Z"
+    },
+    "ChangeImplementation/Edit": {
+      "level": "class/program",
+      "is_a": ["ChangeImplementation"],
+      "templates": [["Edit file_path new_string old_string", 134]],
+      "support": 134,
+      "outcome_counts": {"success": 121, "failure": 8, "neutral": 5},
+      "last_seen": "2026-09-12T09:58:02Z"
+    },
+    "ArtifactEvaluation/pytest": {
+      "level": "class/program",
+      "is_a": ["ArtifactEvaluation"],
+      "templates": [["pytest -q <File>", 61], ["pytest -q", 27]],
+      "support": 88,
+      "outcome_counts": {"success": 59, "failure": 26, "neutral": 3},
+      "last_seen": "2026-09-12T09:58:40Z"
+    },
+    "End": {
+      "level": "class/program",
+      "is_a": [],
+      "templates": [],
+      "support": 84,
+      "outcome_counts": {"success": 66, "failure": 12, "neutral": 6},
+      "last_seen": "2026-09-12T09:58:41Z"
+    }
+  },
+  "edges": [
+    {
+      "source": "Start",
+      "target": "Search/Grep",
+      "condition": {
+        "process_type": "BugFix",
+        "same_file_as_previous": null,
+        "previous_outcome": null,
+        "intended_activity": null
+      },
+      "guidance": ["Locate the failing symbol before opening a file"],
+      "pitfalls": [],
+      "support": 41,
+      "weight": 128.0,
+      "last_seen": "2026-09-12T09:55:40Z",
+      "outcome_counts": {"success": 38, "failure": 3},
+      "supporting_steps": [300, 301, 302, 303, 304, 305, 306, 307, 308, 309, 310, 311, 312, 313, 314, 315, 316, 317, 318, 319, 320, 321, 322, 323, 324, 325, 326, 327, 328, 329, 330, 331, 332, 333, 334, 335, 336, 337, 338, 339, 340],
+      "supporting_step_count": 41
+    },
+    {
+      "source": "Search/Grep",
+      "target": "Inspection/Read",
+      "condition": {
+        "process_type": "BugFix",
+        "same_file_as_previous": false,
+        "previous_outcome": "success",
+        "intended_activity": null
+      },
+      "guidance": ["Read the file the search named, not the whole module"],
+      "pitfalls": [],
+      "support": 57,
+      "weight": 171.0,
+      "last_seen": "2026-09-12T09:57:12Z",
+      "outcome_counts": {"success": 54, "failure": 3},
+      "supporting_steps": [407, 408, 409, 410, 411, 412, 413, 414, 415, 416, 417, 418, 419, 420, 421, 422, 423, 424, 425, 426, 427, 428, 429, 430, 431, 432, 433, 434, 435, 436, 437, 438, 439, 440, 441, 442, 443, 444, 445, 446, 447, 448, 449, 450, 451, 452, 453, 454, 455, 456],
+      "supporting_step_count": 57
+    },
+    {
+      "source": "Inspection/Read",
+      "target": "ChangeImplementation/Edit",
+      "condition": {
+        "process_type": "BugFix",
+        "same_file_as_previous": true,
+        "previous_outcome": "success",
+        "intended_activity": null
+      },
+      "guidance": ["Edit the file just read, while its contents are still current"],
+      "pitfalls": ["Editing a file read before an earlier edit landed"],
+      "support": 49,
+      "weight": 147.0,
+      "last_seen": "2026-09-12T09:58:02Z",
+      "outcome_counts": {"success": 44, "failure": 5},
+      "supporting_steps": [500, 501, 502, 503, 504, 505, 506, 507, 508, 509, 510, 511, 512, 513, 514, 515, 516, 517, 518, 519, 520, 521, 522, 523, 524, 525, 526, 527, 528, 529, 530, 531, 532, 533, 534, 535, 536, 537, 538, 539, 540, 541, 542, 543, 544, 545, 546, 547, 548],
+      "supporting_step_count": 49
+    },
+    {
+      "source": "ChangeImplementation/Edit",
+      "target": "ArtifactEvaluation/pytest",
+      "condition": {
+        "process_type": "BugFix",
+        "same_file_as_previous": true,
+        "previous_outcome": "success",
+        "intended_activity": null
+      },
+      "guidance": ["pytest -q <File>"],
+      "pitfalls": [],
+      "support": 38,
+      "weight": 121.0,
+      "last_seen": "2026-09-12T09:58:40Z",
+      "outcome_counts": {"success": 31, "failure": 7},
+      "supporting_steps": [600, 601, 602, 603, 604, 605, 606, 607, 608, 609, 610, 611, 612, 613, 614, 615, 616, 617, 618, 619, 620, 621, 622, 623, 624, 625, 626, 627, 628, 629, 630, 631, 632, 633, 634, 635, 636, 637],
+      "supporting_step_count": 38
+    },
+    {
+      "source": "ArtifactEvaluation/pytest",
+      "target": "End",
+      "condition": {
+        "process_type": "BugFix",
+        "same_file_as_previous": null,
+        "previous_outcome": "success",
+        "intended_activity": null
+      },
+      "guidance": [],
+      "pitfalls": [],
+      "support": 29,
+      "weight": 87.0,
+      "last_seen": "2026-09-12T09:58:41Z",
+      "outcome_counts": {"success": 27, "failure": 2},
+      "supporting_steps": [700, 701, 702, 703, 704, 705, 706, 707, 708, 709, 710, 711, 712, 713, 714, 715, 716, 717, 718, 719, 720, 721, 722, 723, 724, 725, 726, 727, 728],
+      "supporting_step_count": 29
+    }
+  ]
+}

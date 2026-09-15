@@ -1,0 +1,338 @@
+# CI — the merge gate for main.
+#
+# This is scripts/gate.sh's checks, run on a clean machine instead of the
+# developer's workspace container. Same checks, same thresholds, same order:
+#   ruff -> mypy -> import-linter -> bandit -> pytest+coverage
+#
+# Why not just run gate.sh? It requires the processrecall-workspace container and
+# refuses to degrade to a host run — correct for a pre-push hook on a machine
+# whose host venv cannot collect the suite, wrong for a runner that has no
+# container and a clean environment. The thresholds that matter (coverage floor
+# 65, the vulnerability ledger) are read from the SAME sources gate.sh reads,
+# so the two cannot silently disagree.
+#
+# The gate needs no infrastructure: this package has five runtime dependencies,
+# no graph server and no model weights, so there is no service container to
+# provision, nothing to bake and nothing to cache. A job here installs the lock
+# file and runs checks — that is the whole pipeline, and anything that grows it
+# back costs every run forever.
+#
+# The heavy job runs its checks with `if: !cancelled()` so ONE run reports every
+# failure. Failing fast on ruff and rediscovering mypy next run is exactly the
+# loop gate.sh was built to avoid.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Superseded pushes to the same PR are pointless once a newer commit exists.
+# main is NOT cancelled: its artifacts cannot be re-created by re-running a
+# cancelled job.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history so the diff coverage step below can compare this
+          # branch against origin/<base>. A shallow clone has no base ref to
+          # diff against: loud failure at best, a silent 100% at worst.
+          fetch-depth: 0
+          # No authenticated git operation happens after checkout in this job
+          # (it only reads local refs), so persisting the job token buys
+          # nothing and only widens what a compromised step could exfiltrate.
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: "3.13"
+
+      - name: install
+        # --locked fails if uv.lock has drifted from pyproject.toml - a stale
+        # lock is a stale install on every stranger's machine. No extra: the
+        # gate exercises the default install, and FR-060 makes a missing
+        # `classify` a supported path, not a skipped one.
+        run: uv sync --locked --group dev
+
+      - name: ruff check
+        if: ${{ !cancelled() }}
+        run: uv run ruff check --no-fix processrecall tests
+
+      - name: ruff format
+        if: ${{ !cancelled() }}
+        run: uv run ruff format --check processrecall tests
+
+      - name: mypy
+        if: ${{ !cancelled() }}
+        run: >-
+          uv run mypy processrecall --strict --ignore-missing-imports
+          --allow-untyped-decorators --no-warn-unused-ignores
+
+      - name: import-linter
+        if: ${{ !cancelled() }}
+        run: uv run lint-imports
+
+      - name: bandit
+        if: ${{ !cancelled() }}
+        run: uv run bandit -r processrecall --skip B101,B104,B105,B110,B112
+
+      - name: dependency drift (report-only)
+        # Catches what nothing else here does: DEP002 a declared dependency no
+        # shipped code imports (install footprint every user pays for forever),
+        # and DEP004 a dev-group package imported by shipped code — the
+        # nltk-in-eval incident that broke plain installs while the container
+        # stayed green. `uv run` so it sees the environment `install` resolved
+        # above, not an ephemeral resolve of its own. Report-only for this
+        # first run: it has known non-defect findings, already suppressed in
+        # [tool.deptry.per_rule_ignores] in pyproject.toml, not here.
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: uv run deptry processrecall
+
+      - name: pytest + coverage floor
+        if: ${{ !cancelled() }}
+        # 65 is scripts/gate.sh's COVERAGE_FLOOR_MIN — a ratchet against
+        # backsliding. The diff-scoped number is the separate step below.
+        run: >-
+          uv run python -m pytest -q -m "not integration"
+          --cov=processrecall --cov-report=xml:coverage.xml
+          --cov-report=term:skip-covered --cov-fail-under=65
+
+      - name: diff coverage (report-only)
+        # NOT `!cancelled()` like its neighbours, deliberately: there is nothing
+        # to report when the suite failed, reporting anyway is how the old
+        # new-code number got pinned at 0.0, and a collection error leaves no
+        # coverage.xml behind — a permissive guard would stack a missing-file
+        # error on top of the real failure. Pull requests only: no base branch
+        # to compare against on a push or a dispatch.
+        if: ${{ success() && github.event_name == 'pull_request' }}
+        env:
+          # The diff-coverage threshold: a DISTINCT constant from the 65% whole
+          # repo floor above, never expressed in terms of it — ratcheting one
+          # must not move the other. 0 means report-only: the number is printed,
+          # a low one does not fail the job, and the real threshold is set from
+          # two pull requests of measured numbers (#206).
+          DIFF_COVERAGE_MIN: "0"
+          # An attacker-controlled branch name expanded straight into `run:` is
+          # a template-injection surface (zizmor `template-injection`); routing
+          # it through env and referencing it as a shell variable instead keeps
+          # the expansion out of the generated script.
+          BASE_REF: ${{ github.base_ref }}
+        # Reads the coverage.xml the step above already wrote: no second test
+        # run, no new declared dependency — uvx fetches the tool ephemerally,
+        # the same way the audit job runs pip-audit.
+        run: >-
+          uvx diff-cover coverage.xml
+          --compare-branch="origin/$BASE_REF"
+          --fail-under="$DIFF_COVERAGE_MIN"
+
+  plugin:
+    name: plugin (${{ matrix.os }})
+    # The only job in this file that is not ubuntu-only, and the reason it
+    # exists. `.claude-plugin/mcp.json` and `hooks/hooks.json` are launch
+    # declarations: whether they work is decided by the operating system that
+    # spawns them, not by the Python in this repo. A declaration naming `sh`
+    # reads fine, passes every assertion a Linux runner can make, and cannot be
+    # spawned on Windows at all — which is exactly how a tool server that had
+    # never started shipped under a green suite.
+    #
+    # Not a matrix over `gate`: this runs three test files, so a second OS
+    # costs a couple of minutes rather than doubling the whole pipeline. The
+    # `slow` marker is selected deliberately — it carries the live handshake
+    # that spawns the declared command and completes an MCP `initialize`, which
+    # is the one check that could not have been satisfied by editing a string.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # No authenticated git operation happens after checkout in this job.
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: "3.13"
+
+      - name: install
+        run: uv sync --locked --group dev
+
+      - name: plugin declarations, including the live server handshake
+        # `-m "unit or slow"` and not the default selection: the handshake is
+        # marked `slow` because it builds a real environment, and a run that
+        # deselected it would be back to asserting the text of a command line.
+        run: >-
+          uv run python -m pytest -q -m "unit or slow"
+          tests/test_mcp_declaration.py
+          tests/test_hooks_declaration.py
+          tests/test_plugin_manifest.py
+
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # No authenticated git operation happens after checkout in this job.
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: dependency audit (new advisories only)
+        # Ignore list comes from .pip-audit-ignore, the same ledger
+        # scripts/gate.sh reads. Adding an id in one place covers both.
+        run: |
+          test -f .pip-audit-ignore || { echo "::error::.pip-audit-ignore is missing"; exit 1; }
+          uv export --no-dev --no-editable --no-hashes --format requirements-txt > /tmp/req-audit.txt
+          # The word-splitting below is deliberate: one --ignore-vuln flag per
+          # ledger entry, not a single quoted argument. Quoting it would pass
+          # pip-audit one malformed flag instead of N well-formed ones.
+          # shellcheck disable=SC2046
+          uvx pip-audit -r /tmp/req-audit.txt --progress-spinner off \
+            $(grep -oE '^(PYSEC|GHSA)[A-Za-z0-9-]+' .pip-audit-ignore | sed 's/^/--ignore-vuln /')
+
+      - name: workflow security lint (zizmor)
+        # Nothing here has ever read .github/workflows/*.yml as code, so the
+        # pipeline's own config was the one part of the repo with no linter.
+        # A first --offline run found 16 findings: 10 unpinned-uses (fixed
+        # above), 1 template-injection (fixed above), 4 artipacked (fixed
+        # above), 1 secrets-inherit. Nothing is left to defer.
+        # Pinned, unlike the pip-audit call above: a linter whose rule set
+        # changes on someone else's release must not turn this pipeline red
+        # on an unrelated push. --offline keeps it deterministic and token-free.
+        run: uvx zizmor@1.29.0 --offline .github/workflows/
+
+      - name: workflow correctness lint (actionlint)
+        # Catches what zizmor doesn't: expression typing, YAML validity, and
+        # shellcheck over embedded `run:` blocks. A first run found 2 findings
+        # (both shellcheck, both fixed above). actionlint-py is the published
+        # PyPI wrapper around the compiled Go binary, so this runs ephemerally
+        # through uvx exactly like the pip-audit and zizmor steps above — no
+        # hash-pinned download step needed. Pinned for the same reason as
+        # zizmor. CI-only: gate.sh has no shellcheck/actionlint in the
+        # workspace container, so this is not mirrored there.
+        run: >-
+          uvx --from actionlint-py==1.7.12.24 actionlint
+          .github/workflows/ci.yml
+
+  wheel:
+    name: wheel
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # No authenticated git operation happens after checkout in this job.
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: build
+        # No --wheel: this must produce both the sdist and the wheel.
+        # [tool.hatch.build.targets.sdist] is configured in pyproject.toml and
+        # nothing has ever verified it actually builds.
+        run: uv build
+
+      - name: assert the wheel still ships py.typed and stays small, and the sdist is complete
+        # A packaging regression is invisible to every other check here: the
+        # suite imports from the source tree, not from the wheel or sdist. The
+        # 1 MiB ceiling is FR-074 / SC-012 - the same number tests/test_packaging.py
+        # asserts in the gate job, which also proves both packs reach the wheel.
+        run: |
+          python3 - <<'PY'
+          import glob, os, tarfile, zipfile
+
+          wheel = sorted(glob.glob("dist/*.whl"))[-1]
+          names = zipfile.ZipFile(wheel).namelist()
+          assert any("py.typed" in n for n in names), "py.typed missing from the wheel"
+          kb = os.path.getsize(wheel) / 1024
+          assert kb < 1024, f"wheel too large: {kb:.0f} KB"
+          print(f"wheel OK: {os.path.basename(wheel)} ({kb:.0f} KB, py.typed present)")
+
+          sdists = sorted(glob.glob("dist/*.tar.gz"))
+          assert len(sdists) == 1, f"expected exactly one sdist, found {len(sdists)}"
+          sdist = sdists[0]
+          members = tarfile.open(sdist).getnames()
+          assert any(m.endswith("pyproject.toml") for m in members), "pyproject.toml missing from the sdist"
+          assert any("processrecall/" in m for m in members), "processrecall/ source missing from the sdist"
+          sdist_kb = os.path.getsize(sdist) / 1024
+          print(f"sdist OK: {os.path.basename(sdist)} ({sdist_kb:.0f} KB, pyproject.toml + processrecall/ present)")
+          PY
+
+      - name: upload the distribution
+        # The `smoke` job installs these bytes without a checkout, so the
+        # artifacts must outlive the job.
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  smoke:
+    name: smoke
+    # A separate job, not a matrix over `gate`: this job installs nothing but
+    # the built wheel — no checkout, no dev group, no pytest — so tripling it
+    # across three interpreters costs a fraction of what tripling `gate` would.
+    needs: wheel
+    runs-on: ubuntu-latest
+    # ponytail: unmeasured, replace with the first green run's per-leg wall-clock
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      # Deliberately no actions/checkout. The whole point of this job is an
+      # environment that has never seen the source tree — a checkout would
+      # let `import processrecall` resolve against the flat repo layout instead
+      # of the installed wheel, and a packaging regression would stay
+      # invisible exactly the way it is today.
+      - name: download the built distribution
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          # No enable-cache / cache-dependency-glob: there is no uv.lock in
+          # this workspace without a checkout.
+          python-version: ${{ matrix.python-version }}
+
+      - name: install the wheel into a fresh venv and import it
+        # Exactly one install per leg — no `uv sync`, no second import.
+        run: |
+          uv venv
+          uv pip install dist/*.whl
+          .venv/bin/python -c "import processrecall; print(processrecall.__file__)"
+
+      # A first RED run here may be a genuine incompatibility rather than a
+      # bug in this job: the top-level import in processrecall/__init__.py pulls
+      # in its transitive modules, so an install or import failure on one of
+      # these interpreters is the gate working as designed, not a false alarm.

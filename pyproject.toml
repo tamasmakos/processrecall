@@ -1,0 +1,252 @@
+[project]
+name = "processrecall"
+description = "Agentic memory: knowledge-graph ingestion + hybrid retrieval, llm-free or ontology-guided"
+requires-python = ">=3.11"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Tamás Mákos", email = "tamasmakos@gmail.com" }]
+keywords = [
+    "memory",
+    "knowledge-graph",
+    "agents",
+    "retrieval",
+    "rag",
+    "ontology",
+    "mcp",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+version = "0.1.0"
+dependencies = [
+    # Five, and only five (design §5, R15). The hot path — capture, graph
+    # maintenance, serving — is stdlib-only and imports none of them; that is
+    # enforced by `.importlinter` (R17), and the exact name set by
+    # tests/test_packaging.py. Each carries a lower bound (Principle VII): a
+    # sixth name here is a person's decision, never a side effect of an import.
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.2.0",
+    # Code parsing, in the detached session-end job only (FR-062, FR-064):
+    # imported by `artifacts/` and nothing else. The floors are the pair this
+    # tree was locked and tested against — lower them once an older pair has
+    # actually been exercised, not on faith. R15 records the open choice of
+    # moving both behind an `artifacts` extra.
+    "tree-sitter>=0.26.0",
+    "tree-sitter-language-pack>=1.19.0",
+    # The stdio server (`server/mcp/`). The floor is the first release with the
+    # stdio transport. No cap: the old `<2` guarded `mcp.server.fastmcp`, an
+    # import the rewritten server (T053) decides for itself.
+    "mcp>=1.0.0",
+]
+
+[project.optional-dependencies]
+# The one extra. Enrichment (`symbolic/classify.py`) is opted into through a
+# plugin setting (FR-071); when the extra is absent, classification is a
+# rules-only path, never a fetch and never a crash (FR-060). The hot path
+# imports none of these. gliner2 is capped below 2.0: that release moved its
+# model runtime behind a `local` extra whose transformers pin this resolution
+# cannot satisfy, so a plain install imports fine and cannot load a model.
+classify = ["gliner2>=0.1.0,<2", "torch>=2.4.0", "transformers>=4.44.0"]
+
+[project.urls]
+Homepage = "https://github.com/tamasmakos/processrecall"
+Repository = "https://github.com/tamasmakos/processrecall"
+Issues = "https://github.com/tamasmakos/processrecall/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["processrecall"]
+# The two packs are data, not code (FR-024, R15): the concept index under
+# symbolic/data/ and the tool vocabularies under trajectory/vocab/. `packages`
+# ships the directory, but hatchling drops anything the VCS ignores — an
+# ignore rule matching *.json would silently produce an installed package with
+# no packs. `artifacts` force-includes them; tests/test_packaging.py asserts
+# both are declared here and both land in the built wheel.
+artifacts = [
+    "processrecall/symbolic/data/**/*.json",
+    "processrecall/trajectory/vocab/**/*.json",
+]
+
+[tool.hatch.build.targets.sdist]
+# `.claude` is the agent harness (skills, workflows, hooks) — version controlled so the
+# rules survive a clone, but it is not part of the distribution. hatchling drops
+# VCS-ignored files, so before it was tracked it was excluded for free; now that it is
+# tracked, only this line keeps ~1.5 MB of skills out of the sdist. `research/` holds
+# the prototypes and has no packaging obligations (R18).
+exclude = ["tests", "research", ".scratch", ".claude", "CLAUDE.md"]
+
+[project.scripts]
+# The stdio server keeps its console script: `server/mcp/stdio_server.py` is a
+# kept path that T053 rewrites in place, and README.md documents the name until
+# T081 rewrites it. The `processrecall` CLI script is gone with `cli/memory.py`;
+# the rewritten CLI (T032 onward) declares its own entry point when it lands —
+# an entry point naming a module that does not exist is a broken install, not
+# a placeholder.
+processrecall-mcp = "processrecall.server.mcp.stdio_server:main"
+
+# ── Dev tooling ────────────────────────────────────────────────────────────────
+
+[dependency-groups]
+dev = [
+    "ruff>=0.4.0",
+    "mypy>=1.10.0",
+    "bandit>=1.7.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    # `import-linter` is the *only* architecture checker. A second one (tach)
+    # used to run alongside it and had been red on main, unnoticed, for weeks:
+    # its failure message advertises `tach sync`, which rewrites the config to
+    # permit the violation. A gate that documents its own bypass is not a gate.
+    "import-linter>=2.11",
+    # deptry checks declared deps against actual imports — must be a resolved
+    # environment member, not an ephemeral `uvx` call like pip-audit/zizmor: it
+    # matches imported module names against the *installed* distributions, so
+    # it has to see this project's own resolved environment to work at all.
+    "deptry>=0.25.0",
+]
+
+[tool.deptry]
+# deptry guesses local modules by iterating the *contents* of the scanned
+# root, so when the root passed on the command line is the package directory
+# itself (`deptry processrecall`) it never adds "processrecall" to that guessed
+# set, and every internal import reads as DEP003. Declaring it is the
+# documented escape hatch, not a workaround for a real drift.
+known_first_party = ["processrecall"]
+
+[tool.bandit]
+skips = ["B101"]
+
+# Coverage is measured wherever the tests happened to run and read back inside
+# the sonar-scanner container, which mounts this tree somewhere else entirely.
+# Absolute paths bake the measuring machine into the report: the last one carried
+# `<source>/app/processrecall</source>` from the workspace container, the scanner
+# resolved none of the 59 files under its own mount, and it dropped every
+# coverage measure with an ERROR the scan itself still reported as SUCCESS -- a
+# 0% dashboard and a `new_coverage < 80` gate condition judged on nothing.
+# Relative paths resolve under any mount point, so the report travels.
+[tool.coverage.run]
+source = ["processrecall"]
+relative_files = true
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+# pytest.ini used to take precedence over this table, so this setting was never
+# applied — async tests only ran because each carried an explicit
+# @pytest.mark.asyncio. Now that pytest.ini is gone, it actually binds.
+asyncio_mode = "auto"
+pythonpath = ["."]
+markers = [
+    "integration: marks tests that require live infrastructure — excluded from CI unit test run",
+    "unit: marks pure unit tests with no infrastructure dependencies",
+    "slow: marks tests that build or install a real artifact (minutes, not seconds)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# The agent harness is tracked (so its rules survive a clone) but it is not this
+# package's code: these are vendored skill helpers, and scripts/gate.sh lints
+# `processrecall tests` only. Without this the pre-commit hook — which has no
+# path scope of its own — holds a third-party skill to the package's docstring rules.
+extend-exclude = [".claude"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort
+    "D",    # pydocstyle
+    "C90",  # mccabe complexity
+    "N",    # naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear — likely bugs, mutable defaults, loop-var capture
+    "BLE",  # blind except — catches `except Exception:` without variable binding
+    "TRY",  # tryceratops — exception anti-patterns
+    "SIM",  # flake8-simplify — boolean traps, redundant conditions
+    "ERA",  # eradicate — commented-out dead code
+    "RUF",  # Ruff-specific rules
+    # Silent-swallow detectors. This repo's recurring defect is not a crash, it
+    # is code that runs, passes and does nothing: a BM25 channel that scored
+    # with a fallback, a reranker that was a no-op, a verifier score computed
+    # and discarded. Every one hid behind a swallowed exception.
+    "S110",  # try-except-pass
+    "S112",  # try-except-continue
+]
+ignore = [
+    "E501",   # line too long — formatter handles this
+    "D100",   # missing docstring in public module — enforced per-file
+    "D104",   # missing docstring in public package
+    "D105",   # missing docstring in magic method (__aenter__, __aexit__, etc.)
+    "D107",   # missing docstring in __init__
+    "D203",   # one-blank-line-before-class — conflicts with D211
+    "D213",   # multi-line-summary-second-line — conflicts with D212
+    "TRY003",  # long messages outside exception class — too strict for this codebase
+    "TRY301",  # abstract raise to inner function — style choice, not a bug
+    # BLE001 (blind except) stays off, measured rather than assumed: it fires at
+    # 67 sites across 23 files, every one an I/O boundary (ArcadeDB HTTP, torch
+    # model loads, MCP transport) where the set of raisable exceptions is not
+    # enumerable and narrowing would turn a degraded path into a crash. Turning
+    # it on buys 67 `noqa` comments and no defect. S110/S112 below are the half
+    # of this that IS a defect — caught and did nothing — and are enforced.
+    "BLE001",
+    "SIM108",  # ternary — readability preference
+    "ERA001",  # commented code — false positives on intentional examples
+]
+
+[tool.ruff.lint.per-file-ignores]
+# TRY002: test doubles legitimately raise bare Exception to simulate a backend
+# failure — inventing an exception class per mock side-effect adds noise, not safety.
+"tests/*" = ["D", "S101", "B017", "E402", "N806", "SIM102", "UP038", "TRY002"]
+"scripts/*" = ["D103"]
+# RUF059 flags unused names in tuple unpacking. Test fixtures return a fixed
+# tuple and each test binds all of it positionally while using a subset; the
+# alternative is index arithmetic, which is worse to read in a failing test.
+"tests/**" = ["RUF059"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.mypy]
+
+[[tool.mypy.overrides]]
+module = [
+    "processrecall.settings",
+]
+disable_error_code = ["misc"]
+
+# Only the two low-signal annotation codes stay off. `union-attr` and
+# `attr-defined` were disabled here while producing ZERO errors — pure loss of
+# signal. `arg-type` / `return-value` / `misc` / `call-overload` /
+# `func-returns-value` cost 8 fixes between them and are the codes that catch
+# real defects, so they are back on. `type-arg` (35) and `no-any-return` (29)
+# are bare-generic and Any-propagation chores with no bug-finding record here;
+# re-enabling them would be a day of `dict[str, Any]` edits for no defect caught.
+[[tool.mypy.overrides]]
+module = [
+    "processrecall.server.mcp.*",
+    "processrecall.symbolic.*",
+]
+disable_error_code = ["no-any-return", "type-arg"]
