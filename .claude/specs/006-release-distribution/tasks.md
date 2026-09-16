@@ -52,7 +52,7 @@ changes what is built and proves it against the archive, not against configurati
   `source-exclude` or `wheel-exclude` pattern in `pyproject.toml` matches a `.json` path.
   - Verify: `uv run pytest -q tests/test_packaging.py::test_the_sdist_carries_the_source_and_not_the_workspace`
 
-- [ ] **T003** [P] Add `processrecall = "processrecall.server.mcp.stdio_server:main"` to
+- [X] **T003** [P] Add `processrecall = "processrecall.server.mcp.stdio_server:main"` to
   `[project.scripts]` in `pyproject.toml`, beside the existing `processrecall-mcp`, so the bare
   distribution name starts the memory server with no arguments (FR-006 — this is what makes the
   registry entry in T014 need no `packageArguments`, per R5). Rewrite the stale comment above
@@ -61,7 +61,7 @@ changes what is built and proves it against the archive, not against configurati
   named exactly `project.name` exists, and its target module and attribute both resolve — reuse
   the `find_spec` / `hasattr` pattern from
   `tests/test_mcp_declaration.py::test_the_server_runs_a_script_that_ships`.
-  - Verify: `uv run pytest -q tests/test_packaging.py::test_the_distribution_name_is_a_console_script`
+  - Verify: `uv run pytest -q tests/test_packaging.py::test_the_distribution_name_is_a_console_script` (already satisfied on 006-release-distribution: its Verify passed before any work)
 
 - [X] **T004** [P] Replace `project.description` in `pyproject.toml` with the plugin manifest's
   user-facing sentence, "Procedural graph memory: captures what the agent does, recalls how it
