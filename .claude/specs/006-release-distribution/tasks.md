@@ -301,13 +301,13 @@ T018**, or the suite is red with no honest way to make it green.
 
 > Gated with Phase 5. The switch is a branch inside the rewritten preparation script.
 
-- [ ] **T023** Add the development switch to `bin/bootstrap.sh`: when
+- [X] **T023** Add the development switch to `bin/bootstrap.sh`: when
   `PROCESSRECALL_PLUGIN_SOURCE=checkout` is set, prepare the environment from the plugin root as
   an editable install instead of from the index, keyed on the same version string. Off by
   default, so the development path can never be what an end user silently gets. Add a test to
   `tests/integrations/claude_code/test_bootstrap.py` for both directions — set, it installs from
   the root; unset, it installs the pin — and name the switch in the readme's development
-  section (T024).
+  section (T024). (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/integrations/claude_code/test_bootstrap.py`
 
 ---
