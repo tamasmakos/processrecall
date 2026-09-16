@@ -329,10 +329,10 @@ T018**, or the suite is red with no honest way to make it green.
   number. No published version is ever deleted or its number reused. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/test_docs_shape.py`
 
-- [ ] **T024b** *(gated with Phase 5)* Rewrite the plugin half of `## Install`: replace the
+- [X] **T024b** *(gated with Phase 5)* Rewrite the plugin half of `## Install`: replace the
   lock-file sync and `uv run` launch paragraphs with what then happens — the first session
   installs the pinned release once and the memory server runs that release — and document the
-  development switch from T023 in the checkout paragraph.
+  development switch from T023 in the checkout paragraph. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/test_readme_install.py`
 
 - [ ] **T025** [P] Correct the sentences in `docs/design.md` and `docs/architecture.md` that the
