@@ -155,12 +155,12 @@ The MVP slice. When this phase lands, anyone on the internet can install the pac
   interpolating it into a `run:` block, the template-injection rule already applied in `ci.yml`.
   - Verify: `uvx zizmor@1.29.0 --offline .github/workflows/ && uvx --from actionlint-py==1.7.12.24 actionlint .github/workflows/release.yml`
 
-- [ ] **T011** Add the `publish-pypi` job to `.github/workflows/release.yml`: `needs: build`,
+- [X] **T011** Add the `publish-pypi` job to `.github/workflows/release.yml`: `needs: build`,
   `environment: name: pypi`, `permissions: id-token: write` and nothing else, **no checkout**
   (it runs no project code, so it needs none — R3), download the `dist` artifact, generate
   attestations, `uv publish`. No token, no secret, no credential of any kind (FR-012). The job
   split is the security boundary, not a style choice: it is why the publishing identity is
-  unreachable from the step that executed this repository's own build.
+  unreachable from the step that executed this repository's own build. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uvx --from actionlint-py==1.7.12.24 actionlint .github/workflows/release.yml`
 
 - [ ] **T012** Extend `tests/test_ci_workflow.py` into a contract over both workflow files.
