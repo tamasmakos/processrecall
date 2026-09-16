@@ -255,9 +255,11 @@ jobs:
 
       - name: build
         # No --wheel: this must produce both the sdist and the wheel.
-        # [tool.hatch.build.targets.sdist] is configured in pyproject.toml and
-        # nothing has ever verified it actually builds.
-        run: uv build
+        # [tool.uv.build-backend] is the whole build configuration and nothing
+        # else has ever verified it actually builds. --no-sources matches
+        # release.yml: the gate builds what the index would get, not what this
+        # workspace's source overrides resolve to.
+        run: uv build --no-sources
 
       - name: assert the wheel still ships py.typed and stays small, and the sdist is complete
         # A packaging regression is invisible to every other check here: the

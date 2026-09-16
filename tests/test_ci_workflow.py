@@ -147,16 +147,20 @@ def test_main_runs_are_never_cancelled() -> None:
 
 def test_wheel_job_produces_both_distributions() -> None:
     """The `wheel` job must build and upload both the wheel and the sdist the
-    project ships (`[tool.hatch.build.targets.sdist]`), not just build a
-    wheel and throw `dist/` away — otherwise the `smoke` job has nothing to
-    install and the sdist is never built at all."""
+    project ships (`[tool.uv.build-backend]`), not just build a wheel and
+    throw `dist/` away — otherwise the `smoke` job has nothing to install and
+    the sdist is never built at all. It must build with `--no-sources`, the
+    way `release.yml` does, or the merge gate proves an artifact that only
+    this workspace's source overrides can reproduce."""
     assert not re.search(r"uv build --wheel\b", CI_TEXT), (
         f"{CI_WORKFLOW}: still runs `uv build --wheel` — the wheel-only build "
-        "this job must be replaced by a plain `uv build` (wheel + sdist)"
+        "this job must be replaced by `uv build --no-sources` (wheel + sdist)"
     )
-    assert re.search(r"^\s*run: uv build\s*$", CI_TEXT, re.MULTILINE), (
-        f"{CI_WORKFLOW}: no plain `uv build` invocation found (must build "
-        "both the wheel and the sdist)"
+    build_run = re.search(r"^\s*run: uv build\b.*$", CI_TEXT, re.MULTILINE)
+    assert build_run is not None and "--no-sources" in build_run.group(0), (
+        f"{CI_WORKFLOW}: no `uv build --no-sources` invocation found — the "
+        "merge gate must build both the wheel and the sdist, and build them "
+        "the way `release.yml` does"
     )
     assert "dist/*.tar.gz" in CI_TEXT or ".tar.gz" in CI_TEXT, (
         f"{CI_WORKFLOW}: the assertion step never checks the sdist "
