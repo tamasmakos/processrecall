@@ -246,7 +246,7 @@ T018**, or the suite is red with no honest way to make it green.
   first-session race the old design worked around: `uvx` provisions its own cached environment.
   - Verify: `uv run pytest -q tests/test_release_versions.py`
 
-- [ ] **T019** Rewrite `tests/test_mcp_declaration.py` to pin the new invariants (FR-029 — the
+- [X] **T019** Rewrite `tests/test_mcp_declaration.py` to pin the new invariants (FR-029 — the
   superseded assertions are rewritten, never deleted). Keep every test that is about
   spawnability: the command resolves on `PATH`, names no shell, leaves `${...}` placeholders
   unexpanded. Replace the project/lock/environment tests with: the command is `uvx`; there is
@@ -260,7 +260,7 @@ T018**, or the suite is red with no honest way to make it green.
   that resolves would defeat the only check that has ever caught an unspawnable declaration.
   Update the module docstring, whose first-session-race paragraph T018 made moot. Finally,
   extend `tests/test_release_versions.py` with the last assertion it was written without: the
-  pin inside the launch declaration equals the plugin manifest pin exactly (FR-008a).
+  pin inside the launch declaration equals the plugin manifest pin exactly (FR-008a). (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q -m "unit or slow" tests/test_mcp_declaration.py`
 
 - [ ] **T020** Rewrite `bin/bootstrap.sh` to prepare the environment from the release. The
