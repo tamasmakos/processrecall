@@ -56,8 +56,22 @@ fi
 # The pinned release off the index, into a venv of its own: no --project, no lock
 # and no editable install, so what the venv holds is exactly the distribution the
 # manifest names and nothing about $root leaks into it.
+#
+# Unless a developer asks otherwise (FR-024): only the exact value `checkout`
+# prepares from $root, so the development path is never what an end user
+# silently gets. The key stays the manifest pin either way, so the switch
+# decides what is installed and not when preparation runs again. Positional
+# parameters and not a string, so a root holding a space stays one argument.
+if [ "${PROCESSRECALL_PLUGIN_SOURCE:-}" = "checkout" ]; then
+    set -- --editable "$root"
+    display="--editable '$root'"
+else
+    set -- "processrecall==$key"
+    display="processrecall==$key"
+fi
+
 if uv venv "$venv" >/dev/null 2>&1 &&
-    VIRTUAL_ENV="$venv" uv pip install "processrecall==$key" >/dev/null 2>&1; then
+    VIRTUAL_ENV="$venv" uv pip install "$@" >/dev/null 2>&1; then
     # hooks.json and .claude-plugin/mcp.json address the interpreter at the POSIX
     # $venv/bin/python path; on Windows uv lays the venv out as
     # $venv/Scripts/python.exe instead, so mirror it there. The venv
@@ -68,6 +82,6 @@ if uv venv "$venv" >/dev/null 2>&1 &&
     fi
     mkdir -p "$venv" && printf '%s' "$key" > "$ready"
 else
-    report "processrecall could not prepare its environment. Run it by hand to see why: uv venv $venv && VIRTUAL_ENV=$venv uv pip install processrecall==$key"
+    report "processrecall could not prepare its environment. Run it by hand to see why: uv venv $venv && VIRTUAL_ENV=$venv uv pip install $display"
 fi
 exit 0
