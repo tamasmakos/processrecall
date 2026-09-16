@@ -263,7 +263,7 @@ T018**, or the suite is red with no honest way to make it green.
   pin inside the launch declaration equals the plugin manifest pin exactly (FR-008a). (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q -m "unit or slow" tests/test_mcp_declaration.py`
 
-- [ ] **T020** Rewrite `bin/bootstrap.sh` to prepare the environment from the release. The
+- [X] **T020** Rewrite `bin/bootstrap.sh` to prepare the environment from the release. The
   readiness key becomes the pinned version read from `.claude-plugin/plugin.json` with a POSIX
   `sed`, replacing the checksum-of-lock-joined-to-root key; a missing or unreadable version
   takes the existing `report`-and-exit-0 path. Preparation becomes `uv venv` followed by
@@ -273,7 +273,7 @@ T018**, or the suite is red with no honest way to make it green.
   `Scripts/python.exe` → `bin/python.exe` mirror the hooks depend on, the `.ready` marker, and
   the rule that every failure leaves as one line of JSON with exit 0 so a `SessionStart` hook
   never surfaces against the developer's own session. Rewrite the header comment, which
-  explains the retired key in detail.
+  explains the retired key in detail. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/integrations/claude_code/test_bootstrap.py`
 
 - [ ] **T021** Rewrite the two bootstrap test files against the new key (FR-029).
