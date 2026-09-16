@@ -3,8 +3,8 @@
 What survives the fork are the claims that hold for any wheel: the install
 section names the console entry points `[project.scripts]` declares, its links
 are absolute because the README is the PyPI long description, a `scripts/`
-path is qualified as checkout-only — the wheel ships only the `processrecall`
-package (`[tool.hatch.build.targets.wheel] packages = ["processrecall"]`), so
+path is qualified as checkout-only — `uv_build` ships only the `processrecall`
+module at the repository root (`[tool.uv.build-backend] module-root = ""`), so
 `scripts/` does not exist after a pip install — and the section documents the
 direct install route (`pip`/`uv tool install`) alongside the Claude Code
 plugin route.
@@ -72,8 +72,8 @@ def test_scripts_path_is_qualified_as_checkout_only() -> None:
     qualifiers = ("clone", "checkout", "repo")
     assert any(q in lowered for q in qualifiers), (
         "Install section references a scripts/ path (e.g. 'python scripts/bake_models.py'), "
-        "but the wheel ships only the processrecall package "
-        '([tool.hatch.build.targets.wheel] packages = ["processrecall"]), so scripts/ does not '
+        "but uv_build ships only the processrecall module at the repository root "
+        '([tool.uv.build-backend] module-root = ""), so scripts/ does not '
         "exist after `pip install processrecall` — the section must qualify this as requiring a "
         "repo clone/checkout (no mention of: " + ", ".join(qualifiers) + ")"
     )
