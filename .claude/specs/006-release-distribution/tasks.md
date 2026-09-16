@@ -29,7 +29,7 @@ unrelated path-conversion fix (R9).
 Nothing downstream is trustworthy until the artifact is the one strangers will get. This phase
 changes what is built and proves it against the archive, not against configuration.
 
-- [ ] **T001** Rewrite `[build-system]` in `pyproject.toml` to `requires = ["uv_build>=0.12.0,<0.13"]`
+- [X] **T001** Rewrite `[build-system]` in `pyproject.toml` to `requires = ["uv_build>=0.12.0,<0.13"]`
   and `build-backend = "uv_build"`; delete `[tool.hatch.build.targets.wheel]` and
   `[tool.hatch.build.targets.sdist]`; add `[tool.uv.build-backend]` with `module-root = ""`
   for this repository's flat layout. Replace the two deleted comment blocks with one that
@@ -40,7 +40,7 @@ changes what is built and proves it against the archive, not against configurati
   `test_the_backend_is_pinned_and_the_flat_layout_is_declared`: assert the backend is
   `uv_build`, that its requirement carries **both** a lower and an upper bound, and that
   `tool.uv.build-backend.module-root == ""`. Update the module docstring, which describes
-  hatchling's drop-what-VCS-ignores behaviour.
+  hatchling's drop-what-VCS-ignores behaviour. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/test_packaging.py::test_the_backend_is_pinned_and_the_flat_layout_is_declared`
 
 - [ ] **T002** Harden the archive assertions in `tests/test_packaging.py`, which are now the only
