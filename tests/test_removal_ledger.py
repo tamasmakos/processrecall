@@ -101,8 +101,8 @@ def _strays(glob: str) -> list[Path]:
 def test_prototypes_live_in_research() -> None:
     """R18: prototypes sit in `research/`, not the package.
 
-    `[tool.hatch.build.targets.wheel] packages = ["processrecall"]`, so a file
-    outside that directory cannot reach the wheel — moving is the exclusion.
+    `uv_build` packages the `processrecall` module directory and nothing beside
+    it, so a file outside it cannot reach the wheel — moving is the exclusion.
     """
     strays = _strays(PROTOTYPE_GLOB)
     assert not strays, f"prototypes still inside the package, so they ship in the wheel: {strays}"
