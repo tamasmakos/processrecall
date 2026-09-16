@@ -43,7 +43,7 @@ changes what is built and proves it against the archive, not against configurati
   hatchling's drop-what-VCS-ignores behaviour. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/test_packaging.py::test_the_backend_is_pinned_and_the_flat_layout_is_declared`
 
-- [ ] **T002** Harden the archive assertions in `tests/test_packaging.py`, which are now the only
+- [X] **T002** Harden the archive assertions in `tests/test_packaging.py`, which are now the only (already satisfied on 006-release-distribution: its Verify passed before any work)
   thing between an exclusion pattern and an empty pack. Keep
   `test_wheel_under_ceiling_and_ships_both_packs` as it is — it already builds and reads the
   real wheel — and add `test_the_sdist_carries_the_source_and_not_the_workspace`: build the
