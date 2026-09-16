@@ -342,10 +342,10 @@ T018**, or the suite is red with no honest way to make it green.
   that phase lands, and is corrected there alongside T024b. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/test_docs_shape.py`
 
-- [ ] **T026** [P] Correct the three docstrings and one assertion message that still narrate the
+- [X] **T026** [P] Correct the three docstrings and one assertion message that still narrate the
   retired backend configuration: the module docstring and line-72 message in
   `tests/test_readme_install.py`, and the comment at `tests/test_removal_ledger.py:104`. These
-  describe configuration that no longer exists; the properties they assert are unaffected.
+  describe configuration that no longer exists; the properties they assert are unaffected. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/test_readme_install.py tests/test_removal_ledger.py`
 
 ---
