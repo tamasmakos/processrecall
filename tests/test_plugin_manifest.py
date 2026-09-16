@@ -70,11 +70,16 @@ def test_the_declared_skill_directory_is_shipped(manifest: dict[str, Any]) -> No
 def test_the_manifest_metadata_matches_pyproject(
     manifest: dict[str, Any], project: dict[str, Any]
 ) -> None:
-    """Author, homepage and license have one source of truth; the plugin
-    description is user-facing and intentionally distinct from the package's."""
+    """Author, homepage, license and description have one source of truth.
+
+    The description used to be the one field the two were allowed to disagree
+    on; FR-007 ended that — the package now carries the manifest's user-facing
+    sentence, because that is the text the registry publishes.
+    """
     author = project["authors"][0]
     assert manifest["author"] == {"name": author["name"], "email": author["email"]}, manifest.get(
         "author"
     )
     assert manifest["homepage"] == project["urls"]["Homepage"], manifest.get("homepage")
     assert manifest["license"] == project["license"], manifest.get("license")
+    assert manifest["description"] == project["description"], manifest.get("description")
