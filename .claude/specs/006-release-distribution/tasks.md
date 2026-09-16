@@ -289,10 +289,10 @@ T018**, or the suite is red with no honest way to make it green.
   update the mirrored `ready_key` helper and the message assertion.
   - Verify: `uv run pytest -q tests/cli/test_bootstrap.py tests/integrations/claude_code/test_bootstrap.py`
 
-- [ ] **T022** [P] Correct the docstrings in `processrecall/cli/bootstrap.py` that describe the
+- [X] **T022** [P] Correct the docstrings in `processrecall/cli/bootstrap.py` that describe the
   retired behaviour — "the lock it syncs from" on `Installation.root` and the "sync again"
   paragraph on the force path. Behaviour is unchanged: the command still runs `bin/bootstrap.sh`
-  so that debugging an install by hand is never debugging a second implementation of it.
+  so that debugging an install by hand is never debugging a second implementation of it. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/cli/test_bootstrap.py`
 
 ---
