@@ -314,12 +314,12 @@ T018**, or the suite is red with no honest way to make it green.
 
 ## Phase 7: Documentation the change made false (FR-027, FR-028)
 
-- [ ] **T024** Extend `## Install` in `README.md` with the direct route — installing the package
+- [X] **T024** Extend `## Install` in `README.md` with the direct route — installing the package
   and running it by name — naming **both** console entry points, which
   `tests/test_readme_install.py` requires of this section. Leave the marketplace commands and the
   paragraphs describing plugin preparation alone: Phase 5 has not landed, so they are still true.
   Keep every link absolute: the readme is the published description and relative links resolve
-  against the index and 404 there.
+  against the index and 404 there. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/test_readme_install.py`
 
 - [ ] **T024a** Document the recovery route (FR-015a) in `README.md` or `docs/design.md`,
