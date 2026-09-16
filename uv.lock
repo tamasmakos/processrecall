@@ -1506,7 +1506,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "gliner2", marker = "extra == 'classify'", specifier = ">=0.1.0,<2" },
-    { name = "mcp", specifier = ">=1.0.0" },
+    { name = "mcp", specifier = ">=1.0.0,<2" },
     { name = "pydantic", specifier = ">=2.7.0" },
     { name = "pydantic-settings", specifier = ">=2.2.0" },
     { name = "torch", marker = "extra == 'classify'", specifier = ">=2.4.0" },
