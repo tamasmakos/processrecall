@@ -41,9 +41,14 @@ dependencies = [
     "tree-sitter>=0.26.0",
     "tree-sitter-language-pack>=1.19.0",
     # The stdio server (`server/mcp/`). The floor is the first release with the
-    # stdio transport. No cap: the old `<2` guarded `mcp.server.fastmcp`, an
-    # import the rewritten server (T053) decides for itself.
-    "mcp>=1.0.0",
+    # stdio transport. The cap is back, for a different reason than the one that
+    # retired it: the old `<2` guarded `mcp.server.fastmcp`, an import the
+    # rewritten server decides for itself, but 2.x also removed
+    # `Server.list_tools`, which `stdio_server.py` decorates. The lock pins 1.27
+    # here, so the suite never saw it; a fresh `uvx processrecall` resolved 2.2.0
+    # and died on startup. Raise the floor past 2.0 only with that decorator
+    # ported.
+    "mcp>=1.0.0,<2",
 ]
 
 [project.optional-dependencies]
