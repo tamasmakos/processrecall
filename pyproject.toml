@@ -1,6 +1,6 @@
 [project]
 name = "processrecall"
-description = "Agentic memory: knowledge-graph ingestion + hybrid retrieval, llm-free or ontology-guided"
+description = "Procedural graph memory: captures what the agent does, recalls how it was done before."
 requires-python = ">=3.11"
 readme = "README.md"
 license = "Apache-2.0"

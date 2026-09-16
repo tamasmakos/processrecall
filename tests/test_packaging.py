@@ -49,6 +49,11 @@ PACK_DIRS = tuple(glob.split("**")[0] for glob in PACK_GLOBS)
 #: the dependency reduction stops being measurable.
 WHEEL_CEILING_BYTES = 1024 * 1024
 
+#: FR-007 / R7: the owner's `mcp-publisher validate` run reported a 100-character
+#: cap the registry docs do not state. Treated as real — the cost is a shorter
+#: sentence, the cost of being wrong is a spent version number.
+REGISTRY_DESCRIPTION_LIMIT = 100
+
 
 def _pyproject() -> dict:
     return tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
@@ -139,6 +144,19 @@ def test_classify_is_the_only_extra() -> None:
 
     unbounded = [spec for spec in extras["classify"] if ">=" not in spec]
     assert not unbounded, f"[classify] specs without a lower bound: {unbounded}"
+
+
+def test_the_description_fits_the_registry_limit() -> None:
+    """FR-007: one user-facing sentence, short enough for the registry to take.
+
+    Whether that sentence matches the plugin manifest's is
+    `test_plugin_manifest.py`'s invariant to hold; this test only bounds its length.
+    """
+    description = _pyproject()["project"]["description"]
+    assert len(description) <= REGISTRY_DESCRIPTION_LIMIT, (
+        f"description is {len(description)} characters, over the registry's "
+        f"{REGISTRY_DESCRIPTION_LIMIT}: {description!r}"
+    )
 
 
 def test_both_packs_are_declared_to_hatchling() -> None:
