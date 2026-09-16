@@ -61,6 +61,20 @@ only read the first time bootstrap runs for a given plugin version, so
 flipping it on a machine that already prepared that version requires deleting
 `$CLAUDE_PLUGIN_DATA/venv/.ready` first.
 
+## Recovering a broken release
+
+A broken published version is superseded, never repaired in place. The fix is a
+new patch version, with the plugin pin in
+[.claude-plugin/plugin.json](https://github.com/tamasmakos/processrecall/blob/main/.claude-plugin/plugin.json)
+advanced to it; the broken version is then yanked from the index so new installs
+cannot select it.
+
+Yanking is not the fix on its own. A yanked version still resolves for anyone
+asking for that exact number, which is every plugin user until the pin moves, so
+withdrawing without a successor strands them on the broken release. Nothing is
+ever deleted from the index and no version number is ever reused: whatever an
+install already resolved keeps resolving.
+
 ## What it records
 
 Each completed tool call is abstracted to a template — the program, the activity
