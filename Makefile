@@ -10,6 +10,7 @@ SVC     ?= workspace   # service `make shell`/`logs`/`restart`/`stop`/`build` ta
 
 .PHONY: up down restart stop build rebuild ps logs shell setup clean prune \
         test test-integration lint typecheck arch build-wheel smoke sweep ci gate help \
+        bump version \
         sonar sonar-gate sonar-gate-init sonar-up sonar-down sonar-token
 
 # ── Lifecycle ──────────────────────────────────────────────────────
@@ -94,6 +95,21 @@ gate: ## Run the pre-push gate exactly as the hook runs it
 sweep: ## Dead-code sweep (report only, run every few weeks)
 	docker exec $(CONTAINER) sh -c "cd /app && uvx vulture processrecall \
 	  --min-confidence 60"
+
+# ── Version (one number, derived everywhere) ─────────────────────
+# `uv version` moves the authoritative number in pyproject.toml; the sync moves
+# every copy derived from it. A pre-release bump leaves the plugin pin alone on
+# purpose — scripts/sync_version.py says so in its output rather than skipping
+# in silence.
+bump: ## Bump the authoritative version and derive every copy  →  make bump PART=minor
+	@test -n "$(PART)" || { echo "  PART is unset - major|minor|patch|rc|alpha|beta|post|dev"; exit 1; }
+	uv version --bump $(PART)
+	uv run python scripts/sync_version.py
+
+version: ## Set the authoritative version explicitly  →  make version V=1.2.0
+	@test -n "$(V)" || { echo "  V is unset - e.g. make version V=1.2.0"; exit 1; }
+	uv version $(V)
+	uv run python scripts/sync_version.py
 
 # ── Static analysis (local SonarQube, opt-in) ─────────────────────
 # Advisory, not a gate: `make sonar` reports and does not fail the build. It is
