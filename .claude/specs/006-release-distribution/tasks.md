@@ -213,7 +213,7 @@ The MVP slice. When this phase lands, anyone on the internet can install the pac
   pinned rather than floating. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/test_ci_workflow.py`
 
-- [ ] **T017** Add the `publish-mcp-registry` job to `.github/workflows/release.yml`:
+- [X] **T017** Add the `publish-mcp-registry` job to `.github/workflows/release.yml`: (already satisfied on 006-release-distribution: its Verify passed before any work)
   `needs: publish-pypi` (the registry verifies ownership against the *published* description,
   so it cannot run earlier), `permissions: id-token: write` and `contents: read`, checkout,
   pinned `mcp-publisher` download, `mcp-publisher validate`, `mcp-publisher login github-oidc`,
