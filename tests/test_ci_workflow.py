@@ -475,3 +475,125 @@ def test_the_registry_entry_is_validated_while_the_change_is_a_proposal() -> Non
         "downloaded tarball's sha256 — a release tag can still move its asset, "
         "so pinning the version alone does not fix what CI executes"
     )
+
+
+def test_the_registry_listing_is_published_after_the_index_by_a_short_lived_identity() -> None:
+    """The registry verifies ownership against the description PyPI is
+    serving, so the listing cannot be published before the upload it points
+    at (FR-019). Its identity is the same kind the index is given (FR-012): an
+    OIDC token exchanged at the registry, never a stored credential.
+
+    Unlike `publish-pypi`, this job does check the repository out — the entry
+    it publishes is `server.json`, a file, not an artifact — and the publisher
+    download is pinned by version and sha256 for the same reason the
+    proposal-time check in ci.yml pins it.
+    """
+    registry_text = _job_text(RELEASE_WORKFLOW, "publish-mcp-registry")
+
+    assert "needs: publish-pypi" in registry_text, (
+        f"{RELEASE_WORKFLOW}: `publish-mcp-registry` has no `needs: publish-pypi` — "
+        "the registry verifies ownership against the published description, so a "
+        "listing written before the upload points at a version nobody can install"
+    )
+    assert "id-token: write" in registry_text, (
+        f"{RELEASE_WORKFLOW}: `publish-mcp-registry` does not request "
+        "`id-token: write` — there is no token to exchange with the registry "
+        "without it, and the alternative is a stored credential"
+    )
+    assert "actions/checkout@" in registry_text, (
+        f"{RELEASE_WORKFLOW}: `publish-mcp-registry` never checks the repository "
+        "out — the entry it publishes is `server.json`, which no build artifact carries"
+    )
+
+    for command in ("mcp-publisher validate", "mcp-publisher login github-oidc"):
+        assert command in registry_text, (
+            f"{RELEASE_WORKFLOW}: `publish-mcp-registry` never runs `{command}`"
+        )
+    assert re.search(r"mcp-publisher publish\b", registry_text), (
+        f"{RELEASE_WORKFLOW}: `publish-mcp-registry` never runs `mcp-publisher publish` — "
+        "the job leaves no listing behind"
+    )
+
+    download_url = re.search(r"https://\S*mcp-publisher\S*", registry_text)
+    assert download_url is not None, (
+        f"{RELEASE_WORKFLOW}: `publish-mcp-registry` downloads no publisher — "
+        "there is no such tool preinstalled on the runner"
+    )
+    assert re.search(r"/releases/download/v\d+\.\d+\.\d+/", download_url.group(0)), (
+        f"{RELEASE_WORKFLOW}: the publisher download is not pinned to a release "
+        f"version — got: {download_url.group(0)!r}"
+    )
+    assert re.search(r"sha256sum\s+-c\s+-", registry_text), (
+        f"{RELEASE_WORKFLOW}: `publish-mcp-registry` does not verify the downloaded "
+        "tarball's sha256 — a release tag can still move its asset"
+    )
+
+    ci_plugin_text = _job_text(CI_WORKFLOW, "plugin")
+    ci_download_url = re.search(r"https://\S*mcp-publisher\S*", ci_plugin_text)
+    ci_sha256 = re.search(r"echo \"(\w+)\s+mcp-publisher\.tar\.gz\"", ci_plugin_text)
+    release_sha256 = re.search(r"echo \"(\w+)\s+mcp-publisher\.tar\.gz\"", registry_text)
+    assert ci_download_url is not None and ci_sha256 is not None, (
+        f"{CI_WORKFLOW}: the `plugin` job's publisher bootstrap moved — update this "
+        "drift check alongside it"
+    )
+    assert release_sha256 is not None, (
+        f"{RELEASE_WORKFLOW}: `publish-mcp-registry`'s publisher bootstrap moved — "
+        "update this drift check alongside it"
+    )
+    assert download_url.group(0) == ci_download_url.group(0), (
+        f"{RELEASE_WORKFLOW} and {CI_WORKFLOW} download different mcp-publisher "
+        "builds — this pins the version and digest in two places, so bump both "
+        "or they silently diverge"
+    )
+    assert release_sha256.group(1) == ci_sha256.group(1), (
+        f"{RELEASE_WORKFLOW} and {CI_WORKFLOW} pin different mcp-publisher "
+        "sha256 digests — bump both or they silently diverge"
+    )
+
+
+def test_the_registry_publish_is_retried_and_the_index_upload_is_not() -> None:
+    """The index takes its own time to serve a new version's description, and
+    the registry reads that description to verify ownership. So the publish is
+    retried until the index catches up (FR-019) — bounded, because an
+    unbounded wait turns a dead registry into a hung release, and ending in a
+    failure, because a missing listing must leave the run red rather than pass
+    silently (FR-019a).
+
+    The retry stops at the registry. A PyPI upload is not idempotent: a
+    version is spent the moment it lands, so a second attempt at it can only
+    fail or, worse, race. And because this job rebuilds and re-uploads
+    nothing, re-running it alone recovers a listing that failed after a good
+    upload — no new version has to be cut.
+    """
+    registry_text = _job_text(RELEASE_WORKFLOW, "publish-mcp-registry")
+    publish_step = _step_text(registry_text, "mcp-publisher publish")
+
+    assert re.search(
+        r"for \w+ in (?:\d+ )+\d+; do"
+        r"|for \w+ in \$\(seq \d+ \d+\); do"
+        r"|-le \d+",
+        publish_step,
+    ), (
+        f"{RELEASE_WORKFLOW}: `mcp-publisher publish` is not wrapped in a bounded "
+        "retry over a literal attempt count — the index's propagation delay would "
+        "fail an otherwise good release, and an unbounded wait would hang it"
+    )
+    assert "while true" not in publish_step, (
+        f"{RELEASE_WORKFLOW}: the registry publish retries unboundedly — a registry "
+        "that is down must fail the run, not hold it open"
+    )
+    assert re.search(r"sleep \d+", publish_step), (
+        f"{RELEASE_WORKFLOW}: the registry publish retries without sleeping between "
+        "attempts — retrying instantly does not outlast a propagation delay"
+    )
+    assert re.search(r"^\s*exit 1$", publish_step, re.MULTILINE), (
+        f"{RELEASE_WORKFLOW}: the registry publish cannot fail the job once its "
+        "attempts are spent — a missing listing must be visible as a red run"
+    )
+
+    for rebuild in ("uv build", "download-artifact", "gh-action-pypi-publish"):
+        assert rebuild not in registry_text, (
+            f"{RELEASE_WORKFLOW}: `publish-mcp-registry` references `{rebuild}` — it "
+            "must rebuild and republish nothing, so that re-running it alone against "
+            "an already-published version recovers a failed listing"
+        )
