@@ -335,11 +335,11 @@ T018**, or the suite is red with no honest way to make it green.
   development switch from T023 in the checkout paragraph. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/test_readme_install.py`
 
-- [ ] **T025** [P] Correct the sentences in `docs/design.md` and `docs/architecture.md` that the
+- [X] **T025** [P] Correct the sentences in `docs/design.md` and `docs/architecture.md` that the
   backend switch made false, and amend the design record with that decision. Update the
   sentence, not the section: documentation is updated only where the change made it false. The
   `uv sync` description of plugin preparation is **gated with Phase 5** — it is still true until
-  that phase lands, and is corrected there alongside T024b.
+  that phase lands, and is corrected there alongside T024b. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/test_docs_shape.py`
 
 - [ ] **T026** [P] Correct the three docstrings and one assertion message that still narrate the
