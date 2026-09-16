@@ -25,6 +25,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = REPO_ROOT / "pyproject.toml"
+PLUGIN_MANIFEST = REPO_ROOT / ".claude-plugin/plugin.json"
+RETIRED_PREPARATION = ("syncs the plugin's own virtual environment",)
 
 
 def _install_section() -> str:
@@ -86,4 +88,25 @@ def test_documents_direct_install_route() -> None:
         "(e.g. `uv tool install processrecall`); it documents only the Claude Code "
         "plugin route, so a reader outside Claude Code is not told the package is "
         "installable on its own"
+    )
+
+
+def test_plugin_route_does_not_narrate_the_retired_preparation() -> None:
+    section = _install_section()
+    surviving = [phrase for phrase in RETIRED_PREPARATION if phrase in section]
+    assert not surviving, (
+        "Install section still describes the retired preparation: bootstrap no longer syncs "
+        "a project environment, it installs the pinned release from the index once. "
+        f"Retired phrase(s) left in the section: {surviving}"
+    )
+
+
+def test_plugin_route_names_where_the_installed_version_is_pinned() -> None:
+    section = _install_section()
+    assert PLUGIN_MANIFEST.exists(), f"{PLUGIN_MANIFEST} does not exist"
+    assert ".claude-plugin/plugin.json" in section, (
+        "Install section never points at .claude-plugin/plugin.json, where the version a "
+        "plugin install gets is pinned: the first session installs that release from the "
+        "index, so a reader who cannot find the pin cannot tell what the plugin is about to "
+        "run, nor what upgrading it means"
     )

@@ -7,7 +7,7 @@ interrupting for.
 
 It ships as a Claude Code plugin and runs inside the session: no background
 service, no listening port, and no network call on the capture or guidance
-path (the bootstrap sync below is the one exception, once per plugin
+path (the one-time install below is the one exception, once per plugin
 version). What it keeps is shape — action templates, counts, conditions and
 annotations — never prompt text, file contents or credentials.
 
@@ -27,10 +27,11 @@ runs through `sh`.
 
 The first session does the rest. `SessionStart` runs
 [bin/bootstrap.sh](https://github.com/tamasmakos/processrecall/blob/main/bin/bootstrap.sh),
-which syncs the plugin's own virtual environment under `$CLAUDE_PLUGIN_DATA/venv`
-with uv — once, and a no-op on every session after that. Every hook invokes that
-interpreter by absolute path, and the tool server reaches the same environment
-through `uv run`, so nothing here depends on what `python` means on your `PATH`.
+which installs the release pinned in
+[.claude-plugin/plugin.json](https://github.com/tamasmakos/processrecall/blob/main/.claude-plugin/plugin.json)
+from PyPI into `$CLAUDE_PLUGIN_DATA/venv` — once for that pinned version, and a
+no-op on every session after it. Every hook invokes that interpreter by absolute
+path, so nothing here depends on what `python` means on your `PATH`.
 
 The tool server prepares the same environment itself when it starts, so it
 connects on that first session too, rather than only after a restart.
