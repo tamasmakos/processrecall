@@ -13,6 +13,7 @@ network.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -27,19 +28,14 @@ pytestmark = pytest.mark.unit
 ROOT = Path(__file__).resolve().parents[2]
 
 #: What the marker has to hold for the script to consider itself done: the
-#: `cksum` of the lock it synced from, joined to the root it synced editable to.
-READY_KEY = "{} {}".format(
-    subprocess.run(
-        ["cksum"], input=(ROOT / "uv.lock").read_bytes(), capture_output=True, check=True
-    )
-    .stdout.decode()
-    .strip(),
-    ROOT,
+#: version the plugin manifest pins the installed release at.
+READY_KEY = str(
+    json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["version"]
 )
 
 
 def stub_uv(bin_dir: Path, body: str) -> str:
-    """A ``PATH`` whose only ``uv`` is *body* — the sync itself never runs here."""
+    """A ``PATH`` whose only ``uv`` is *body* — the install itself never runs here."""
     bin_dir.mkdir()
     stub = bin_dir / "uv"
     stub.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
@@ -71,29 +67,33 @@ def run_bootstrap(data: Path, path: str, *flags: str) -> subprocess.CompletedPro
     )
 
 
-def test_a_sync_that_failed_is_an_exit_code_as_well_as_a_message(tmp_path: Path) -> None:
-    """`contracts/cli.md`: unlike the hook, a failure here exits non-zero."""
+def test_an_install_that_failed_is_an_exit_code_as_well_as_a_message(tmp_path: Path) -> None:
+    """`contracts/cli.md`: unlike the hook, a failure here exits non-zero.
+
+    The message is the command a human can paste, so it carries the pin: an
+    install that failed on the wrong version is unreadable without it.
+    """
     data = tmp_path / "plugin-data"
     path = stub_uv(tmp_path / "stub-bin", 'echo "lock is out of date" >&2; exit 1')
 
     finished = run_bootstrap(data, path)
 
     assert finished.returncode != 0
-    assert "uv sync --frozen" in finished.stdout, finished.stdout
+    assert f"uv pip install processrecall=={READY_KEY}" in finished.stdout, finished.stdout
     assert not Installation(root=ROOT, data=data).ready.exists()
 
 
-def test_force_re_syncs_an_environment_the_marker_calls_ready(tmp_path: Path) -> None:
+def test_force_re_installs_an_environment_the_marker_calls_ready(tmp_path: Path) -> None:
     """`contracts/cli.md`: `--force` is what a stale-looking venv is rebuilt with."""
     data = tmp_path / "plugin-data"
     ready = Installation(root=ROOT, data=data).ready
     ready.parent.mkdir(parents=True)
     ready.write_text(READY_KEY, encoding="utf-8")
     calls = tmp_path / "uv-calls.txt"
-    path = stub_uv(tmp_path / "stub-bin", f'echo "$UV_PROJECT_ENVIRONMENT $*" >> "{calls}"')
+    path = stub_uv(tmp_path / "stub-bin", f'echo "[${{VIRTUAL_ENV:-}}] $*" >> "{calls}"')
 
     assert run_bootstrap(data, path).returncode == 0
-    assert not calls.exists(), "the fast path re-synced without being asked to"
+    assert not calls.exists(), "the fast path re-installed without being asked to"
 
     finished = run_bootstrap(data, path, "--force")
 

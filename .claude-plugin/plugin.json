@@ -1,5 +1,6 @@
 {
   "name": "processrecall",
+  "version": "0.1.0",
   "description": "Procedural graph memory: captures what the agent does, recalls how it was done before.",
   "author": {
     "name": "Tamás Mákos",
