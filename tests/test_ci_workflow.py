@@ -1,4 +1,4 @@
-"""CI workflow contract: what ci.yml must keep doing.
+"""Workflow contract: what ci.yml and release.yml must keep doing.
 
   * `wheel` must build both distributions and upload `dist/`: building
     `--wheel` only would leave the sdist the project ships
@@ -17,6 +17,10 @@ see it is a vulnerability silently un-ignored.
   * Every third-party `uses:` reference must be pinned to a commit hash, not
     a mutable tag, so that what CI executes cannot change without a commit
     here.
+
+  * `release.yml` must check the tag against the declared version before it
+    builds, and must keep the publishing identity out of the job that checks
+    this repository out.
 """
 
 from __future__ import annotations
@@ -31,23 +35,27 @@ pytestmark = pytest.mark.unit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
 PIP_AUDIT_IGNORE = REPO_ROOT / ".pip-audit-ignore"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 
 CI_TEXT = CI_WORKFLOW.read_text(encoding="utf-8")
+RELEASE_TEXT = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+WORKFLOW_TEXT = {CI_WORKFLOW: CI_TEXT, RELEASE_WORKFLOW: RELEASE_TEXT}
 
 
-def _job_text(name: str) -> str:
-    """Slice a top-level job's text out of CI_TEXT, from `^  <name>:$` up to
+def _job_text(workflow_path: Path, name: str) -> str:
+    """Slice a top-level job's text out of a workflow, from `^  <name>:$` up to
     the next top-level job key (`^  \\w[\\w-]*:$`) or end of file, so
     assertions scoped to one job cannot be satisfied by a setting that lives
     in another job."""
-    match = re.search(rf"^  {re.escape(name)}:$", CI_TEXT, re.MULTILINE)
-    assert match is not None, f"{CI_WORKFLOW}: no `  {name}:` job found"
+    workflow_text = WORKFLOW_TEXT[workflow_path]
+    match = re.search(rf"^  {re.escape(name)}:$", workflow_text, re.MULTILINE)
+    assert match is not None, f"{workflow_path}: no `  {name}:` job found"
     start = match.end()
-    next_job = re.search(r"^  \w[\w-]*:$", CI_TEXT[start:], re.MULTILINE)
-    end = start + next_job.start() if next_job else len(CI_TEXT)
-    return CI_TEXT[start:end]
+    next_job = re.search(r"^  \w[\w-]*:$", workflow_text[start:], re.MULTILINE)
+    end = start + next_job.start() if next_job else len(workflow_text)
+    return workflow_text[start:end]
 
 
 def test_gate_job_checks_out_full_history() -> None:
@@ -57,7 +65,7 @@ def test_gate_job_checks_out_full_history() -> None:
     This setting was previously attributed to a now-deleted external-analysis
     step and was deleted with it — this test is what stops that happening
     again."""
-    gate_text = _job_text("gate")
+    gate_text = _job_text(CI_WORKFLOW, "gate")
     assert "fetch-depth: 0" in gate_text, (
         f"{CI_WORKFLOW}: `gate` job checkout has no `fetch-depth: 0` — "
         "diff-cover has no origin/<base> to compare against"
@@ -70,7 +78,7 @@ def test_diff_coverage_step_is_guarded_on_a_succeeded_suite_and_a_pull_request()
     new-code number got pinned at zero, and a collection error leaves no
     coverage.xml so a permissive guard adds a missing-file error on top of
     the real failure."""
-    gate_text = _job_text("gate")
+    gate_text = _job_text(CI_WORKFLOW, "gate")
     assert "diff-cover" in gate_text, f"{CI_WORKFLOW}: `gate` job has no `diff-cover` invocation"
     idx = gate_text.index("diff-cover")
     block_start = gate_text.rfind("\n      - ", 0, idx) + 1
@@ -98,7 +106,7 @@ def test_diff_coverage_step_is_guarded_on_a_succeeded_suite_and_a_pull_request()
 def test_diff_coverage_threshold_is_a_distinct_constant_from_the_repo_floor() -> None:
     """The two thresholds are never expressed in terms of each other, so
     ratcheting one cannot silently move the other."""
-    gate_text = _job_text("gate")
+    gate_text = _job_text(CI_WORKFLOW, "gate")
     repo_floor_match = re.search(r"--cov-fail-under=(\d+)", gate_text)
     diff_threshold_match = re.search(r'DIFF_COVERAGE_MIN:\s*"?(\d+)"?', gate_text)
     assert repo_floor_match is not None, (
@@ -193,13 +201,15 @@ def test_vulnerability_ledger_exists_and_is_machine_readable() -> None:
     )
 
 
-@pytest.mark.parametrize("workflow_path", [CI_WORKFLOW])
+@pytest.mark.parametrize(
+    "workflow_path", [CI_WORKFLOW, RELEASE_WORKFLOW], ids=lambda path: path.name
+)
 def test_third_party_actions_are_pinned_to_a_commit_hash(workflow_path: Path) -> None:
     """A mutable tag (`@v7`, `@v10.0.1`, ...) can be repointed by the action's
     owner at any time, so what CI actually executes could change with no
     commit in this repository. Every `uses:` reference carries a full hash
     plus a trailing `# <tag>` comment so the pin stays readable."""
-    workflow_text = workflow_path.read_text(encoding="utf-8")
+    workflow_text = WORKFLOW_TEXT[workflow_path]
     hash_pattern = re.compile(r"^[a-f0-9]{40}$")
     checked = 0
     for match in re.finditer(r"^\s*(?:- )?uses:\s*(\S+)(.*)$", workflow_text, re.MULTILINE):
@@ -222,6 +232,77 @@ def test_third_party_actions_are_pinned_to_a_commit_hash(workflow_path: Path) ->
         f"{workflow_path}: no third-party `uses:` references were checked — "
         "the matching regex is silently matching nothing"
     )
+
+
+def test_release_publishes_only_what_it_proved() -> None:
+    """The release workflow's value is the order of its steps and the split
+    between its jobs, and a linter can see neither.
+
+    A version is spent the moment it reaches the index: it can be yanked,
+    never reused. So the tag has to be checked against the declared version
+    *before* `dist/` exists, and the credential that can publish has to live
+    in a job that never sees this repository's source — otherwise a
+    compromised build step has something to spend. Both properties survive
+    `actionlint` and `zizmor` unscathed; this test is what holds them.
+    """
+    for tag_pattern in (
+        '"v[0-9]+.[0-9]+.[0-9]+"',
+        '"v[0-9]+.[0-9]+.[0-9]+rc[0-9]+"',
+        '"v[0-9]+.[0-9]+.[0-9]+[ab][0-9]+"',
+    ):
+        assert tag_pattern in RELEASE_TEXT, (
+            f"{RELEASE_WORKFLOW}: no `{tag_pattern}` tag trigger — a release must "
+            "start for every version shape the version tool emits"
+        )
+
+    build_text = _job_text(RELEASE_WORKFLOW, "build")
+    publish_text = _job_text(RELEASE_WORKFLOW, "publish-pypi")
+
+    assert "needs: build" in publish_text, (
+        f"{RELEASE_WORKFLOW}: `publish-pypi` has no `needs: build` — it would "
+        "publish without the build job having proven anything"
+    )
+    assert "id-token: write" in publish_text, (
+        f"{RELEASE_WORKFLOW}: `publish-pypi` does not request `id-token: write` — "
+        "there is no trusted-publisher token to exchange without it"
+    )
+    assert "id-token" not in build_text, (
+        f"{RELEASE_WORKFLOW}: the `build` job requests `id-token` — the job that "
+        "checks this repository out must hold no credential that can publish"
+    )
+
+    version_guard = re.search(r"^\s*(?:run: )?.*uv version --short", build_text, re.MULTILINE)
+    build_step = re.search(r"^\s*(?:run: )?.*uv build\b", build_text, re.MULTILINE)
+    assert version_guard is not None, (
+        f"{RELEASE_WORKFLOW}: the `build` job never reads the declared version "
+        "(`uv version --short`), so it cannot check the tag against it"
+    )
+    assert build_step is not None, f"{RELEASE_WORKFLOW}: the `build` job runs no `uv build`"
+    assert "github.ref_name" in build_text, (
+        f"{RELEASE_WORKFLOW}: the `build` job never reads `github.ref_name`, so the "
+        "tag it is releasing is never compared to anything"
+    )
+    assert version_guard.start() < build_step.start(), (
+        f"{RELEASE_WORKFLOW}: the `build` job checks the tag against the declared "
+        "version after building — once dist/ exists the mistake is one step from "
+        "the index"
+    )
+    assert re.search(r"uv build.*--no-sources", build_text), (
+        f"{RELEASE_WORKFLOW}: `uv build` runs without `--no-sources`, so the published "
+        "artifact is built the way this workspace resolves rather than the way anyone "
+        "else would build it"
+    )
+
+    for distribution in ("dist/*.whl", "dist/*.tar.gz"):
+        assert re.search(
+            rf"--isolated --no-project --with {re.escape(distribution)}.*smoke_test\.py",
+            build_text,
+        ), (
+            f"{RELEASE_WORKFLOW}: nothing runs the smoke test against `{distribution}` in "
+            "isolation — FR-015 requires `--isolated --no-project` on the same line as "
+            "`--with dist/*` or the source tree checked out in this job leaks into the "
+            "smoke test"
+        )
 
 
 def test_ci_runs_the_service_free_gate() -> None:
@@ -251,7 +332,7 @@ def test_ci_runs_the_service_free_gate() -> None:
         f"{CI_WORKFLOW}: still names the `evaluation` target, which this tree does not ship"
     )
 
-    gate_text = _job_text("gate")
+    gate_text = _job_text(CI_WORKFLOW, "gate")
     for check in (
         "ruff check",
         "ruff format",
@@ -272,7 +353,7 @@ def test_smoke_job_declares_the_interpreters_the_classifiers_name() -> None:
     installs and imports the built wheel on each one. If the two lists
     diverge, either CI is silently skipping an advertised interpreter or the
     classifiers are advertising one nothing ever tests."""
-    smoke_text = _job_text("smoke")
+    smoke_text = _job_text(CI_WORKFLOW, "smoke")
 
     python_version_line = re.search(r"^\s*python-version:.*$", smoke_text, re.MULTILINE)
     assert python_version_line is not None, (
@@ -314,7 +395,7 @@ def test_the_plugin_declaration_is_exercised_on_windows() -> None:
     Scoped to the declaration and packaging tests rather than the whole suite:
     this buys the one property Linux cannot prove, and nothing else.
     """
-    plugin_text = _job_text("plugin")
+    plugin_text = _job_text(CI_WORKFLOW, "plugin")
     assert "windows-latest" in plugin_text, (
         f"{CI_WORKFLOW}: the `plugin` job does not run on windows-latest — the "
         "launch declarations are exactly what a Linux-only matrix cannot check"
