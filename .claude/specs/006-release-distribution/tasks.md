@@ -63,7 +63,7 @@ changes what is built and proves it against the archive, not against configurati
   `tests/test_mcp_declaration.py::test_the_server_runs_a_script_that_ships`.
   - Verify: `uv run pytest -q tests/test_packaging.py::test_the_distribution_name_is_a_console_script`
 
-- [ ] **T004** [P] Replace `project.description` in `pyproject.toml` with the plugin manifest's
+- [X] **T004** [P] Replace `project.description` in `pyproject.toml` with the plugin manifest's
   user-facing sentence, "Procedural graph memory: captures what the agent does, recalls how it
   was done before." (86 characters). The current text still describes GraphKnows — knowledge
   graph ingestion and hybrid retrieval — which this fork does not do. Add
@@ -71,7 +71,7 @@ changes what is built and proves it against the archive, not against configurati
   characters (R7), and equal to the description in `.claude-plugin/plugin.json`. Note that
   `tests/test_plugin_manifest.py::test_the_manifest_metadata_matches_pyproject` currently
   asserts the two descriptions are *intentionally distinct*; that assertion is superseded and
-  must be rewritten in this task, not deleted (FR-029).
+  must be rewritten in this task, not deleted (FR-029). (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/test_packaging.py::test_the_description_fits_the_registry_limit tests/test_plugin_manifest.py`
 
 - [X] **T005** Run `uv lock` so the lock file reflects the backend change, then build and compare: (already satisfied on 006-release-distribution: its Verify passed before any work)
