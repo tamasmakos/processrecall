@@ -24,7 +24,9 @@ import tarfile
 import tomllib
 import zipfile
 from fnmatch import fnmatch
+from importlib import import_module
 from importlib.metadata import packages_distributions
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Literal
 
@@ -77,6 +79,10 @@ EXCLUDE_KEYS = ("source-exclude", "wheel-exclude")
 #: floor, it may be ratcheted down but never raised — raising it is the moment
 #: the dependency reduction stops being measurable.
 WHEEL_CEILING_BYTES = 1024 * 1024
+
+#: The one callable both console scripts resolve to: the MCP stdio server's
+#: no-argument entry point.
+STDIO_SERVER_ENTRY_POINT = "processrecall.server.mcp.stdio_server:main"
 
 #: FR-007 / R7: the owner's `mcp-publisher validate` run reported a 100-character
 #: cap the registry docs do not state. Treated as real — the cost is a shorter
@@ -238,6 +244,29 @@ def test_the_backend_is_pinned_and_the_flat_layout_is_declared() -> None:
     build_backend = _pyproject()["tool"]["uv"]["build-backend"]
     assert build_backend["module-root"] == "", (
         "this repository is a flat layout: module-root must be empty, not the default src/"
+    )
+
+
+def test_the_distribution_name_is_a_console_script() -> None:
+    """The distribution name starts the stdio server with no arguments.
+
+    Registry clients run a published package by its distribution name, so
+    the entry point named exactly `project.name` has to exist and resolve.
+    Resolution after a plain install, in an environment that never saw the
+    source tree, is the smoke test's job (T009); this only checks that the
+    module and attribute are importable in the checkout.
+    """
+    project = _pyproject()["project"]
+    scripts = project["scripts"]
+    assert scripts.get(project["name"]) == STDIO_SERVER_ENTRY_POINT, (
+        f"the distribution name must be a console script bound to "
+        f"{STDIO_SERVER_ENTRY_POINT!r}, found {scripts.get(project['name'])!r}"
+    )
+
+    module_path, _, attribute = STDIO_SERVER_ENTRY_POINT.partition(":")
+    assert find_spec(module_path) is not None, f"{module_path} is declared but not importable"
+    assert hasattr(import_module(module_path), attribute), (
+        f"{module_path} has no {attribute}()"
     )
 
 

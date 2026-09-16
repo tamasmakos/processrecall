@@ -81,12 +81,11 @@ build-backend = "uv_build"
 module-root = ""
 
 [project.scripts]
-# The stdio server keeps its console script: `server/mcp/stdio_server.py` is a
-# kept path that T053 rewrites in place, and README.md documents the name until
-# T081 rewrites it. The `processrecall` CLI script is gone with `cli/memory.py`;
-# the rewritten CLI (T032 onward) declares its own entry point when it lands —
-# an entry point naming a module that does not exist is a broken install, not
-# a placeholder.
+# Both console scripts bind to the same stdio server entry point: the bare
+# distribution name because registry clients run a published package by that
+# name with no arguments, and `processrecall-mcp` because it is kept for
+# existing invocations.
+processrecall = "processrecall.server.mcp.stdio_server:main"
 processrecall-mcp = "processrecall.server.mcp.stdio_server:main"
 
 # ── Dev tooling ────────────────────────────────────────────────────────────────
