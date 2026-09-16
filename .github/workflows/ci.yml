@@ -188,6 +188,31 @@ jobs:
           tests/test_hooks_declaration.py
           tests/test_plugin_manifest.py
 
+      - name: registry entry (mcp-publisher validate)
+        # An over-length description, or a name that does not match the
+        # readme's `mcp-name:` ownership marker, is a failure only the registry
+        # can see — and after publication it costs a version number that can be
+        # yanked but never reused. This is that check run while the change is
+        # still a proposal. Ubuntu leg only: unlike the launch declarations
+        # above, the registry entry is operating-system independent, so a
+        # second run on Windows proves nothing twice.
+        #
+        # The publisher is pinned to a release version for the same reason
+        # every `uses:` here carries a commit hash: `releases/latest` lets what
+        # this pipeline executes change with no commit in this repository. The
+        # asset is chosen rather than derived from `uname` because this step
+        # runs on exactly one platform. A release tag can still move its
+        # asset, so the tarball's sha256 is checked before it is trusted —
+        # the same "what CI executes cannot change without a commit here"
+        # property, obtained by content instead of by tag.
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        shell: bash
+        run: |
+          curl -fsSL -o mcp-publisher.tar.gz https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz
+          echo "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc  mcp-publisher.tar.gz" | sha256sum -c -
+          tar -xzf mcp-publisher.tar.gz mcp-publisher
+          ./mcp-publisher validate
+
   audit:
     name: audit
     runs-on: ubuntu-latest
