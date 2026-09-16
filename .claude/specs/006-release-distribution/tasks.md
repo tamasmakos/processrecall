@@ -276,7 +276,7 @@ T018**, or the suite is red with no honest way to make it green.
   explains the retired key in detail. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/integrations/claude_code/test_bootstrap.py`
 
-- [ ] **T021** Rewrite the two bootstrap test files against the new key (FR-029).
+- [X] **T021** Rewrite the two bootstrap test files against the new key (FR-029). (already satisfied on 006-release-distribution: its Verify passed before any work)
   In `tests/integrations/claude_code/test_bootstrap.py`: `ready_key` becomes the pinned version;
   `test_a_changed_lock_is_what_makes_the_marker_stale` and
   `test_a_changed_root_is_what_makes_the_marker_stale` become one test that a changed **pin**
