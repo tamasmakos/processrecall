@@ -322,11 +322,11 @@ T018**, or the suite is red with no honest way to make it green.
   against the index and 404 there. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/test_readme_install.py`
 
-- [ ] **T024a** Document the recovery route (FR-015a) in `README.md` or `docs/design.md`,
+- [X] **T024a** Document the recovery route (FR-015a) in `README.md` or `docs/design.md`,
   wherever releasing is described: a broken published version is superseded by a new patch
   version with the plugin pin advanced to it, **and then** withdrawn from the index so new
   installs cannot select it. Withdrawal alone strands every plugin user pinned to that exact
-  number. No published version is ever deleted or its number reused.
+  number. No published version is ever deleted or its number reused. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/test_docs_shape.py`
 
 - [ ] **T024b** *(gated with Phase 5)* Rewrite the plugin half of `## Install`: replace the
