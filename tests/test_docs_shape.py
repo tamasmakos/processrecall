@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 from processrecall.cli.__main__ import COMMANDS, SUBJECTS
@@ -11,6 +12,9 @@ from processrecall.server.mcp.stdio_server import TOOLS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RECOVERY_HEADING = "## Recovering a broken release"
+RETIRED_BUILD_BACKEND = "hatchling"
+DEPENDENCIES_HEADING = "## 5. Dependencies"
+LEDGER_HEADING = "## 6. Removal ledger"
 
 
 def _package_source() -> str:
@@ -129,3 +133,45 @@ def test_docs_document_the_recovery_route() -> None:
     }
     missing = sorted(part for part, token in required.items() if token not in section)
     assert not missing, f"{RECOVERY_HEADING} does not document {missing}"
+
+
+def test_design_docs_name_the_declared_build_backend() -> None:
+    """The toolchain the design record lists must be the one that builds the package (FR-028).
+
+    The backend is read off `pyproject.toml` rather than written out here, so a
+    later switch fails this check instead of ageing the design record in
+    silence. Only the dependency section is read: it must name the declared
+    backend and must not list the retired one among the tools it keeps.
+    """
+    manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    backend = manifest["build-system"]["build-backend"]
+
+    design = (REPO_ROOT / "docs" / "design.md").read_text(encoding="utf-8")
+    dependencies = _section_body(design, DEPENDENCIES_HEADING)
+    assert dependencies, f"docs/design.md has no {DEPENDENCIES_HEADING!r} section"
+    assert backend in dependencies, f"{DEPENDENCIES_HEADING} does not name the {backend} backend"
+    assert RETIRED_BUILD_BACKEND not in dependencies, (
+        f"{DEPENDENCIES_HEADING} still keeps {RETIRED_BUILD_BACKEND}, which no longer builds"
+    )
+
+
+def test_removal_ledger_records_what_replaced_the_release_machinery() -> None:
+    """The ledger may not still say the release machinery went with nothing after it (FR-028).
+
+    It recorded the release CI jobs as removed and unreplaced, which spec 006
+    made false. The amendment has three parts and only the whole of it is
+    correct: a version tag runs the release workflow, that workflow publishes
+    to PyPI, and it lists the server in the MCP registry. Each part is asserted
+    on its own so a rewrite that drops one fails here naming which.
+    """
+    design = (REPO_ROOT / "docs" / "design.md").read_text(encoding="utf-8")
+    ledger = _section_body(design, LEDGER_HEADING)
+    assert ledger, f"docs/design.md has no {LEDGER_HEADING!r} section"
+
+    required = {
+        "the workflow a version tag runs": ".github/workflows/release.yml",
+        "the index it publishes to": "PyPI",
+        "the registry it lists the server in": "MCP registry",
+    }
+    missing = sorted(part for part, token in required.items() if token not in ledger)
+    assert not missing, f"{LEDGER_HEADING} does not record {missing}"
