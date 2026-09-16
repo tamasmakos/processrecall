@@ -61,29 +61,24 @@ Repository = "https://github.com/tamasmakos/processrecall"
 Issues = "https://github.com/tamasmakos/processrecall/issues"
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.12.0,<0.13"]
+build-backend = "uv_build"
 
-[tool.hatch.build.targets.wheel]
-packages = ["processrecall"]
-# The two packs are data, not code (FR-024, R15): the concept index under
-# symbolic/data/ and the tool vocabularies under trajectory/vocab/. `packages`
-# ships the directory, but hatchling drops anything the VCS ignores — an
-# ignore rule matching *.json would silently produce an installed package with
-# no packs. `artifacts` force-includes them; tests/test_packaging.py asserts
-# both are declared here and both land in the built wheel.
-artifacts = [
-    "processrecall/symbolic/data/**/*.json",
-    "processrecall/trajectory/vocab/**/*.json",
-]
-
-[tool.hatch.build.targets.sdist]
-# `.claude` is the agent harness (skills, workflows, hooks) — version controlled so the
-# rules survive a clone, but it is not part of the distribution. hatchling drops
-# VCS-ignored files, so before it was tracked it was excluded for free; now that it is
-# tracked, only this line keeps ~1.5 MB of skills out of the sdist. `research/` holds
-# the prototypes and has no packaging obligations (R18).
-exclude = ["tests", "research", ".scratch", ".claude", "CLAUDE.md"]
+[tool.uv.build-backend]
+# This is the whole build configuration, and that is the point (R2). hatchling
+# dropped whatever the VCS ignored, so the two packs — the concept index under
+# symbolic/data/ and the tool vocabularies under trajectory/vocab/ (FR-024,
+# R15) — needed an `artifacts` force-include, and `.claude`, `tests` and
+# `research` needed an sdist exclusion once they were tracked. uv_build ships
+# the whole module root, strips only bytecode, and never consults `.gitignore`:
+# the packs cannot be silently dropped, and the sdist carries the manifest, the
+# module, the licence and the readme — nothing beside them. With no declaration
+# left to compare against, the archive assertion in tests/test_packaging.py is
+# the binding check rather than a second opinion.
+#
+# `module-root` is empty because the package sits at the repository root; the
+# backend otherwise looks for the `src/` layout this repository does not use.
+module-root = ""
 
 [project.scripts]
 # The stdio server keeps its console script: `server/mcp/stdio_server.py` is a

@@ -6,9 +6,9 @@ package's declared surface shrinks with it (FR-074, R15):
   * the runtime dependency set is exactly five names, each with a lower
     bound — a sixth is a decision, never a drift;
   * `classify` is the only extra (FR-060, FR-071);
-  * the two packs are data, not code, and hatchling ships data only when told
-    to (FR-024) — so the declaration is asserted here, and the archive check
-    that proves it reaches the wheel sits beside it.
+  * the two packs are data, not code (FR-024) — the backend ships everything
+    under the module root and cannot silently drop them, so what is asserted
+    here is the backend pin, and the archive check that proves it stands beside.
 
 The metadata assertions read pyproject.toml with tomllib and run in
 milliseconds; only the wheel assertion builds anything.
@@ -35,7 +35,7 @@ RUNTIME_DEPENDENCIES = frozenset(
     {"pydantic", "pydantic-settings", "tree-sitter", "tree-sitter-language-pack", "mcp"}
 )
 
-#: FR-024 / R15: the two data packs hatchling has to be told to ship.
+#: FR-024 / R15: the two data packs the built archive has to carry.
 PACK_GLOBS = (
     "processrecall/symbolic/data/**/*.json",
     "processrecall/trajectory/vocab/**/*.json",
@@ -159,28 +159,38 @@ def test_the_description_fits_the_registry_limit() -> None:
     )
 
 
-def test_both_packs_are_declared_to_hatchling() -> None:
-    """The concept index and the tool vocabularies are JSON, and JSON is easy to lose.
+def test_the_backend_is_pinned_and_the_flat_layout_is_declared() -> None:
+    """R2: the packs ship because of which backend builds them, so it is pinned.
 
-    `packages` ships the package directory, but hatchling drops anything the
-    VCS ignores; only `artifacts` force-includes the packs. Without this line a
-    future `*.json` ignore rule produces an installed package whose loaders have
-    nothing to load — and nothing but the wheel check would notice.
+    `uv_build` packages the whole module directory and never consults the VCS,
+    which is why no force-include list remains. That guarantee belongs to a
+    version range: unbounded, a future major could change the default contents
+    with nothing here to notice. The flat layout is not its default either —
+    without an empty `module-root` the backend looks for `src/` and finds none.
     """
-    wheel = _pyproject()["tool"]["hatch"]["build"]["targets"]["wheel"]
-    assert wheel["packages"] == ["processrecall"]
+    build_system = _pyproject()["build-system"]
+    assert build_system["build-backend"] == "uv_build"
 
-    declared = set(wheel.get("artifacts", []))
-    missing = [glob for glob in PACK_GLOBS if glob not in declared]
-    assert not missing, f"pack data not declared to the build backend: {missing}"
+    pins = [spec for spec in build_system["requires"] if _requirement_name(spec) == "uv-build"]
+    assert len(pins) == 1, f"expected exactly one uv_build requirement, got {pins}"
+
+    operators = set(re.findall(r"[<>]=?", pins[0]))
+    assert {">", ">="} & operators and {"<", "<="} & operators, (
+        f"build backend requirement {pins[0]!r} needs both a lower and an upper bound"
+    )
+
+    build_backend = _pyproject()["tool"]["uv"]["build-backend"]
+    assert build_backend["module-root"] == "", (
+        "this repository is a flat layout: module-root must be empty, not the default src/"
+    )
 
 
 def test_wheel_under_ceiling_and_ships_both_packs(tmp_path: Path) -> None:
     """FR-074 / SC-012: the built wheel is the measurable outcome of the subtraction.
 
-    The declaration test above reads pyproject.toml; this one reads the archive
-    hatchling actually produced, which is the only place both facts are true at
-    once — the size a stranger downloads, and the packs being inside it.
+    The test above reads pyproject.toml; this one reads the archive the backend
+    actually produced, which is the only place both facts are true at once —
+    the size a stranger downloads, and the packs being inside it.
 
     This builds a wheel and takes seconds, not milliseconds; the cost is
     accepted on every run rather than gated behind an opt-in marker, since
