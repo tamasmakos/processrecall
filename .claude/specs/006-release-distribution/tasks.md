@@ -111,7 +111,7 @@ is ever added without a test that keeps its version honest.
   from the same source of truth as its author, homepage and licence already are. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/test_plugin_manifest.py`
 
-- [ ] **T008** Create `scripts/sync_version.py`: read the authoritative version and rewrite the
+- [X] **T008** Create `scripts/sync_version.py`: read the authoritative version and rewrite the
   derived places — both fields in `server.json`, and, **only when the new version is stable**,
   the plugin pin in the plugin manifest and the pin in the server launch declaration once that
   declaration carries one. A pre-release bump MUST leave the plugin pin untouched (FR-010,
@@ -121,7 +121,7 @@ is ever added without a test that keeps its version honest.
   `version` (`uv version $(V)` then the sync). Update
   `tests/test_repo_hygiene.py::test_scripts_directory_contains_exactly`, which pins the exact
   file set in `scripts/`, to include the new script — that test is deliberate and is updated,
-  never relaxed.
+  never relaxed. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/test_repo_hygiene.py::test_scripts_directory_contains_exactly`
 
 ---
