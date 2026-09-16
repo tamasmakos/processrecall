@@ -163,7 +163,7 @@ The MVP slice. When this phase lands, anyone on the internet can install the pac
   unreachable from the step that executed this repository's own build. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uvx --from actionlint-py==1.7.12.24 actionlint .github/workflows/release.yml`
 
-- [ ] **T012** Extend `tests/test_ci_workflow.py` into a contract over both workflow files.
+- [X] **T012** Extend `tests/test_ci_workflow.py` into a contract over both workflow files. (already satisfied on 006-release-distribution: its Verify passed before any work)
   Parametrize `test_third_party_actions_are_pinned_to_a_commit_hash` over `[ci.yml,
   release.yml]` — it already takes `workflow_path` as a parameter, so this is a change to the
   parameter list. Add `test_release_publishes_only_what_it_proved`: the three tag patterns are
