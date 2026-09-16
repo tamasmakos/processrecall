@@ -174,12 +174,12 @@ The MVP slice. When this phase lands, anyone on the internet can install the pac
   assertion cannot be satisfied by a line in a different job.
   - Verify: `uv run pytest -q tests/test_ci_workflow.py`
 
-- [ ] **T013** [P] Change the `wheel` job in `.github/workflows/ci.yml` to `uv build --no-sources`
+- [X] **T013** [P] Change the `wheel` job in `.github/workflows/ci.yml` to `uv build --no-sources`
   so the merge gate builds the way the release builds, and correct the step comment that names
   `[tool.hatch.build.targets.sdist]`, which T001 deleted. Relax
   `tests/test_ci_workflow.py::test_wheel_job_produces_both_distributions` to accept the flag
   while still rejecting a wheel-only build — the property it defends is "both artifacts", not
-  the exact command text.
+  the exact command text. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/test_ci_workflow.py::test_wheel_job_produces_both_distributions`
 
 ---
