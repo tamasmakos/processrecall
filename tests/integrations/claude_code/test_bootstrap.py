@@ -38,14 +38,22 @@ def ready_key(root: Path = ROOT) -> str:
     return str(manifest["version"])
 
 
-def prepare(data: Path, path: str, root: Path = ROOT) -> subprocess.CompletedProcess[str]:
-    """Run the bootstrap script over *data*, seeing only the tooling on *path*."""
+def prepare(
+    data: Path, path: str, root: Path = ROOT, *, source: str | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Run the bootstrap script over *data*, seeing only the tooling on *path*.
+
+    *source* is the development switch, left out of the environment entirely
+    when it is ``None``: an end user's session is the one that never sets it.
+    """
+    switch = {"PROCESSRECALL_PLUGIN_SOURCE": source} if source is not None else {}
     return subprocess.run(
         ["sh", str(SCRIPT)],
         env={
             "PATH": path,
             "CLAUDE_PLUGIN_ROOT": str(root),
             "CLAUDE_PLUGIN_DATA": str(data),
+            **switch,
         },
         capture_output=True,
         text=True,
@@ -235,6 +243,36 @@ def test_the_first_session_installs_the_pinned_release_once(
         f"[] venv {venv}",
         f"[{venv}] pip install processrecall=={ready_key()}",
     ]
+    assert (data / "venv" / ".ready").read_text(encoding="utf-8") == ready_key()
+
+
+@pytest.mark.parametrize(
+    ("source", "requirement"),
+    [(None, None), ("checkout", f"--editable {ROOT}")],
+)
+def test_the_checkout_switch_is_what_names_the_root_as_the_source(
+    tmp_path: Path, uv_stub: tuple[str, Path], source: str | None, requirement: str | None
+) -> None:
+    """FR-024: set to `checkout`, the root editable; unset, no `--editable` at all.
+
+    The pinned-install contract for the unset case is
+    ``test_the_first_session_installs_the_pinned_release_once``'s job; this test
+    is only about what the switch itself changes. Either way the marker holds
+    the manifest pin, so the switch decides what is installed and never when
+    preparation runs again.
+    """
+    path, calls = uv_stub
+    data = tmp_path / "plugin-data"
+
+    result = prepare(data, path, source=source)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    installed = calls.read_text(encoding="utf-8").splitlines()[-1]
+    if requirement is None:
+        assert "--editable" not in installed
+    else:
+        assert installed == f"[{data}/venv] pip install {requirement}"
     assert (data / "venv" / ".ready").read_text(encoding="utf-8") == ready_key()
 
 

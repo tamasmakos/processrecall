@@ -45,6 +45,12 @@ git clone https://github.com/tamasmakos/processrecall.git
 claude --plugin-dir processrecall
 ```
 
+Set `PROCESSRECALL_PLUGIN_SOURCE=checkout` to have bootstrap install that
+checkout as an editable install instead of the pinned release. The switch is
+only read the first time bootstrap runs for a given plugin version, so
+flipping it on a machine that already prepared that version requires deleting
+`$CLAUDE_PLUGIN_DATA/venv/.ready` first.
+
 ## What it records
 
 Each completed tool call is abstracted to a template — the program, the activity
