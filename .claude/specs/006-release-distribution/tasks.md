@@ -141,7 +141,7 @@ The MVP slice. When this phase lands, anyone on the internet can install the pac
   repository path.
   - Verify: `uv build && uv run --isolated --no-project --with dist/*.whl tests/smoke_test.py`
 
-- [ ] **T010** Create the `build` job in `.github/workflows/release.yml`. Triggers: `push.tags`
+- [X] **T010** Create the `build` job in `.github/workflows/release.yml`. Triggers: `push.tags`
   matching `v[0-9]+.[0-9]+.[0-9]+`, `v[0-9]+.[0-9]+.[0-9]+rc[0-9]+` and
   `v[0-9]+.[0-9]+.[0-9]+[ab][0-9]+` (R3). Top-level `permissions: contents: read`. Steps:
   checkout with `persist-credentials: false`; install the package manager; **assert
@@ -152,7 +152,7 @@ The MVP slice. When this phase lands, anyone on the internet can install the pac
   equivalent; upload `dist/` with `if-no-files-found: error`. Every `uses:` pinned to a
   40-character commit hash with a trailing `# vX` comment — `tests/test_ci_workflow.py` enforces
   this and T012 extends it to this file. Route the tag name through `env:` rather than
-  interpolating it into a `run:` block, the template-injection rule already applied in `ci.yml`.
+  interpolating it into a `run:` block, the template-injection rule already applied in `ci.yml`. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uvx zizmor@1.29.0 --offline .github/workflows/ && uvx --from actionlint-py==1.7.12.24 actionlint .github/workflows/release.yml`
 
 - [ ] **T011** Add the `publish-pypi` job to `.github/workflows/release.yml`: `needs: build`,
