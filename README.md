@@ -38,6 +38,16 @@ connects on that first session too, rather than only after a restart.
 The `processrecall-mcp` console script in that environment is the stdio tool
 server, launchable by any MCP client.
 
+Without Claude Code, the package installs on its own: `uv tool install
+processrecall` (or `pip install processrecall`) takes the same release from
+PyPI, with no plugin and no checkout involved.
+
+```bash
+uv tool install processrecall
+processrecall       # stdio tool server, the name a registry client runs
+processrecall-mcp   # the same server, kept for existing invocations
+```
+
 To work on the plugin instead, point Claude Code at a checkout:
 
 ```bash
