@@ -20,10 +20,13 @@ import ast
 import re
 import subprocess
 import sys
+import tarfile
 import tomllib
 import zipfile
+from fnmatch import fnmatch
 from importlib.metadata import packages_distributions
 from pathlib import Path
+from typing import Literal
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PKG_ROOT = REPO_ROOT / "processrecall"
@@ -43,6 +46,32 @@ PACK_GLOBS = (
 
 #: The directories those globs live under, as the archive spells them.
 PACK_DIRS = tuple(glob.split("**")[0] for glob in PACK_GLOBS)
+
+#: The file extension each `uv build --<kind>` produces. The built archive is
+#: found by suffix rather than by listing the directory, because uv also writes
+#: a `.gitignore` beside it.
+ARCHIVE_SUFFIX = {"wheel": ".whl", "sdist": ".tar.gz"}
+
+#: R2: what a stranger needs to rebuild the package from the sdist alone,
+#: including a non-trivial module and a member from each shipped pack —
+#: an sdist carrying only `__init__.py` must fail this list.
+SDIST_REQUIRED = (
+    "pyproject.toml",
+    "processrecall/__init__.py",
+    "processrecall/config.py",
+    "processrecall/symbolic/data/seon_activities.json",
+    "processrecall/trajectory/vocab/claude_code.json",
+)
+
+#: R2: tracked directories that are workspace, not source. hatchling dropped
+#: them only because they were listed; uv_build never reaches outside the module
+#: root, and this is what proves it still does not.
+SDIST_EXCLUDED_DIRS = ("tests/", ".claude/", "research/")
+
+#: The backend's two exclusion lists. Both are absent today (R2), and with no
+#: force-include list left to contradict one, a pattern added here is the single
+#: edit that can empty a pack without touching a line of code.
+EXCLUDE_KEYS = ("source-exclude", "wheel-exclude")
 
 #: R15 / FR-074: the recorded ceiling for the built wheel. Like the coverage
 #: floor, it may be ratcheted down but never raised — raising it is the moment
@@ -77,14 +106,41 @@ def _declared_distributions() -> set[str]:
     return declared
 
 
-def _build_wheel(out_dir: Path) -> Path:
-    """Build the project's wheel into *out_dir* and return the built file."""
+def _build_archive(out_dir: Path, kind: Literal["wheel", "sdist"]) -> Path:
+    """Build the project's *kind* (`wheel` or `sdist`) into an empty *out_dir*."""
     subprocess.run(
-        ["uv", "build", "--wheel", "--out-dir", str(out_dir), str(REPO_ROOT)], check=True
+        ["uv", "build", f"--{kind}", "--out-dir", str(out_dir), str(REPO_ROOT)], check=True
     )
-    built = sorted(out_dir.glob("*.whl"))
-    assert len(built) == 1, f"expected exactly one wheel in {out_dir}, got {built}"
+    built = sorted(out_dir.glob(f"*{ARCHIVE_SUFFIX[kind]}"))
+    assert len(built) == 1, f"expected exactly one {kind} in {out_dir}, got {built}"
     return built[0]
+
+
+def _without_root(member: str) -> str:
+    """Strip the sdist's `name-version/` top-level directory from *member*."""
+    return member.partition("/")[2]
+
+
+def _exclusion_conflicts_with_data(build_backend: dict) -> list[str]:
+    """Every declared exclusion pattern that hides a `.json` file the packs ship.
+
+    Matching uses `fnmatch`, whose `*` crosses `/` where the backend's does not,
+    so a pattern the backend would apply narrowly is flagged here rather than
+    missed: the cost of a false positive is a sentence, the cost of a false
+    negative is a release whose concept index is empty.
+    """
+    data_paths = [
+        path.relative_to(REPO_ROOT).as_posix()
+        for glob in PACK_GLOBS
+        for path in REPO_ROOT.glob(glob)
+    ]
+    return [
+        f"{key} pattern {pattern!r} excludes {data_path}"
+        for key in EXCLUDE_KEYS
+        for pattern in build_backend.get(key, [])
+        for data_path in data_paths
+        if fnmatch(data_path, pattern)
+    ]
 
 
 def _source_files() -> list[Path]:
@@ -196,7 +252,7 @@ def test_wheel_under_ceiling_and_ships_both_packs(tmp_path: Path) -> None:
     accepted on every run rather than gated behind an opt-in marker, since
     neither the gate script nor CI deselects `slow` today.
     """
-    wheel = _build_wheel(tmp_path)
+    wheel = _build_archive(tmp_path, "wheel")
 
     size = wheel.stat().st_size
     assert size < WHEEL_CEILING_BYTES, (
@@ -208,6 +264,37 @@ def test_wheel_under_ceiling_and_ships_both_packs(tmp_path: Path) -> None:
         shipped = archive.namelist()
     missing = [d for d in PACK_DIRS if not any(name.startswith(d) for name in shipped)]
     assert not missing, f"{wheel.name} ships no pack data under: {missing}"
+
+
+def test_the_sdist_carries_the_source_and_not_the_workspace(tmp_path: Path) -> None:
+    """R2: the sdist is a rebuildable source tree, and nothing beside it.
+
+    Since the backend configuration is now empty, nothing in pyproject.toml
+    states which files ship — so the archive is the only place that answer
+    exists, in both directions: the manifest and the package have to be in it,
+    and the tracked workspace directories have to be out of it.
+
+    """
+    sdist = _build_archive(tmp_path, "sdist")
+
+    with tarfile.open(sdist) as archive:
+        members = [_without_root(name) for name in archive.getnames()]
+
+    missing = [required for required in SDIST_REQUIRED if required not in members]
+    assert not missing, f"{sdist.name} cannot rebuild the package, it is missing: {missing}"
+
+    workspace = sorted(name for name in members if name.startswith(SDIST_EXCLUDED_DIRS))
+    assert not workspace, f"{sdist.name} ships workspace files, not source: {workspace}"
+
+
+def test_exclusion_lists_do_not_hide_pack_data() -> None:
+    """R2: the one edit that can empty a pack silently, with no force-include
+
+    list left to contradict it. This reads only pyproject.toml and runs in
+    milliseconds, unlike the sdist build above.
+    """
+    reaching = _exclusion_conflicts_with_data(_pyproject()["tool"]["uv"]["build-backend"])
+    assert not reaching, "build exclusions would drop shipped data:\n  " + "\n  ".join(reaching)
 
 
 def test_every_imported_third_party_module_is_declared() -> None:
