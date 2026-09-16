@@ -1,0 +1,97 @@
+# Release — tag-triggered build and publish.
+#
+# CI proves main is green; this file proves a *tag* is shippable. The split
+# matters because the two answer different questions: CI asks "does this commit
+# work", a release asks "are these exact bytes the ones the tag names, and do
+# they install anywhere".
+#
+# The build job is deliberately the only job that touches this repository's
+# source. It checks out, proves the tag agrees with the declared version,
+# builds, installs what it built and exercises it — and holds no credential
+# that could publish. The publishing identity lives in a later job that never
+# sees the checkout, so a compromised build step has nothing to spend.
+#
+# A version is spent the moment it reaches the index: it can be yanked, never
+# reused. Every guard here is placed *before* the build for that reason.
+name: Release
+
+on:
+  push:
+    tags:
+      # Final releases and the two pre-release shapes the version tool emits.
+      # Anything else pushed as a tag is not a release and must not start one.
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+rc[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+[ab][0-9]+"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # No authenticated git operation happens after checkout in this job,
+          # and this job must not be able to push anything anywhere.
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          # No cache, unlike ci.yml: a cache is writable by every workflow on
+          # the default branch, so restoring one here would let a poisoned
+          # entry reach the bytes that get published (zizmor
+          # `cache-poisoning`). A release runs once per tag; the minute saved
+          # is not worth the supply chain it opens.
+          enable-cache: false
+          python-version: "3.13"
+
+      - name: assert the tag names the declared version
+        # FR-011, and the only affordable guard against spending a version:
+        # once dist/ exists the mistake is one step away from the index. Both
+        # numbers are named in the failure because "version mismatch" alone
+        # does not say which of the two is wrong.
+        env:
+          # A tag name is attacker-controlled in the general case; expanding it
+          # into a `run:` block is the template-injection surface zizmor flags.
+          # Routed through env and read as a shell variable, exactly as
+          # ci.yml routes github.base_ref.
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          declared="$(uv version --short)"
+          tagged="${TAG_NAME#v}"
+          if [ "$declared" != "$tagged" ]; then
+            echo "::error::tag $TAG_NAME names version $tagged, but pyproject.toml declares $declared"
+            exit 1
+          fi
+          echo "version OK: tag $TAG_NAME matches the declared $declared"
+
+      - name: build
+        # --no-sources disables the local [tool.uv.sources] overrides, so the
+        # artifact is built the way any other build tool would build it and not
+        # the way this workspace happens to resolve (FR-005). No --wheel: the
+        # sdist is published too and must be proven as well.
+        run: uv build --no-sources
+
+      - name: smoke test the wheel
+        # --isolated --no-project: the source tree is present in this job, so
+        # without these the smoke script would import the repository and prove
+        # nothing about the wheel.
+        run: uv run --isolated --no-project --with dist/*.whl tests/smoke_test.py
+
+      - name: smoke test the source distribution
+        # FR-014: the sdist is published too, so it is built from and exercised
+        # here as well — an sdist that cannot build is discovered by the first
+        # stranger to install it otherwise.
+        run: uv run --isolated --no-project --with dist/*.tar.gz tests/smoke_test.py
+
+      - name: upload the distribution
+        # These bytes, not a rebuild, are what the publishing job uploads: a
+        # second build could differ from the one just proven.
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
