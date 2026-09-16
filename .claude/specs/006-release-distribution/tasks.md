@@ -204,13 +204,13 @@ The MVP slice. When this phase lands, anyone on the internet can install the pac
   on the default branch alone verifies nothing.
   - Verify: `uv run pytest -q tests/test_release_versions.py`
 
-- [ ] **T016** Add a registry-entry validation step to the `plugin` job in
+- [X] **T016** Add a registry-entry validation step to the `plugin` job in
   `.github/workflows/ci.yml`, on the Ubuntu leg only: download `mcp-publisher` at a **pinned**
   release version (not `latest` — R6, same reasoning as the action hash pins) and run
   `mcp-publisher validate`. This is the step that catches an over-length description or a
   name/marker mismatch while the change is still a proposal (SC-005). Extend
   `tests/test_ci_workflow.py` to assert the step exists and that the downloaded version is
-  pinned rather than floating.
+  pinned rather than floating. (already satisfied on 006-release-distribution: its Verify passed before any work)
   - Verify: `uv run pytest -q tests/test_ci_workflow.py`
 
 - [ ] **T017** Add the `publish-mcp-registry` job to `.github/workflows/release.yml`:
