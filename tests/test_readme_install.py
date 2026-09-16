@@ -2,10 +2,12 @@
 
 What survives the fork are the claims that hold for any wheel: the install
 section names the console entry points `[project.scripts]` declares, its links
-are absolute because the README is the PyPI long description, and a `scripts/`
+are absolute because the README is the PyPI long description, a `scripts/`
 path is qualified as checkout-only — the wheel ships only the `processrecall`
 package (`[tool.hatch.build.targets.wheel] packages = ["processrecall"]`), so
-`scripts/` does not exist after a pip install.
+`scripts/` does not exist after a pip install — and the section documents the
+direct install route (`pip`/`uv tool install`) alongside the Claude Code
+plugin route.
 
 The two ArcadeDB assertions that stood here are gone with the service. R18
 drops the graph database, the five runtime dependencies do not include it, and
@@ -72,4 +74,16 @@ def test_scripts_path_is_qualified_as_checkout_only() -> None:
         '([tool.hatch.build.targets.wheel] packages = ["processrecall"]), so scripts/ does not '
         "exist after `pip install processrecall` — the section must qualify this as requiring a "
         "repo clone/checkout (no mention of: " + ", ".join(qualifiers) + ")"
+    )
+
+
+def test_documents_direct_install_route() -> None:
+    section = _install_section()
+    distribution = _pyproject()["project"]["name"]
+    installer = rf"(?:pip|pipx|uv pip|uv tool)\s+install\s+{re.escape(distribution)}\b"
+    assert re.search(installer, section), (
+        f"Install section never shows how to install {distribution!r} from the index "
+        "(e.g. `uv tool install processrecall`); it documents only the Claude Code "
+        "plugin route, so a reader outside Claude Code is not told the package is "
+        "installable on its own"
     )
