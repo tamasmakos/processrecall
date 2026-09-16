@@ -10,6 +10,7 @@ from processrecall.integrations.claude_code.hooks import DENY_LIST, OPTOUT_MARKE
 from processrecall.server.mcp.stdio_server import TOOLS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+RECOVERY_HEADING = "## Recovering a broken release"
 
 
 def _package_source() -> str:
@@ -93,3 +94,38 @@ def test_docs_name_no_removed_service() -> None:
         assert not still_sold, (
             f"{document.relative_to(REPO_ROOT)} still documents the service: {still_sold}"
         )
+
+
+def _section_body(text: str, heading: str) -> str:
+    """The text under `heading`, up to the next heading of that level — empty if absent."""
+    if (start := text.find(f"\n{heading}\n")) == -1:
+        return ""
+    body = text[start + len(heading) + 2 :]
+    end = body.find("\n## ")
+    return body if end == -1 else body[:end]
+
+
+def test_docs_document_the_recovery_route() -> None:
+    """Recovery from a broken published version must be written down (FR-015a).
+
+    The route has five parts and only the whole of it is correct: a new patch
+    version supersedes the broken one, the plugin pin advances to it, the broken
+    version is withdrawn from the index, withdrawal alone is not the fix
+    because a plugin pinned to that exact number still resolves it, and no
+    version is ever deleted or its number reused. Each part is asserted on its
+    own so a rewrite that drops one fails here naming which.
+    """
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    section = _section_body(readme, RECOVERY_HEADING)
+    assert section, f"README.md has no {RECOVERY_HEADING!r} section"
+
+    required = {
+        "the superseding patch version": "patch version",
+        "the plugin pin advanced to it": ".claude-plugin/plugin.json",
+        "withdrawing the broken version from the index": "yank",
+        "that withdrawal alone is not the fix": "not the fix",
+        "that no version is deleted": "deleted",
+        "that no version number is reused": "reused",
+    }
+    missing = sorted(part for part, token in required.items() if token not in section)
+    assert not missing, f"{RECOVERY_HEADING} does not document {missing}"
