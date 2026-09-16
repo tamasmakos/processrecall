@@ -58,6 +58,18 @@ def _job_text(workflow_path: Path, name: str) -> str:
     return workflow_text[start:end]
 
 
+def _step_text(job_text: str, needle: str) -> str:
+    """Slice the single step containing `needle` out of a job's text, from its
+    `      - ` bullet up to the next one, so assertions scoped to one step
+    cannot be satisfied by a setting that lives in a neighbouring step."""
+    assert needle in job_text, f"{CI_WORKFLOW}: no step containing {needle!r} found"
+    index = job_text.index(needle)
+    start = job_text.rfind("\n      - ", 0, index) + 1
+    next_step = re.search(r"^      - ", job_text[index:], re.MULTILINE)
+    end = index + next_step.start() if next_step else len(job_text)
+    return job_text[start:end]
+
+
 def test_gate_job_checks_out_full_history() -> None:
     """Diff coverage compares the diff against the pull request's base
     branch; a shallow clone has no `origin/<base>` to compare against, so the
@@ -417,4 +429,49 @@ def test_the_plugin_declaration_is_exercised_on_windows() -> None:
     assert "-m" in plugin_text and "slow" in plugin_text, (
         f"{CI_WORKFLOW}: the `plugin` job must select the `slow` marker — the "
         "live handshake is the only check that actually spawns the server"
+    )
+
+
+def test_the_registry_entry_is_validated_while_the_change_is_a_proposal() -> None:
+    """A version number is spent the moment it reaches the registry, and the
+    failures only the registry can see — an over-length description, a name
+    that does not match the readme's ownership marker — are otherwise
+    discovered after publication (SC-005). So `mcp-publisher validate` runs on
+    the proposal, in the one job that already has a matrix, on its Ubuntu leg
+    only: the entry is operating-system independent, and a second run of it on
+    Windows proves nothing twice.
+
+    The download is pinned to a release version for the same reason every
+    `uses:` above carries a commit hash — `releases/latest` lets what this
+    pipeline executes change with no commit here. A release tag can still
+    move its asset, so the tarball's sha256 is checked before it is trusted.
+    """
+    plugin_text = _job_text(CI_WORKFLOW, "plugin")
+    assert "mcp-publisher validate" in plugin_text, (
+        f"{CI_WORKFLOW}: the `plugin` job never runs `mcp-publisher validate` — "
+        "nothing checks the registry entry while the change is still a proposal"
+    )
+
+    step_text = _step_text(plugin_text, "mcp-publisher validate")
+    if_match = re.search(r"^\s*if:.*$", step_text, re.MULTILINE)
+    assert if_match is not None and "ubuntu-latest" in if_match.group(0), (
+        f"{CI_WORKFLOW}: the `mcp-publisher validate` step is not guarded on the "
+        "Ubuntu matrix leg — the registry entry is operating-system independent "
+        "and the publisher ships no Windows leg of this check"
+    )
+
+    download_url = re.search(r"https://\S*mcp-publisher\S*", step_text)
+    assert download_url is not None, (
+        f"{CI_WORKFLOW}: the `mcp-publisher validate` step downloads no publisher — "
+        "there is no such tool preinstalled on the runner"
+    )
+    assert re.search(r"/releases/download/v\d+\.\d+\.\d+/", download_url.group(0)), (
+        f"{CI_WORKFLOW}: the publisher download is not pinned to a release version "
+        f"(`/releases/download/v<major>.<minor>.<patch>/`) — got: {download_url.group(0)!r}"
+    )
+
+    assert re.search(r"sha256sum\s+-c\s+-", step_text), (
+        f"{CI_WORKFLOW}: the `mcp-publisher validate` step does not verify the "
+        "downloaded tarball's sha256 — a release tag can still move its asset, "
+        "so pinning the version alone does not fix what CI executes"
     )
