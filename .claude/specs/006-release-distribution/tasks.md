@@ -106,12 +106,12 @@ is ever added without a test that keeps its version honest.
   project declares no YAML dependency, the reason given in `tests/test_ci_workflow.py`.
   - Verify: `uv run pytest -q tests/test_release_versions.py` *(expected to fail until T015; it is the running scoreboard for this feature)*
 
-- [X] **T007** Add `"version": "0.1.0"` to `.claude-plugin/plugin.json`, matching
+- [ ] **T007** Add `"version": "0.1.0"` to `.claude-plugin/plugin.json`, matching
   `pyproject.toml`. Extend `tests/test_plugin_manifest.py` so the manifest's version is read
-  from the same source of truth as its author, homepage and licence already are. (already satisfied on 006-release-distribution: its Verify passed before any work)
+  from the same source of truth as its author, homepage and licence already are.
   - Verify: `uv run pytest -q tests/test_plugin_manifest.py`
 
-- [X] **T008** Create `scripts/sync_version.py`: read the authoritative version and rewrite the
+- [ ] **T008** Create `scripts/sync_version.py`: read the authoritative version and rewrite the
   derived places — both fields in `server.json`, and, **only when the new version is stable**,
   the plugin pin in the plugin manifest and the pin in the server launch declaration once that
   declaration carries one. A pre-release bump MUST leave the plugin pin untouched (FR-010,
@@ -121,7 +121,7 @@ is ever added without a test that keeps its version honest.
   `version` (`uv version $(V)` then the sync). Update
   `tests/test_repo_hygiene.py::test_scripts_directory_contains_exactly`, which pins the exact
   file set in `scripts/`, to include the new script — that test is deliberate and is updated,
-  never relaxed. (already satisfied on 006-release-distribution: its Verify passed before any work)
+  never relaxed.
   - Verify: `uv run pytest -q tests/test_repo_hygiene.py::test_scripts_directory_contains_exactly`
 
 ---
@@ -155,15 +155,15 @@ The MVP slice. When this phase lands, anyone on the internet can install the pac
   interpolating it into a `run:` block, the template-injection rule already applied in `ci.yml`.
   - Verify: `uvx zizmor@1.29.0 --offline .github/workflows/ && uvx --from actionlint-py==1.7.12.24 actionlint .github/workflows/release.yml`
 
-- [X] **T011** Add the `publish-pypi` job to `.github/workflows/release.yml`: `needs: build`,
+- [ ] **T011** Add the `publish-pypi` job to `.github/workflows/release.yml`: `needs: build`,
   `environment: name: pypi`, `permissions: id-token: write` and nothing else, **no checkout**
   (it runs no project code, so it needs none — R3), download the `dist` artifact, generate
   attestations, `uv publish`. No token, no secret, no credential of any kind (FR-012). The job
   split is the security boundary, not a style choice: it is why the publishing identity is
-  unreachable from the step that executed this repository's own build. (already satisfied on 006-release-distribution: its Verify passed before any work)
+  unreachable from the step that executed this repository's own build.
   - Verify: `uvx --from actionlint-py==1.7.12.24 actionlint .github/workflows/release.yml`
 
-- [X] **T012** Extend `tests/test_ci_workflow.py` into a contract over both workflow files. (already satisfied on 006-release-distribution: its Verify passed before any work)
+- [ ] **T012** Extend `tests/test_ci_workflow.py` into a contract over both workflow files.
   Parametrize `test_third_party_actions_are_pinned_to_a_commit_hash` over `[ci.yml,
   release.yml]` — it already takes `workflow_path` as a parameter, so this is a change to the
   parameter list. Add `test_release_publishes_only_what_it_proved`: the three tag patterns are
@@ -174,12 +174,12 @@ The MVP slice. When this phase lands, anyone on the internet can install the pac
   assertion cannot be satisfied by a line in a different job.
   - Verify: `uv run pytest -q tests/test_ci_workflow.py`
 
-- [X] **T013** [P] Change the `wheel` job in `.github/workflows/ci.yml` to `uv build --no-sources`
+- [ ] **T013** [P] Change the `wheel` job in `.github/workflows/ci.yml` to `uv build --no-sources`
   so the merge gate builds the way the release builds, and correct the step comment that names
   `[tool.hatch.build.targets.sdist]`, which T001 deleted. Relax
   `tests/test_ci_workflow.py::test_wheel_job_produces_both_distributions` to accept the flag
   while still rejecting a wheel-only build — the property it defends is "both artifacts", not
-  the exact command text. (already satisfied on 006-release-distribution: its Verify passed before any work)
+  the exact command text.
   - Verify: `uv run pytest -q tests/test_ci_workflow.py::test_wheel_job_produces_both_distributions`
 
 ---
@@ -204,16 +204,16 @@ The MVP slice. When this phase lands, anyone on the internet can install the pac
   on the default branch alone verifies nothing.
   - Verify: `uv run pytest -q tests/test_release_versions.py`
 
-- [X] **T016** Add a registry-entry validation step to the `plugin` job in
+- [ ] **T016** Add a registry-entry validation step to the `plugin` job in
   `.github/workflows/ci.yml`, on the Ubuntu leg only: download `mcp-publisher` at a **pinned**
   release version (not `latest` — R6, same reasoning as the action hash pins) and run
   `mcp-publisher validate`. This is the step that catches an over-length description or a
   name/marker mismatch while the change is still a proposal (SC-005). Extend
   `tests/test_ci_workflow.py` to assert the step exists and that the downloaded version is
-  pinned rather than floating. (already satisfied on 006-release-distribution: its Verify passed before any work)
+  pinned rather than floating.
   - Verify: `uv run pytest -q tests/test_ci_workflow.py`
 
-- [X] **T017** Add the `publish-mcp-registry` job to `.github/workflows/release.yml`: (already satisfied on 006-release-distribution: its Verify passed before any work)
+- [ ] **T017** Add the `publish-mcp-registry` job to `.github/workflows/release.yml`:
   `needs: publish-pypi` (the registry verifies ownership against the *published* description,
   so it cannot run earlier), `permissions: id-token: write` and `contents: read`, checkout,
   pinned `mcp-publisher` download, `mcp-publisher validate`, `mcp-publisher login github-oidc`,
@@ -246,7 +246,7 @@ T018**, or the suite is red with no honest way to make it green.
   first-session race the old design worked around: `uvx` provisions its own cached environment.
   - Verify: `uv run pytest -q tests/test_release_versions.py`
 
-- [X] **T019** Rewrite `tests/test_mcp_declaration.py` to pin the new invariants (FR-029 — the
+- [ ] **T019** Rewrite `tests/test_mcp_declaration.py` to pin the new invariants (FR-029 — the
   superseded assertions are rewritten, never deleted). Keep every test that is about
   spawnability: the command resolves on `PATH`, names no shell, leaves `${...}` placeholders
   unexpanded. Replace the project/lock/environment tests with: the command is `uvx`; there is
@@ -260,10 +260,10 @@ T018**, or the suite is red with no honest way to make it green.
   that resolves would defeat the only check that has ever caught an unspawnable declaration.
   Update the module docstring, whose first-session-race paragraph T018 made moot. Finally,
   extend `tests/test_release_versions.py` with the last assertion it was written without: the
-  pin inside the launch declaration equals the plugin manifest pin exactly (FR-008a). (already satisfied on 006-release-distribution: its Verify passed before any work)
+  pin inside the launch declaration equals the plugin manifest pin exactly (FR-008a).
   - Verify: `uv run pytest -q -m "unit or slow" tests/test_mcp_declaration.py`
 
-- [X] **T020** Rewrite `bin/bootstrap.sh` to prepare the environment from the release. The
+- [ ] **T020** Rewrite `bin/bootstrap.sh` to prepare the environment from the release. The
   readiness key becomes the pinned version read from `.claude-plugin/plugin.json` with a POSIX
   `sed`, replacing the checksum-of-lock-joined-to-root key; a missing or unreadable version
   takes the existing `report`-and-exit-0 path. Preparation becomes `uv venv` followed by
@@ -273,10 +273,10 @@ T018**, or the suite is red with no honest way to make it green.
   `Scripts/python.exe` → `bin/python.exe` mirror the hooks depend on, the `.ready` marker, and
   the rule that every failure leaves as one line of JSON with exit 0 so a `SessionStart` hook
   never surfaces against the developer's own session. Rewrite the header comment, which
-  explains the retired key in detail. (already satisfied on 006-release-distribution: its Verify passed before any work)
+  explains the retired key in detail.
   - Verify: `uv run pytest -q tests/integrations/claude_code/test_bootstrap.py`
 
-- [X] **T021** Rewrite the two bootstrap test files against the new key (FR-029). (already satisfied on 006-release-distribution: its Verify passed before any work)
+- [ ] **T021** Rewrite the two bootstrap test files against the new key (FR-029).
   In `tests/integrations/claude_code/test_bootstrap.py`: `ready_key` becomes the pinned version;
   `test_a_changed_lock_is_what_makes_the_marker_stale` and
   `test_a_changed_root_is_what_makes_the_marker_stale` become one test that a changed **pin**
@@ -289,10 +289,10 @@ T018**, or the suite is red with no honest way to make it green.
   update the mirrored `ready_key` helper and the message assertion.
   - Verify: `uv run pytest -q tests/cli/test_bootstrap.py tests/integrations/claude_code/test_bootstrap.py`
 
-- [X] **T022** [P] Correct the docstrings in `processrecall/cli/bootstrap.py` that describe the
+- [ ] **T022** [P] Correct the docstrings in `processrecall/cli/bootstrap.py` that describe the
   retired behaviour — "the lock it syncs from" on `Installation.root` and the "sync again"
   paragraph on the force path. Behaviour is unchanged: the command still runs `bin/bootstrap.sh`
-  so that debugging an install by hand is never debugging a second implementation of it. (already satisfied on 006-release-distribution: its Verify passed before any work)
+  so that debugging an install by hand is never debugging a second implementation of it.
   - Verify: `uv run pytest -q tests/cli/test_bootstrap.py`
 
 ---
@@ -301,51 +301,51 @@ T018**, or the suite is red with no honest way to make it green.
 
 > Gated with Phase 5. The switch is a branch inside the rewritten preparation script.
 
-- [X] **T023** Add the development switch to `bin/bootstrap.sh`: when
+- [ ] **T023** Add the development switch to `bin/bootstrap.sh`: when
   `PROCESSRECALL_PLUGIN_SOURCE=checkout` is set, prepare the environment from the plugin root as
   an editable install instead of from the index, keyed on the same version string. Off by
   default, so the development path can never be what an end user silently gets. Add a test to
   `tests/integrations/claude_code/test_bootstrap.py` for both directions — set, it installs from
   the root; unset, it installs the pin — and name the switch in the readme's development
-  section (T024). (already satisfied on 006-release-distribution: its Verify passed before any work)
+  section (T024).
   - Verify: `uv run pytest -q tests/integrations/claude_code/test_bootstrap.py`
 
 ---
 
 ## Phase 7: Documentation the change made false (FR-027, FR-028)
 
-- [X] **T024** Extend `## Install` in `README.md` with the direct route — installing the package
+- [ ] **T024** Extend `## Install` in `README.md` with the direct route — installing the package
   and running it by name — naming **both** console entry points, which
   `tests/test_readme_install.py` requires of this section. Leave the marketplace commands and the
   paragraphs describing plugin preparation alone: Phase 5 has not landed, so they are still true.
   Keep every link absolute: the readme is the published description and relative links resolve
-  against the index and 404 there. (already satisfied on 006-release-distribution: its Verify passed before any work)
+  against the index and 404 there.
   - Verify: `uv run pytest -q tests/test_readme_install.py`
 
-- [X] **T024a** Document the recovery route (FR-015a) in `README.md` or `docs/design.md`,
+- [ ] **T024a** Document the recovery route (FR-015a) in `README.md` or `docs/design.md`,
   wherever releasing is described: a broken published version is superseded by a new patch
   version with the plugin pin advanced to it, **and then** withdrawn from the index so new
   installs cannot select it. Withdrawal alone strands every plugin user pinned to that exact
-  number. No published version is ever deleted or its number reused. (already satisfied on 006-release-distribution: its Verify passed before any work)
+  number. No published version is ever deleted or its number reused.
   - Verify: `uv run pytest -q tests/test_docs_shape.py`
 
-- [X] **T024b** *(gated with Phase 5)* Rewrite the plugin half of `## Install`: replace the
+- [ ] **T024b** *(gated with Phase 5)* Rewrite the plugin half of `## Install`: replace the
   lock-file sync and `uv run` launch paragraphs with what then happens — the first session
   installs the pinned release once and the memory server runs that release — and document the
-  development switch from T023 in the checkout paragraph. (already satisfied on 006-release-distribution: its Verify passed before any work)
+  development switch from T023 in the checkout paragraph.
   - Verify: `uv run pytest -q tests/test_readme_install.py`
 
-- [X] **T025** [P] Correct the sentences in `docs/design.md` and `docs/architecture.md` that the
+- [ ] **T025** [P] Correct the sentences in `docs/design.md` and `docs/architecture.md` that the
   backend switch made false, and amend the design record with that decision. Update the
   sentence, not the section: documentation is updated only where the change made it false. The
   `uv sync` description of plugin preparation is **gated with Phase 5** — it is still true until
-  that phase lands, and is corrected there alongside T024b. (already satisfied on 006-release-distribution: its Verify passed before any work)
+  that phase lands, and is corrected there alongside T024b.
   - Verify: `uv run pytest -q tests/test_docs_shape.py`
 
-- [X] **T026** [P] Correct the three docstrings and one assertion message that still narrate the
+- [ ] **T026** [P] Correct the three docstrings and one assertion message that still narrate the
   retired backend configuration: the module docstring and line-72 message in
   `tests/test_readme_install.py`, and the comment at `tests/test_removal_ledger.py:104`. These
-  describe configuration that no longer exists; the properties they assert are unaffected. (already satisfied on 006-release-distribution: its Verify passed before any work)
+  describe configuration that no longer exists; the properties they assert are unaffected.
   - Verify: `uv run pytest -q tests/test_readme_install.py tests/test_removal_ledger.py`
 
 ---
