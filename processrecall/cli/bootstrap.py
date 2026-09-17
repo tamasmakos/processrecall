@@ -33,7 +33,7 @@ class Installation:
     """Where the plugin is installed, and where its environment is prepared.
 
     Attributes:
-        root: The plugin root, holding the script and the lock it syncs from.
+        root: The plugin root, holding the script and the manifest it reads the pin from.
         data: The harness-provided data directory the venv is built under.
     """
 
@@ -56,8 +56,8 @@ def prepare(force: bool) -> str | None:
     """Prepare the plugin's environment; the reason it is not, or ``None``.
 
     *force* drops the ready marker rather than passing a flag the script does
-    not have: the marker matching this version is the whole of the fast path,
-    so removing it is what "sync again" means (R14).
+    not have: the marker matching the pinned version is the whole of the fast
+    path, so removing it is what "install the pin again" means (R14).
 
     The script reports a failure as one `systemMessage` and exits 0, since a
     hook that exited non-zero would break the session; the message is what a

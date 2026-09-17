@@ -2,10 +2,12 @@
 
 What survives the fork are the claims that hold for any wheel: the install
 section names the console entry points `[project.scripts]` declares, its links
-are absolute because the README is the PyPI long description, and a `scripts/`
-path is qualified as checkout-only — the wheel ships only the `processrecall`
-package (`[tool.hatch.build.targets.wheel] packages = ["processrecall"]`), so
-`scripts/` does not exist after a pip install.
+are absolute because the README is the PyPI long description, a `scripts/`
+path is qualified as checkout-only — `uv_build` ships only the `processrecall`
+module at the repository root (`[tool.uv.build-backend] module-root = ""`), so
+`scripts/` does not exist after a pip install — and the section documents the
+direct install route (`pip`/`uv tool install`) alongside the Claude Code
+plugin route.
 
 The two ArcadeDB assertions that stood here are gone with the service. R18
 drops the graph database, the five runtime dependencies do not include it, and
@@ -23,6 +25,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = REPO_ROOT / "pyproject.toml"
+PLUGIN_MANIFEST = REPO_ROOT / ".claude-plugin/plugin.json"
+RETIRED_PREPARATION = ("syncs the plugin's own virtual environment",)
 
 
 def _install_section() -> str:
@@ -68,8 +72,41 @@ def test_scripts_path_is_qualified_as_checkout_only() -> None:
     qualifiers = ("clone", "checkout", "repo")
     assert any(q in lowered for q in qualifiers), (
         "Install section references a scripts/ path (e.g. 'python scripts/bake_models.py'), "
-        "but the wheel ships only the processrecall package "
-        '([tool.hatch.build.targets.wheel] packages = ["processrecall"]), so scripts/ does not '
+        "but uv_build ships only the processrecall module at the repository root "
+        '([tool.uv.build-backend] module-root = ""), so scripts/ does not '
         "exist after `pip install processrecall` — the section must qualify this as requiring a "
         "repo clone/checkout (no mention of: " + ", ".join(qualifiers) + ")"
+    )
+
+
+def test_documents_direct_install_route() -> None:
+    section = _install_section()
+    distribution = _pyproject()["project"]["name"]
+    installer = rf"(?:pip|pipx|uv pip|uv tool)\s+install\s+{re.escape(distribution)}\b"
+    assert re.search(installer, section), (
+        f"Install section never shows how to install {distribution!r} from the index "
+        "(e.g. `uv tool install processrecall`); it documents only the Claude Code "
+        "plugin route, so a reader outside Claude Code is not told the package is "
+        "installable on its own"
+    )
+
+
+def test_plugin_route_does_not_narrate_the_retired_preparation() -> None:
+    section = _install_section()
+    surviving = [phrase for phrase in RETIRED_PREPARATION if phrase in section]
+    assert not surviving, (
+        "Install section still describes the retired preparation: bootstrap no longer syncs "
+        "a project environment, it installs the pinned release from the index once. "
+        f"Retired phrase(s) left in the section: {surviving}"
+    )
+
+
+def test_plugin_route_names_where_the_installed_version_is_pinned() -> None:
+    section = _install_section()
+    assert PLUGIN_MANIFEST.exists(), f"{PLUGIN_MANIFEST} does not exist"
+    assert ".claude-plugin/plugin.json" in section, (
+        "Install section never points at .claude-plugin/plugin.json, where the version a "
+        "plugin install gets is pinned: the first session installs that release from the "
+        "index, so a reader who cannot find the pin cannot tell what the plugin is about to "
+        "run, nor what upgrading it means"
     )

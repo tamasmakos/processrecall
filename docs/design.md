@@ -176,8 +176,8 @@ index*.
   stays a Python interface until a refiner exists.
 
 ### 3.13 Deferred
-- Evaluation harness (replay, next-step top-k, loop rate, entity recall). Prototypes move
-  unchanged to `research/` as its seed.
+- Evaluation harness (replay, next-step top-k, loop rate, entity recall). The prototypes
+  seed it, kept unchanged outside the published tree.
 - Self-evolution refiner (later a Claude skill, not a separate LLM client).
 - Entity layer, bitemporal validity, tree-sitter-bash, OTel adapter, second harness,
   marketplace listing.
@@ -217,7 +217,8 @@ into via a plugin setting. Development via `--plugin-dir`; marketplace later.
 - Extra `classify`: `gliner2`, `torch`, `transformers`.
 - Removed: spacy, nltk, dateparser, gliner, sentence-transformers, rank-bm25, numpy,
   httpx, dspy, litellm, rdflib, networkx, langgraph, langfuse.
-- Python 3.11+, hatchling, ruff, mypy, import-linter, deptry, bandit retained.
+- Python 3.11+, ruff, mypy, import-linter, deptry, bandit retained; spec 006 swapped the
+  build backend for `uv_build`, which ships the module root whole instead of declaring packs.
 
 ## 6. Removal ledger
 
@@ -226,11 +227,16 @@ SKOS/WordNet ontology stack, relex model and vendored verifier, spaCy and nltk c
 dspy/litellm LLM decoder, embedder, retriever and channels (except the 23-line RRF
 function), `Memory` facade, LangGraph integration, document packs, `evaluation/`, all
 GraphKnows docs and ADRs, CHANGELOG, CONTRIBUTING, tests of deleted code, integration
-and release CI jobs, multi-tenancy.
+CI jobs (release CI jobs returned with spec 006, below), multi-tenancy.
 
 In: SEON as a JSON pack, v3 shell grammar and step model, v4 taxonomy levels and action
 templates, v5 back-off n-gram and artifact conditioning, hooks stdin/stdout framing, RRF,
 code parser (rebuilt), MCP server scaffolding (rewritten tools).
+
+Back in, amended by spec 006: the release CI jobs, in a shape the fork had no use for at
+the time. A version tag runs `.github/workflows/release.yml`, which builds one distribution,
+publishes it to PyPI and lists the stdio server in the MCP registry. `deploy/` and the
+release image workflow stay out.
 
 ## 7. Process
 

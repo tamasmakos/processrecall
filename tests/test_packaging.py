@@ -6,9 +6,9 @@ package's declared surface shrinks with it (FR-074, R15):
   * the runtime dependency set is exactly five names, each with a lower
     bound — a sixth is a decision, never a drift;
   * `classify` is the only extra (FR-060, FR-071);
-  * the two packs are data, not code, and hatchling ships data only when told
-    to (FR-024) — so the declaration is asserted here, and the archive check
-    that proves it reaches the wheel sits beside it.
+  * the two packs are data, not code (FR-024) — the backend ships everything
+    under the module root and cannot silently drop them, so what is asserted
+    here is the backend pin, and the archive check that proves it stands beside.
 
 The metadata assertions read pyproject.toml with tomllib and run in
 milliseconds; only the wheel assertion builds anything.
@@ -20,10 +20,15 @@ import ast
 import re
 import subprocess
 import sys
+import tarfile
 import tomllib
 import zipfile
+from fnmatch import fnmatch
+from importlib import import_module
 from importlib.metadata import packages_distributions
+from importlib.util import find_spec
 from pathlib import Path
+from typing import Literal
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PKG_ROOT = REPO_ROOT / "processrecall"
@@ -35,7 +40,7 @@ RUNTIME_DEPENDENCIES = frozenset(
     {"pydantic", "pydantic-settings", "tree-sitter", "tree-sitter-language-pack", "mcp"}
 )
 
-#: FR-024 / R15: the two data packs hatchling has to be told to ship.
+#: FR-024 / R15: the two data packs the built archive has to carry.
 PACK_GLOBS = (
     "processrecall/symbolic/data/**/*.json",
     "processrecall/trajectory/vocab/**/*.json",
@@ -44,10 +49,47 @@ PACK_GLOBS = (
 #: The directories those globs live under, as the archive spells them.
 PACK_DIRS = tuple(glob.split("**")[0] for glob in PACK_GLOBS)
 
+#: The file extension each `uv build --<kind>` produces. The built archive is
+#: found by suffix rather than by listing the directory, because uv also writes
+#: a `.gitignore` beside it.
+ARCHIVE_SUFFIX = {"wheel": ".whl", "sdist": ".tar.gz"}
+
+#: R2: what a stranger needs to rebuild the package from the sdist alone,
+#: including a non-trivial module and a member from each shipped pack —
+#: an sdist carrying only `__init__.py` must fail this list.
+SDIST_REQUIRED = (
+    "pyproject.toml",
+    "processrecall/__init__.py",
+    "processrecall/config.py",
+    "processrecall/symbolic/data/seon_activities.json",
+    "processrecall/trajectory/vocab/claude_code.json",
+)
+
+#: R2: tracked directories that are workspace, not source. hatchling dropped
+#: them only because they were listed; uv_build never reaches outside the module
+#: root, and this is what proves it still does not. `research/` was a third
+#: entry until its prototypes left the repository; a prefix no path can have is
+#: not evidence of anything.
+SDIST_EXCLUDED_DIRS = ("tests/", ".claude/")
+
+#: The backend's two exclusion lists. Both are absent today (R2), and with no
+#: force-include list left to contradict one, a pattern added here is the single
+#: edit that can empty a pack without touching a line of code.
+EXCLUDE_KEYS = ("source-exclude", "wheel-exclude")
+
 #: R15 / FR-074: the recorded ceiling for the built wheel. Like the coverage
 #: floor, it may be ratcheted down but never raised — raising it is the moment
 #: the dependency reduction stops being measurable.
 WHEEL_CEILING_BYTES = 1024 * 1024
+
+#: The one callable both console scripts resolve to: the MCP stdio server's
+#: no-argument entry point.
+STDIO_SERVER_ENTRY_POINT = "processrecall.server.mcp.stdio_server:main"
+
+#: FR-007 / R7: the owner's `mcp-publisher validate` run reported a 100-character
+#: cap the registry docs do not state. Treated as real — the cost is a shorter
+#: sentence, the cost of being wrong is a spent version number.
+REGISTRY_DESCRIPTION_LIMIT = 100
 
 
 def _pyproject() -> dict:
@@ -72,14 +114,41 @@ def _declared_distributions() -> set[str]:
     return declared
 
 
-def _build_wheel(out_dir: Path) -> Path:
-    """Build the project's wheel into *out_dir* and return the built file."""
+def _build_archive(out_dir: Path, kind: Literal["wheel", "sdist"]) -> Path:
+    """Build the project's *kind* (`wheel` or `sdist`) into an empty *out_dir*."""
     subprocess.run(
-        ["uv", "build", "--wheel", "--out-dir", str(out_dir), str(REPO_ROOT)], check=True
+        ["uv", "build", f"--{kind}", "--out-dir", str(out_dir), str(REPO_ROOT)], check=True
     )
-    built = sorted(out_dir.glob("*.whl"))
-    assert len(built) == 1, f"expected exactly one wheel in {out_dir}, got {built}"
+    built = sorted(out_dir.glob(f"*{ARCHIVE_SUFFIX[kind]}"))
+    assert len(built) == 1, f"expected exactly one {kind} in {out_dir}, got {built}"
     return built[0]
+
+
+def _without_root(member: str) -> str:
+    """Strip the sdist's `name-version/` top-level directory from *member*."""
+    return member.partition("/")[2]
+
+
+def _exclusion_conflicts_with_data(build_backend: dict) -> list[str]:
+    """Every declared exclusion pattern that hides a `.json` file the packs ship.
+
+    Matching uses `fnmatch`, whose `*` crosses `/` where the backend's does not,
+    so a pattern the backend would apply narrowly is flagged here rather than
+    missed: the cost of a false positive is a sentence, the cost of a false
+    negative is a release whose concept index is empty.
+    """
+    data_paths = [
+        path.relative_to(REPO_ROOT).as_posix()
+        for glob in PACK_GLOBS
+        for path in REPO_ROOT.glob(glob)
+    ]
+    return [
+        f"{key} pattern {pattern!r} excludes {data_path}"
+        for key in EXCLUDE_KEYS
+        for pattern in build_backend.get(key, [])
+        for data_path in data_paths
+        if fnmatch(data_path, pattern)
+    ]
 
 
 def _source_files() -> list[Path]:
@@ -141,34 +210,78 @@ def test_classify_is_the_only_extra() -> None:
     assert not unbounded, f"[classify] specs without a lower bound: {unbounded}"
 
 
-def test_both_packs_are_declared_to_hatchling() -> None:
-    """The concept index and the tool vocabularies are JSON, and JSON is easy to lose.
+def test_the_description_fits_the_registry_limit() -> None:
+    """FR-007: one user-facing sentence, short enough for the registry to take.
 
-    `packages` ships the package directory, but hatchling drops anything the
-    VCS ignores; only `artifacts` force-includes the packs. Without this line a
-    future `*.json` ignore rule produces an installed package whose loaders have
-    nothing to load — and nothing but the wheel check would notice.
+    Whether that sentence matches the plugin manifest's is
+    `test_plugin_manifest.py`'s invariant to hold; this test only bounds its length.
     """
-    wheel = _pyproject()["tool"]["hatch"]["build"]["targets"]["wheel"]
-    assert wheel["packages"] == ["processrecall"]
+    description = _pyproject()["project"]["description"]
+    assert len(description) <= REGISTRY_DESCRIPTION_LIMIT, (
+        f"description is {len(description)} characters, over the registry's "
+        f"{REGISTRY_DESCRIPTION_LIMIT}: {description!r}"
+    )
 
-    declared = set(wheel.get("artifacts", []))
-    missing = [glob for glob in PACK_GLOBS if glob not in declared]
-    assert not missing, f"pack data not declared to the build backend: {missing}"
+
+def test_the_backend_is_pinned_and_the_flat_layout_is_declared() -> None:
+    """R2: the packs ship because of which backend builds them, so it is pinned.
+
+    `uv_build` packages the whole module directory and never consults the VCS,
+    which is why no force-include list remains. That guarantee belongs to a
+    version range: unbounded, a future major could change the default contents
+    with nothing here to notice. The flat layout is not its default either —
+    without an empty `module-root` the backend looks for `src/` and finds none.
+    """
+    build_system = _pyproject()["build-system"]
+    assert build_system["build-backend"] == "uv_build"
+
+    pins = [spec for spec in build_system["requires"] if _requirement_name(spec) == "uv-build"]
+    assert len(pins) == 1, f"expected exactly one uv_build requirement, got {pins}"
+
+    operators = set(re.findall(r"[<>]=?", pins[0]))
+    assert {">", ">="} & operators and {"<", "<="} & operators, (
+        f"build backend requirement {pins[0]!r} needs both a lower and an upper bound"
+    )
+
+    build_backend = _pyproject()["tool"]["uv"]["build-backend"]
+    assert build_backend["module-root"] == "", (
+        "this repository is a flat layout: module-root must be empty, not the default src/"
+    )
+
+
+def test_the_distribution_name_is_a_console_script() -> None:
+    """The distribution name starts the stdio server with no arguments.
+
+    Registry clients run a published package by its distribution name, so
+    the entry point named exactly `project.name` has to exist and resolve.
+    Resolution after a plain install, in an environment that never saw the
+    source tree, is the smoke test's job (T009); this only checks that the
+    module and attribute are importable in the checkout.
+    """
+    project = _pyproject()["project"]
+    scripts = project["scripts"]
+    assert scripts.get(project["name"]) == STDIO_SERVER_ENTRY_POINT, (
+        f"the distribution name must be a console script bound to "
+        f"{STDIO_SERVER_ENTRY_POINT!r}, found {scripts.get(project['name'])!r}"
+    )
+
+    module_path, _, attribute = STDIO_SERVER_ENTRY_POINT.partition(":")
+    assert find_spec(module_path) is not None, f"{module_path} is declared but not importable"
+    assert hasattr(import_module(module_path), attribute), f"{module_path} has no {attribute}()"
 
 
 def test_wheel_under_ceiling_and_ships_both_packs(tmp_path: Path) -> None:
     """FR-074 / SC-012: the built wheel is the measurable outcome of the subtraction.
 
-    The declaration test above reads pyproject.toml; this one reads the archive
-    hatchling actually produced, which is the only place both facts are true at
-    once — the size a stranger downloads, and the packs being inside it.
+    The test above reads pyproject.toml; this one reads the archive the backend
+    actually produced, which is the only place both facts are true at once —
+    the size a stranger downloads, and the packs being inside it.
 
     This builds a wheel and takes seconds, not milliseconds; the cost is
     accepted on every run rather than gated behind an opt-in marker, since
     neither the gate script nor CI deselects `slow` today.
     """
-    wheel = _build_wheel(tmp_path)
+    wheel = _build_archive(tmp_path, "wheel")
 
     size = wheel.stat().st_size
     assert size < WHEEL_CEILING_BYTES, (
@@ -180,6 +293,37 @@ def test_wheel_under_ceiling_and_ships_both_packs(tmp_path: Path) -> None:
         shipped = archive.namelist()
     missing = [d for d in PACK_DIRS if not any(name.startswith(d) for name in shipped)]
     assert not missing, f"{wheel.name} ships no pack data under: {missing}"
+
+
+def test_the_sdist_carries_the_source_and_not_the_workspace(tmp_path: Path) -> None:
+    """R2: the sdist is a rebuildable source tree, and nothing beside it.
+
+    Since the backend configuration is now empty, nothing in pyproject.toml
+    states which files ship — so the archive is the only place that answer
+    exists, in both directions: the manifest and the package have to be in it,
+    and the tracked workspace directories have to be out of it.
+
+    """
+    sdist = _build_archive(tmp_path, "sdist")
+
+    with tarfile.open(sdist) as archive:
+        members = [_without_root(name) for name in archive.getnames()]
+
+    missing = [required for required in SDIST_REQUIRED if required not in members]
+    assert not missing, f"{sdist.name} cannot rebuild the package, it is missing: {missing}"
+
+    workspace = sorted(name for name in members if name.startswith(SDIST_EXCLUDED_DIRS))
+    assert not workspace, f"{sdist.name} ships workspace files, not source: {workspace}"
+
+
+def test_exclusion_lists_do_not_hide_pack_data() -> None:
+    """R2: the one edit that can empty a pack silently, with no force-include
+
+    list left to contradict it. This reads only pyproject.toml and runs in
+    milliseconds, unlike the sdist build above.
+    """
+    reaching = _exclusion_conflicts_with_data(_pyproject()["tool"]["uv"]["build-backend"])
+    assert not reaching, "build exclusions would drop shipped data:\n  " + "\n  ".join(reaching)
 
 
 def test_every_imported_third_party_module_is_declared() -> None:

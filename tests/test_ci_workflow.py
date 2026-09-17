@@ -1,4 +1,4 @@
-"""CI workflow contract: what ci.yml must keep doing.
+"""Workflow contract: what ci.yml and release.yml must keep doing.
 
   * `wheel` must build both distributions and upload `dist/`: building
     `--wheel` only would leave the sdist the project ships
@@ -17,6 +17,10 @@ see it is a vulnerability silently un-ignored.
   * Every third-party `uses:` reference must be pinned to a commit hash, not
     a mutable tag, so that what CI executes cannot change without a commit
     here.
+
+  * `release.yml` must check the tag against the declared version before it
+    builds, and must keep the publishing identity out of the job that checks
+    this repository out.
 """
 
 from __future__ import annotations
@@ -31,23 +35,39 @@ pytestmark = pytest.mark.unit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
 PIP_AUDIT_IGNORE = REPO_ROOT / ".pip-audit-ignore"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 
 CI_TEXT = CI_WORKFLOW.read_text(encoding="utf-8")
+RELEASE_TEXT = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+WORKFLOW_TEXT = {CI_WORKFLOW: CI_TEXT, RELEASE_WORKFLOW: RELEASE_TEXT}
 
 
-def _job_text(name: str) -> str:
-    """Slice a top-level job's text out of CI_TEXT, from `^  <name>:$` up to
+def _job_text(workflow_path: Path, name: str) -> str:
+    """Slice a top-level job's text out of a workflow, from `^  <name>:$` up to
     the next top-level job key (`^  \\w[\\w-]*:$`) or end of file, so
     assertions scoped to one job cannot be satisfied by a setting that lives
     in another job."""
-    match = re.search(rf"^  {re.escape(name)}:$", CI_TEXT, re.MULTILINE)
-    assert match is not None, f"{CI_WORKFLOW}: no `  {name}:` job found"
+    workflow_text = WORKFLOW_TEXT[workflow_path]
+    match = re.search(rf"^  {re.escape(name)}:$", workflow_text, re.MULTILINE)
+    assert match is not None, f"{workflow_path}: no `  {name}:` job found"
     start = match.end()
-    next_job = re.search(r"^  \w[\w-]*:$", CI_TEXT[start:], re.MULTILINE)
-    end = start + next_job.start() if next_job else len(CI_TEXT)
-    return CI_TEXT[start:end]
+    next_job = re.search(r"^  \w[\w-]*:$", workflow_text[start:], re.MULTILINE)
+    end = start + next_job.start() if next_job else len(workflow_text)
+    return workflow_text[start:end]
+
+
+def _step_text(job_text: str, needle: str) -> str:
+    """Slice the single step containing `needle` out of a job's text, from its
+    `      - ` bullet up to the next one, so assertions scoped to one step
+    cannot be satisfied by a setting that lives in a neighbouring step."""
+    assert needle in job_text, f"{CI_WORKFLOW}: no step containing {needle!r} found"
+    index = job_text.index(needle)
+    start = job_text.rfind("\n      - ", 0, index) + 1
+    next_step = re.search(r"^      - ", job_text[index:], re.MULTILINE)
+    end = index + next_step.start() if next_step else len(job_text)
+    return job_text[start:end]
 
 
 def test_gate_job_checks_out_full_history() -> None:
@@ -57,7 +77,7 @@ def test_gate_job_checks_out_full_history() -> None:
     This setting was previously attributed to a now-deleted external-analysis
     step and was deleted with it — this test is what stops that happening
     again."""
-    gate_text = _job_text("gate")
+    gate_text = _job_text(CI_WORKFLOW, "gate")
     assert "fetch-depth: 0" in gate_text, (
         f"{CI_WORKFLOW}: `gate` job checkout has no `fetch-depth: 0` — "
         "diff-cover has no origin/<base> to compare against"
@@ -70,7 +90,7 @@ def test_diff_coverage_step_is_guarded_on_a_succeeded_suite_and_a_pull_request()
     new-code number got pinned at zero, and a collection error leaves no
     coverage.xml so a permissive guard adds a missing-file error on top of
     the real failure."""
-    gate_text = _job_text("gate")
+    gate_text = _job_text(CI_WORKFLOW, "gate")
     assert "diff-cover" in gate_text, f"{CI_WORKFLOW}: `gate` job has no `diff-cover` invocation"
     idx = gate_text.index("diff-cover")
     block_start = gate_text.rfind("\n      - ", 0, idx) + 1
@@ -98,7 +118,7 @@ def test_diff_coverage_step_is_guarded_on_a_succeeded_suite_and_a_pull_request()
 def test_diff_coverage_threshold_is_a_distinct_constant_from_the_repo_floor() -> None:
     """The two thresholds are never expressed in terms of each other, so
     ratcheting one cannot silently move the other."""
-    gate_text = _job_text("gate")
+    gate_text = _job_text(CI_WORKFLOW, "gate")
     repo_floor_match = re.search(r"--cov-fail-under=(\d+)", gate_text)
     diff_threshold_match = re.search(r'DIFF_COVERAGE_MIN:\s*"?(\d+)"?', gate_text)
     assert repo_floor_match is not None, (
@@ -139,16 +159,20 @@ def test_main_runs_are_never_cancelled() -> None:
 
 def test_wheel_job_produces_both_distributions() -> None:
     """The `wheel` job must build and upload both the wheel and the sdist the
-    project ships (`[tool.hatch.build.targets.sdist]`), not just build a
-    wheel and throw `dist/` away — otherwise the `smoke` job has nothing to
-    install and the sdist is never built at all."""
+    project ships (`[tool.uv.build-backend]`), not just build a wheel and
+    throw `dist/` away — otherwise the `smoke` job has nothing to install and
+    the sdist is never built at all. It must build with `--no-sources`, the
+    way `release.yml` does, or the merge gate proves an artifact that only
+    this workspace's source overrides can reproduce."""
     assert not re.search(r"uv build --wheel\b", CI_TEXT), (
         f"{CI_WORKFLOW}: still runs `uv build --wheel` — the wheel-only build "
-        "this job must be replaced by a plain `uv build` (wheel + sdist)"
+        "this job must be replaced by `uv build --no-sources` (wheel + sdist)"
     )
-    assert re.search(r"^\s*run: uv build\s*$", CI_TEXT, re.MULTILINE), (
-        f"{CI_WORKFLOW}: no plain `uv build` invocation found (must build "
-        "both the wheel and the sdist)"
+    build_run = re.search(r"^\s*run: uv build\b.*$", CI_TEXT, re.MULTILINE)
+    assert build_run is not None and "--no-sources" in build_run.group(0), (
+        f"{CI_WORKFLOW}: no `uv build --no-sources` invocation found — the "
+        "merge gate must build both the wheel and the sdist, and build them "
+        "the way `release.yml` does"
     )
     assert "dist/*.tar.gz" in CI_TEXT or ".tar.gz" in CI_TEXT, (
         f"{CI_WORKFLOW}: the assertion step never checks the sdist "
@@ -193,13 +217,15 @@ def test_vulnerability_ledger_exists_and_is_machine_readable() -> None:
     )
 
 
-@pytest.mark.parametrize("workflow_path", [CI_WORKFLOW])
+@pytest.mark.parametrize(
+    "workflow_path", [CI_WORKFLOW, RELEASE_WORKFLOW], ids=lambda path: path.name
+)
 def test_third_party_actions_are_pinned_to_a_commit_hash(workflow_path: Path) -> None:
     """A mutable tag (`@v7`, `@v10.0.1`, ...) can be repointed by the action's
     owner at any time, so what CI actually executes could change with no
     commit in this repository. Every `uses:` reference carries a full hash
     plus a trailing `# <tag>` comment so the pin stays readable."""
-    workflow_text = workflow_path.read_text(encoding="utf-8")
+    workflow_text = WORKFLOW_TEXT[workflow_path]
     hash_pattern = re.compile(r"^[a-f0-9]{40}$")
     checked = 0
     for match in re.finditer(r"^\s*(?:- )?uses:\s*(\S+)(.*)$", workflow_text, re.MULTILINE):
@@ -222,6 +248,77 @@ def test_third_party_actions_are_pinned_to_a_commit_hash(workflow_path: Path) ->
         f"{workflow_path}: no third-party `uses:` references were checked — "
         "the matching regex is silently matching nothing"
     )
+
+
+def test_release_publishes_only_what_it_proved() -> None:
+    """The release workflow's value is the order of its steps and the split
+    between its jobs, and a linter can see neither.
+
+    A version is spent the moment it reaches the index: it can be yanked,
+    never reused. So the tag has to be checked against the declared version
+    *before* `dist/` exists, and the credential that can publish has to live
+    in a job that never sees this repository's source — otherwise a
+    compromised build step has something to spend. Both properties survive
+    `actionlint` and `zizmor` unscathed; this test is what holds them.
+    """
+    for tag_pattern in (
+        '"v[0-9]+.[0-9]+.[0-9]+"',
+        '"v[0-9]+.[0-9]+.[0-9]+rc[0-9]+"',
+        '"v[0-9]+.[0-9]+.[0-9]+[ab][0-9]+"',
+    ):
+        assert tag_pattern in RELEASE_TEXT, (
+            f"{RELEASE_WORKFLOW}: no `{tag_pattern}` tag trigger — a release must "
+            "start for every version shape the version tool emits"
+        )
+
+    build_text = _job_text(RELEASE_WORKFLOW, "build")
+    publish_text = _job_text(RELEASE_WORKFLOW, "publish-pypi")
+
+    assert "needs: build" in publish_text, (
+        f"{RELEASE_WORKFLOW}: `publish-pypi` has no `needs: build` — it would "
+        "publish without the build job having proven anything"
+    )
+    assert "id-token: write" in publish_text, (
+        f"{RELEASE_WORKFLOW}: `publish-pypi` does not request `id-token: write` — "
+        "there is no trusted-publisher token to exchange without it"
+    )
+    assert "id-token" not in build_text, (
+        f"{RELEASE_WORKFLOW}: the `build` job requests `id-token` — the job that "
+        "checks this repository out must hold no credential that can publish"
+    )
+
+    version_guard = re.search(r"^\s*(?:run: )?.*uv version --short", build_text, re.MULTILINE)
+    build_step = re.search(r"^\s*(?:run: )?.*uv build\b", build_text, re.MULTILINE)
+    assert version_guard is not None, (
+        f"{RELEASE_WORKFLOW}: the `build` job never reads the declared version "
+        "(`uv version --short`), so it cannot check the tag against it"
+    )
+    assert build_step is not None, f"{RELEASE_WORKFLOW}: the `build` job runs no `uv build`"
+    assert "github.ref_name" in build_text, (
+        f"{RELEASE_WORKFLOW}: the `build` job never reads `github.ref_name`, so the "
+        "tag it is releasing is never compared to anything"
+    )
+    assert version_guard.start() < build_step.start(), (
+        f"{RELEASE_WORKFLOW}: the `build` job checks the tag against the declared "
+        "version after building — once dist/ exists the mistake is one step from "
+        "the index"
+    )
+    assert re.search(r"uv build.*--no-sources", build_text), (
+        f"{RELEASE_WORKFLOW}: `uv build` runs without `--no-sources`, so the published "
+        "artifact is built the way this workspace resolves rather than the way anyone "
+        "else would build it"
+    )
+
+    for distribution in ("dist/*.whl", "dist/*.tar.gz"):
+        assert re.search(
+            rf"--isolated --no-project --with {re.escape(distribution)}.*smoke_test\.py",
+            build_text,
+        ), (
+            f"{RELEASE_WORKFLOW}: nothing runs the smoke test against `{distribution}` in "
+            "isolation — FR-015 requires `--isolated --no-project` on the same line as "
+            "`--with dist/*` or the source tree checked out in this job leaks into the "
+            "smoke test"
+        )
 
 
 def test_ci_runs_the_service_free_gate() -> None:
@@ -251,7 +348,7 @@ def test_ci_runs_the_service_free_gate() -> None:
         f"{CI_WORKFLOW}: still names the `evaluation` target, which this tree does not ship"
     )
 
-    gate_text = _job_text("gate")
+    gate_text = _job_text(CI_WORKFLOW, "gate")
     for check in (
         "ruff check",
         "ruff format",
@@ -272,7 +369,7 @@ def test_smoke_job_declares_the_interpreters_the_classifiers_name() -> None:
     installs and imports the built wheel on each one. If the two lists
     diverge, either CI is silently skipping an advertised interpreter or the
     classifiers are advertising one nothing ever tests."""
-    smoke_text = _job_text("smoke")
+    smoke_text = _job_text(CI_WORKFLOW, "smoke")
 
     python_version_line = re.search(r"^\s*python-version:.*$", smoke_text, re.MULTILINE)
     assert python_version_line is not None, (
@@ -314,7 +411,7 @@ def test_the_plugin_declaration_is_exercised_on_windows() -> None:
     Scoped to the declaration and packaging tests rather than the whole suite:
     this buys the one property Linux cannot prove, and nothing else.
     """
-    plugin_text = _job_text("plugin")
+    plugin_text = _job_text(CI_WORKFLOW, "plugin")
     assert "windows-latest" in plugin_text, (
         f"{CI_WORKFLOW}: the `plugin` job does not run on windows-latest — the "
         "launch declarations are exactly what a Linux-only matrix cannot check"
@@ -333,3 +430,170 @@ def test_the_plugin_declaration_is_exercised_on_windows() -> None:
         f"{CI_WORKFLOW}: the `plugin` job must select the `slow` marker — the "
         "live handshake is the only check that actually spawns the server"
     )
+
+
+def test_the_registry_entry_is_validated_while_the_change_is_a_proposal() -> None:
+    """A version number is spent the moment it reaches the registry, and the
+    failures only the registry can see — an over-length description, a name
+    that does not match the readme's ownership marker — are otherwise
+    discovered after publication (SC-005). So `mcp-publisher validate` runs on
+    the proposal, in the one job that already has a matrix, on its Ubuntu leg
+    only: the entry is operating-system independent, and a second run of it on
+    Windows proves nothing twice.
+
+    The download is pinned to a release version for the same reason every
+    `uses:` above carries a commit hash — `releases/latest` lets what this
+    pipeline executes change with no commit here. A release tag can still
+    move its asset, so the tarball's sha256 is checked before it is trusted.
+    """
+    plugin_text = _job_text(CI_WORKFLOW, "plugin")
+    assert "mcp-publisher validate" in plugin_text, (
+        f"{CI_WORKFLOW}: the `plugin` job never runs `mcp-publisher validate` — "
+        "nothing checks the registry entry while the change is still a proposal"
+    )
+
+    step_text = _step_text(plugin_text, "mcp-publisher validate")
+    if_match = re.search(r"^\s*if:.*$", step_text, re.MULTILINE)
+    assert if_match is not None and "ubuntu-latest" in if_match.group(0), (
+        f"{CI_WORKFLOW}: the `mcp-publisher validate` step is not guarded on the "
+        "Ubuntu matrix leg — the registry entry is operating-system independent "
+        "and the publisher ships no Windows leg of this check"
+    )
+
+    download_url = re.search(r"https://\S*mcp-publisher\S*", step_text)
+    assert download_url is not None, (
+        f"{CI_WORKFLOW}: the `mcp-publisher validate` step downloads no publisher — "
+        "there is no such tool preinstalled on the runner"
+    )
+    assert re.search(r"/releases/download/v\d+\.\d+\.\d+/", download_url.group(0)), (
+        f"{CI_WORKFLOW}: the publisher download is not pinned to a release version "
+        f"(`/releases/download/v<major>.<minor>.<patch>/`) — got: {download_url.group(0)!r}"
+    )
+
+    assert re.search(r"sha256sum\s+-c\s+-", step_text), (
+        f"{CI_WORKFLOW}: the `mcp-publisher validate` step does not verify the "
+        "downloaded tarball's sha256 — a release tag can still move its asset, "
+        "so pinning the version alone does not fix what CI executes"
+    )
+
+
+def test_the_registry_listing_is_published_after_the_index_by_a_short_lived_identity() -> None:
+    """The registry verifies ownership against the description PyPI is
+    serving, so the listing cannot be published before the upload it points
+    at (FR-019). Its identity is the same kind the index is given (FR-012): an
+    OIDC token exchanged at the registry, never a stored credential.
+
+    Unlike `publish-pypi`, this job does check the repository out — the entry
+    it publishes is `server.json`, a file, not an artifact — and the publisher
+    download is pinned by version and sha256 for the same reason the
+    proposal-time check in ci.yml pins it.
+    """
+    registry_text = _job_text(RELEASE_WORKFLOW, "publish-mcp-registry")
+
+    assert "needs: publish-pypi" in registry_text, (
+        f"{RELEASE_WORKFLOW}: `publish-mcp-registry` has no `needs: publish-pypi` — "
+        "the registry verifies ownership against the published description, so a "
+        "listing written before the upload points at a version nobody can install"
+    )
+    assert "id-token: write" in registry_text, (
+        f"{RELEASE_WORKFLOW}: `publish-mcp-registry` does not request "
+        "`id-token: write` — there is no token to exchange with the registry "
+        "without it, and the alternative is a stored credential"
+    )
+    assert "actions/checkout@" in registry_text, (
+        f"{RELEASE_WORKFLOW}: `publish-mcp-registry` never checks the repository "
+        "out — the entry it publishes is `server.json`, which no build artifact carries"
+    )
+
+    for command in ("mcp-publisher validate", "mcp-publisher login github-oidc"):
+        assert command in registry_text, (
+            f"{RELEASE_WORKFLOW}: `publish-mcp-registry` never runs `{command}`"
+        )
+    assert re.search(r"mcp-publisher publish\b", registry_text), (
+        f"{RELEASE_WORKFLOW}: `publish-mcp-registry` never runs `mcp-publisher publish` — "
+        "the job leaves no listing behind"
+    )
+
+    download_url = re.search(r"https://\S*mcp-publisher\S*", registry_text)
+    assert download_url is not None, (
+        f"{RELEASE_WORKFLOW}: `publish-mcp-registry` downloads no publisher — "
+        "there is no such tool preinstalled on the runner"
+    )
+    assert re.search(r"/releases/download/v\d+\.\d+\.\d+/", download_url.group(0)), (
+        f"{RELEASE_WORKFLOW}: the publisher download is not pinned to a release "
+        f"version — got: {download_url.group(0)!r}"
+    )
+    assert re.search(r"sha256sum\s+-c\s+-", registry_text), (
+        f"{RELEASE_WORKFLOW}: `publish-mcp-registry` does not verify the downloaded "
+        "tarball's sha256 — a release tag can still move its asset"
+    )
+
+    ci_plugin_text = _job_text(CI_WORKFLOW, "plugin")
+    ci_download_url = re.search(r"https://\S*mcp-publisher\S*", ci_plugin_text)
+    ci_sha256 = re.search(r"echo \"(\w+)\s+mcp-publisher\.tar\.gz\"", ci_plugin_text)
+    release_sha256 = re.search(r"echo \"(\w+)\s+mcp-publisher\.tar\.gz\"", registry_text)
+    assert ci_download_url is not None and ci_sha256 is not None, (
+        f"{CI_WORKFLOW}: the `plugin` job's publisher bootstrap moved — update this "
+        "drift check alongside it"
+    )
+    assert release_sha256 is not None, (
+        f"{RELEASE_WORKFLOW}: `publish-mcp-registry`'s publisher bootstrap moved — "
+        "update this drift check alongside it"
+    )
+    assert download_url.group(0) == ci_download_url.group(0), (
+        f"{RELEASE_WORKFLOW} and {CI_WORKFLOW} download different mcp-publisher "
+        "builds — this pins the version and digest in two places, so bump both "
+        "or they silently diverge"
+    )
+    assert release_sha256.group(1) == ci_sha256.group(1), (
+        f"{RELEASE_WORKFLOW} and {CI_WORKFLOW} pin different mcp-publisher "
+        "sha256 digests — bump both or they silently diverge"
+    )
+
+
+def test_the_registry_publish_is_retried_and_the_index_upload_is_not() -> None:
+    """The index takes its own time to serve a new version's description, and
+    the registry reads that description to verify ownership. So the publish is
+    retried until the index catches up (FR-019) — bounded, because an
+    unbounded wait turns a dead registry into a hung release, and ending in a
+    failure, because a missing listing must leave the run red rather than pass
+    silently (FR-019a).
+
+    The retry stops at the registry. A PyPI upload is not idempotent: a
+    version is spent the moment it lands, so a second attempt at it can only
+    fail or, worse, race. And because this job rebuilds and re-uploads
+    nothing, re-running it alone recovers a listing that failed after a good
+    upload — no new version has to be cut.
+    """
+    registry_text = _job_text(RELEASE_WORKFLOW, "publish-mcp-registry")
+    publish_step = _step_text(registry_text, "mcp-publisher publish")
+
+    assert re.search(
+        r"for \w+ in (?:\d+ )+\d+; do"
+        r"|for \w+ in \$\(seq \d+ \d+\); do"
+        r"|-le \d+",
+        publish_step,
+    ), (
+        f"{RELEASE_WORKFLOW}: `mcp-publisher publish` is not wrapped in a bounded "
+        "retry over a literal attempt count — the index's propagation delay would "
+        "fail an otherwise good release, and an unbounded wait would hang it"
+    )
+    assert "while true" not in publish_step, (
+        f"{RELEASE_WORKFLOW}: the registry publish retries unboundedly — a registry "
+        "that is down must fail the run, not hold it open"
+    )
+    assert re.search(r"sleep \d+", publish_step), (
+        f"{RELEASE_WORKFLOW}: the registry publish retries without sleeping between "
+        "attempts — retrying instantly does not outlast a propagation delay"
+    )
+    assert re.search(r"^\s*exit 1$", publish_step, re.MULTILINE), (
+        f"{RELEASE_WORKFLOW}: the registry publish cannot fail the job once its "
+        "attempts are spent — a missing listing must be visible as a red run"
+    )
+
+    for rebuild in ("uv build", "download-artifact", "gh-action-pypi-publish"):
+        assert rebuild not in registry_text, (
+            f"{RELEASE_WORKFLOW}: `publish-mcp-registry` references `{rebuild}` — it "
+            "must rebuild and republish nothing, so that re-running it alone against "
+            "an already-published version recovers a failed listing"
+        )

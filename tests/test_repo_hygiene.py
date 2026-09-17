@@ -47,10 +47,17 @@ def test_scripts_directory_contains_exactly() -> None:
     # Only *.py/*.sh: a developer tree can carry __pycache__ or other tool
     # caches this test has no business asserting about.
     entries = {p.name for p in scripts_dir.iterdir() if p.suffix in (".py", ".sh")}
-    expected = {"bake_models.py", "preflight.py", "docker-entrypoint.sh", "gate.sh"}
+    expected = {
+        "bake_models.py",
+        "preflight.py",
+        "docker-entrypoint.sh",
+        "gate.sh",
+        "sync_version.py",
+    }
     assert entries == expected, (
         f"{scripts_dir}: expected exactly {expected}, found {entries} — "
-        "install-hooks.sh and sonar-publish.sh belong to removed workflows"
+        "install-hooks.sh and sonar-publish.sh belong to removed workflows, and "
+        "sync_version.py derives every version from pyproject.toml"
     )
 
 

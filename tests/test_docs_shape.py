@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 from processrecall.cli.__main__ import COMMANDS, SUBJECTS
@@ -10,6 +11,10 @@ from processrecall.integrations.claude_code.hooks import DENY_LIST, OPTOUT_MARKE
 from processrecall.server.mcp.stdio_server import TOOLS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+RECOVERY_HEADING = "## Recovering a broken release"
+RETIRED_BUILD_BACKEND = "hatchling"
+DEPENDENCIES_HEADING = "## 5. Dependencies"
+LEDGER_HEADING = "## 6. Removal ledger"
 
 
 def _package_source() -> str:
@@ -93,3 +98,80 @@ def test_docs_name_no_removed_service() -> None:
         assert not still_sold, (
             f"{document.relative_to(REPO_ROOT)} still documents the service: {still_sold}"
         )
+
+
+def _section_body(text: str, heading: str) -> str:
+    """The text under `heading`, up to the next heading of that level — empty if absent."""
+    if (start := text.find(f"\n{heading}\n")) == -1:
+        return ""
+    body = text[start + len(heading) + 2 :]
+    end = body.find("\n## ")
+    return body if end == -1 else body[:end]
+
+
+def test_docs_document_the_recovery_route() -> None:
+    """Recovery from a broken published version must be written down (FR-015a).
+
+    The route has five parts and only the whole of it is correct: a new patch
+    version supersedes the broken one, the plugin pin advances to it, the broken
+    version is withdrawn from the index, withdrawal alone is not the fix
+    because a plugin pinned to that exact number still resolves it, and no
+    version is ever deleted or its number reused. Each part is asserted on its
+    own so a rewrite that drops one fails here naming which.
+    """
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    section = _section_body(readme, RECOVERY_HEADING)
+    assert section, f"README.md has no {RECOVERY_HEADING!r} section"
+
+    required = {
+        "the superseding patch version": "patch version",
+        "the plugin pin advanced to it": ".claude-plugin/plugin.json",
+        "withdrawing the broken version from the index": "yank",
+        "that withdrawal alone is not the fix": "not the fix",
+        "that no version is deleted": "deleted",
+        "that no version number is reused": "reused",
+    }
+    missing = sorted(part for part, token in required.items() if token not in section)
+    assert not missing, f"{RECOVERY_HEADING} does not document {missing}"
+
+
+def test_design_docs_name_the_declared_build_backend() -> None:
+    """The toolchain the design record lists must be the one that builds the package (FR-028).
+
+    The backend is read off `pyproject.toml` rather than written out here, so a
+    later switch fails this check instead of ageing the design record in
+    silence. Only the dependency section is read: it must name the declared
+    backend and must not list the retired one among the tools it keeps.
+    """
+    manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    backend = manifest["build-system"]["build-backend"]
+
+    design = (REPO_ROOT / "docs" / "design.md").read_text(encoding="utf-8")
+    dependencies = _section_body(design, DEPENDENCIES_HEADING)
+    assert dependencies, f"docs/design.md has no {DEPENDENCIES_HEADING!r} section"
+    assert backend in dependencies, f"{DEPENDENCIES_HEADING} does not name the {backend} backend"
+    assert RETIRED_BUILD_BACKEND not in dependencies, (
+        f"{DEPENDENCIES_HEADING} still keeps {RETIRED_BUILD_BACKEND}, which no longer builds"
+    )
+
+
+def test_removal_ledger_records_what_replaced_the_release_machinery() -> None:
+    """The ledger may not still say the release machinery went with nothing after it (FR-028).
+
+    It recorded the release CI jobs as removed and unreplaced, which spec 006
+    made false. The amendment has three parts and only the whole of it is
+    correct: a version tag runs the release workflow, that workflow publishes
+    to PyPI, and it lists the server in the MCP registry. Each part is asserted
+    on its own so a rewrite that drops one fails here naming which.
+    """
+    design = (REPO_ROOT / "docs" / "design.md").read_text(encoding="utf-8")
+    ledger = _section_body(design, LEDGER_HEADING)
+    assert ledger, f"docs/design.md has no {LEDGER_HEADING!r} section"
+
+    required = {
+        "the workflow a version tag runs": ".github/workflows/release.yml",
+        "the index it publishes to": "PyPI",
+        "the registry it lists the server in": "MCP registry",
+    }
+    missing = sorted(part for part, token in required.items() if token not in ledger)
+    assert not missing, f"{LEDGER_HEADING} does not record {missing}"

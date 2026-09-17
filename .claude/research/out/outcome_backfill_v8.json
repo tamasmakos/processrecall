@@ -1,0 +1,97 @@
+{
+ "store": {
+  "steps": 7019,
+  "outcome distribution": {
+   "neutral": 7019
+  },
+  "symbol_ref populated": 0,
+  "result_snippet populated": 2,
+  "sequence process_type": {
+   "Unknown": 429
+  }
+ },
+ "transcript outcomes": {
+  "ok": 1933,
+  "failure": 62,
+  "rejected": 40
+ },
+ "pitfalls": [
+  {
+   "node": "ChangeImplementation/Edit",
+   "kind": "REJECTED",
+   "support": 12,
+   "worst": "C:\\Users\\User\\Documents\\dev\\processrecall\\.claude\\workflows\\implement-tasks.js",
+   "worst_n": 11
+  },
+  {
+   "node": "Unknown/processrecall\"",
+   "kind": "REJECTED",
+   "support": 5,
+   "worst": "cd \"C:/Users/User/Documents/dev/processrecall\" && SP=\"C:/Users/User/AppData/Local/Temp/cla",
+   "worst_n": 2
+  },
+  {
+   "node": "Unknown/mcp__claude-in-chrome__browser_batch",
+   "kind": "REPEATED_FAILURE",
+   "support": 5,
+   "worst": "",
+   "worst_n": 5
+  },
+  {
+   "node": "Inspection/git",
+   "kind": "REJECTED",
+   "support": 4,
+   "worst": "git status --short; echo \"--- clean tree above (empty = clean)\"; PYTHONIOENCODING=utf-8 .v",
+   "worst_n": 1
+  },
+  {
+   "node": "EnvironmentConfiguration/docker",
+   "kind": "REJECTED",
+   "support": 3,
+   "worst": "docker exec processrecall-workspace sh -c \"cd /app && python -m pytest -q -m 'not integrat",
+   "worst_n": 1
+  },
+  {
+   "node": "Unknown/mcp__sonarqube__analyze_code_snippet",
+   "kind": "REPEATED_FAILURE",
+   "support": 3,
+   "worst": "",
+   "worst_n": 3
+  },
+  {
+   "node": "Unknown/processrecall;",
+   "kind": "REJECTED",
+   "support": 2,
+   "worst": "cd /c/Users/User/Documents/dev/processrecall; docker exec processrecall-workspace sh -c 'c",
+   "worst_n": 2
+  },
+  {
+   "node": "Unknown/uv",
+   "kind": "REPEATED_FAILURE",
+   "support": 2,
+   "worst": "uv run --frozen python - <<'PYEOF'\nimport json, pathlib\ng = json.loads(pathlib.Path('.proc",
+   "worst_n": 2
+  },
+  {
+   "node": "Unknown/tasks\"",
+   "kind": "REPEATED_FAILURE",
+   "support": 2,
+   "worst": "cd \"C:/Users/User/AppData/Local/Temp/claude/C--Users-User-Documents-dev-processrecall/1158",
+   "worst_n": 2
+  },
+  {
+   "node": "Unknown/PowerShell",
+   "kind": "REPEATED_FAILURE",
+   "support": 2,
+   "worst": "",
+   "worst_n": 2
+  },
+  {
+   "node": "Unknown/TOK=$(grep",
+   "kind": "REPEATED_FAILURE",
+   "support": 2,
+   "worst": "TOK=$(grep -m1 \"^SONAR_TOKEN=\" .env | cut -d= -f2- | tr -d \"\\r\"); B=http://localhost:9000\n",
+   "worst_n": 2
+  }
+ ]
+}

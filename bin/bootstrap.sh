@@ -1,20 +1,16 @@
 #!/bin/sh
 # Prepare the plugin's runtime environment, exactly once (FR-068, FR-069, R14).
 #
-# The fast path is the point: $CLAUDE_PLUGIN_DATA/venv/.ready holds a checksum of
-# uv.lock joined to the plugin root, so every session after the first exits here
-# having invoked nothing and touched no network. Either half of that key going
-# stale is the whole of the upgrade path.
+# The fast path is the point: $CLAUDE_PLUGIN_DATA/venv/.ready holds the version
+# pinned in .claude-plugin/plugin.json, so every session after the first exits
+# here having invoked nothing and touched no network. That pin going stale is the
+# whole of the upgrade path.
 #
-# It is keyed on the lock because the marketplace tracks `main`, where every
-# merge that changes uv.lock must resync. It carries the
-# root because `uv sync` installs the project editable (uv.lock: source =
-# { editable = "." }), so the venv's `processrecall` is a pointer back to
-# $CLAUDE_PLUGIN_ROOT; a marketplace install puts each checkout in its own
-# directory while the data directory stays put, and a venv still pointing at the
-# previous, possibly deleted, root is broken. The same editability is why a
-# code-only change at an unchanged lock and root needs no sync at all: it is
-# live the moment the files change.
+# It is keyed on the pin because the venv holds a released `processrecall`
+# installed from the index, not the checkout it was unpacked from: a new pin is a
+# new release to install, and nothing else about the root can change what the
+# venv holds. A marketplace install putting each checkout in its own directory is
+# therefore no longer a hazard the key has to catch.
 set -u
 
 # Every failure leaves by here, as one line of JSON on stdout. The escaping is
@@ -29,14 +25,14 @@ root="${CLAUDE_PLUGIN_ROOT:-}"
 data="${CLAUDE_PLUGIN_DATA:-}"
 [ -n "$root" ] && [ -n "$data" ] || exit 0
 
-# `cksum` and not sha256sum/shasum: it is POSIX, so it is present wherever this
-# `sh` is, which the others are not across macOS, Linux and Git Bash.
-key=$(cksum 2>/dev/null < "$root/uv.lock")
+manifest="$root/.claude-plugin/plugin.json"
+# POSIX `sed` and not a JSON parser: this runs before the environment that would
+# hold one exists, so the only tools available are the ones `sh` came with.
+key=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" 2>/dev/null)
 if [ -z "$key" ]; then
-    report "processrecall cannot prepare its environment: cannot read $root/uv.lock"
+    report "processrecall cannot prepare its environment: cannot read a version from $manifest"
     exit 0
 fi
-key="$key $root"
 
 venv="$data/venv"
 ready="$venv/.ready"
@@ -57,9 +53,25 @@ if ! command -v uv >/dev/null 2>&1; then
     exit 0
 fi
 
-# --no-dev: ruff, mypy, bandit and pytest are 151 MB an end user never runs. The
-# repo's own dev environment is a separate venv and is unaffected.
-if UV_PROJECT_ENVIRONMENT="$venv" uv sync --frozen --no-dev --project "$root" >/dev/null 2>&1; then
+# The pinned release off the index, into a venv of its own: no --project, no lock
+# and no editable install, so what the venv holds is exactly the distribution the
+# manifest names and nothing about $root leaks into it.
+#
+# Unless a developer asks otherwise (FR-024): only the exact value `checkout`
+# prepares from $root, so the development path is never what an end user
+# silently gets. The key stays the manifest pin either way, so the switch
+# decides what is installed and not when preparation runs again. Positional
+# parameters and not a string, so a root holding a space stays one argument.
+if [ "${PROCESSRECALL_PLUGIN_SOURCE:-}" = "checkout" ]; then
+    set -- --editable "$root"
+    display="--editable '$root'"
+else
+    set -- "processrecall==$key"
+    display="processrecall==$key"
+fi
+
+if uv venv "$venv" >/dev/null 2>&1 &&
+    VIRTUAL_ENV="$venv" uv pip install "$@" >/dev/null 2>&1; then
     # hooks.json and .claude-plugin/mcp.json address the interpreter at the POSIX
     # $venv/bin/python path; on Windows uv lays the venv out as
     # $venv/Scripts/python.exe instead, so mirror it there. The venv
@@ -70,6 +82,6 @@ if UV_PROJECT_ENVIRONMENT="$venv" uv sync --frozen --no-dev --project "$root" >/
     fi
     mkdir -p "$venv" && printf '%s' "$key" > "$ready"
 else
-    report "processrecall could not prepare its environment. Run it by hand to see why: UV_PROJECT_ENVIRONMENT=$venv uv sync --frozen --no-dev --project $root"
+    report "processrecall could not prepare its environment. Run it by hand to see why: uv venv $venv && VIRTUAL_ENV=$venv uv pip install $display"
 fi
 exit 0

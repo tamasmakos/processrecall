@@ -1,4 +1,5 @@
 # processrecall
+<!-- mcp-name: io.github.tamasmakos/processrecall -->
 
 Procedural graph memory for a coding agent. It records what the agent *did* —
 every completed action as a node in a temporal procedural graph — and serves
@@ -7,7 +8,7 @@ interrupting for.
 
 It ships as a Claude Code plugin and runs inside the session: no background
 service, no listening port, and no network call on the capture or guidance
-path (the bootstrap sync below is the one exception, once per plugin
+path (the one-time install below is the one exception, once per plugin
 version). What it keeps is shape — action templates, counts, conditions and
 annotations — never prompt text, file contents or credentials.
 
@@ -27,10 +28,11 @@ runs through `sh`.
 
 The first session does the rest. `SessionStart` runs
 [bin/bootstrap.sh](https://github.com/tamasmakos/processrecall/blob/main/bin/bootstrap.sh),
-which syncs the plugin's own virtual environment under `$CLAUDE_PLUGIN_DATA/venv`
-with uv — once, and a no-op on every session after that. Every hook invokes that
-interpreter by absolute path, and the tool server reaches the same environment
-through `uv run`, so nothing here depends on what `python` means on your `PATH`.
+which installs the release pinned in
+[.claude-plugin/plugin.json](https://github.com/tamasmakos/processrecall/blob/main/.claude-plugin/plugin.json)
+from PyPI into `$CLAUDE_PLUGIN_DATA/venv` — once for that pinned version, and a
+no-op on every session after it. Every hook invokes that interpreter by absolute
+path, so nothing here depends on what `python` means on your `PATH`.
 
 The tool server prepares the same environment itself when it starts, so it
 connects on that first session too, rather than only after a restart.
@@ -38,12 +40,42 @@ connects on that first session too, rather than only after a restart.
 The `processrecall-mcp` console script in that environment is the stdio tool
 server, launchable by any MCP client.
 
+Without Claude Code, the package installs on its own: `uv tool install
+processrecall` (or `pip install processrecall`) takes the same release from
+PyPI, with no plugin and no checkout involved.
+
+```bash
+uv tool install processrecall
+processrecall       # stdio tool server, the name a registry client runs
+processrecall-mcp   # the same server, kept for existing invocations
+```
+
 To work on the plugin instead, point Claude Code at a checkout:
 
 ```bash
 git clone https://github.com/tamasmakos/processrecall.git
 claude --plugin-dir processrecall
 ```
+
+Set `PROCESSRECALL_PLUGIN_SOURCE=checkout` to have bootstrap install that
+checkout as an editable install instead of the pinned release. The switch is
+only read the first time bootstrap runs for a given plugin version, so
+flipping it on a machine that already prepared that version requires deleting
+`$CLAUDE_PLUGIN_DATA/venv/.ready` first.
+
+## Recovering a broken release
+
+A broken published version is superseded, never repaired in place. The fix is a
+new patch version, with the plugin pin in
+[.claude-plugin/plugin.json](https://github.com/tamasmakos/processrecall/blob/main/.claude-plugin/plugin.json)
+advanced to it; the broken version is then yanked from the index so new installs
+cannot select it.
+
+Yanking is not the fix on its own. A yanked version still resolves for anyone
+asking for that exact number, which is every plugin user until the pin moves, so
+withdrawing without a successor strands them on the broken release. Nothing is
+ever deleted from the index and no version number is ever reused: whatever an
+install already resolved keeps resolving.
 
 ## What it records
 

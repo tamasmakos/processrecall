@@ -4,8 +4,8 @@ R18 of `.claude/specs/005-procedural-graph-memory/research.md` is a ledger of wh
 survives the fork and what leaves. The prototypes are the awkward case: they are
 worth keeping — they seed the deferred evaluation harness — but they cannot live
 in the package, because the v3 module pulls in `rdflib` + SEON and nothing shipped
-imports any of them. `research/` has no packaging obligations, so that is where
-they go, unchanged.
+imports any of them. They now sit outside the published tree entirely, so what is
+pinned here is their absence from the package rather than their presence anywhere.
 
 Assertions read the tree as paths, not as imports: a prototype that is importable
 from `processrecall` is exactly the defect being pinned, so importing to check
@@ -25,11 +25,9 @@ pytestmark = pytest.mark.unit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PKG_ROOT = REPO_ROOT / "processrecall"
-RESEARCH = REPO_ROOT / "research"
 
 PROTOTYPE_GLOB = "prototype_procedural_graph_v*.py"
 REPORT_GLOB = "*.html"
-EXPECTED_PROTOTYPES = ["prototype_procedural_graph_v4.py", "prototype_procedural_graph_v5.py"]
 
 # R18's subtractive half, resolved to paths: every forked module the fork drops.
 REMOVED_PATHS = [
@@ -98,24 +96,23 @@ def _strays(glob: str) -> list[Path]:
     return sorted(p.relative_to(REPO_ROOT) for p in PKG_ROOT.rglob(glob))
 
 
-def test_prototypes_live_in_research() -> None:
-    """R18: prototypes sit in `research/`, not the package.
+def test_prototypes_stay_out_of_the_package() -> None:
+    """R18: no prototype sits inside the package, wherever else it lives.
 
-    `[tool.hatch.build.targets.wheel] packages = ["processrecall"]`, so a file
-    outside that directory cannot reach the wheel — moving is the exclusion.
+    `uv_build` packages the `processrecall` module directory and nothing beside
+    it, so a file outside it cannot reach the wheel — moving is the exclusion.
+    Which is why only that half is asserted here. The prototypes used to be
+    pinned to `research/` by name as well, on the reasoning that they needed
+    somewhere to live; they have since moved out of the published tree
+    altogether, into the ignored `.claude/research/`, and there is no tracked
+    location left to pin them to. Pinning one anyway would assert a path this
+    repository deliberately does not ship.
     """
     strays = _strays(PROTOTYPE_GLOB)
     assert not strays, f"prototypes still inside the package, so they ship in the wheel: {strays}"
 
     stray_reports = _strays(REPORT_GLOB)
     assert not stray_reports, f"prototype reports still inside the package: {stray_reports}"
-
-    assert RESEARCH.is_dir(), f"{RESEARCH}: missing — the prototypes have nowhere to live"
-
-    prototypes = sorted(p.name for p in RESEARCH.glob(PROTOTYPE_GLOB))
-    assert prototypes == EXPECTED_PROTOTYPES, (
-        f"{RESEARCH}: expected {EXPECTED_PROTOTYPES}, found {prototypes}"
-    )
 
 
 def test_removed_modules_are_absent() -> None:

@@ -1,0 +1,173 @@
+# Release — tag-triggered build and publish.
+#
+# CI proves main is green; this file proves a *tag* is shippable. The split
+# matters because the two answer different questions: CI asks "does this commit
+# work", a release asks "are these exact bytes the ones the tag names, and do
+# they install anywhere".
+#
+# The build job is deliberately the only job that touches this repository's
+# source. It checks out, proves the tag agrees with the declared version,
+# builds, installs what it built and exercises it — and holds no credential
+# that could publish. The publishing identity lives in a later job that never
+# sees the checkout, so a compromised build step has nothing to spend.
+#
+# A version is spent the moment it reaches the index: it can be yanked, never
+# reused. Every guard here is placed *before* the build for that reason.
+name: Release
+
+on:
+  push:
+    tags:
+      # Final releases and the two pre-release shapes the version tool emits.
+      # Anything else pushed as a tag is not a release and must not start one.
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+rc[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+[ab][0-9]+"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # No authenticated git operation happens after checkout in this job,
+          # and this job must not be able to push anything anywhere.
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          # No cache, unlike ci.yml: a cache is writable by every workflow on
+          # the default branch, so restoring one here would let a poisoned
+          # entry reach the bytes that get published (zizmor
+          # `cache-poisoning`). A release runs once per tag; the minute saved
+          # is not worth the supply chain it opens.
+          enable-cache: false
+          python-version: "3.13"
+
+      - name: assert the tag names the declared version
+        # FR-011, and the only affordable guard against spending a version:
+        # once dist/ exists the mistake is one step away from the index. Both
+        # numbers are named in the failure because "version mismatch" alone
+        # does not say which of the two is wrong.
+        env:
+          # A tag name is attacker-controlled in the general case; expanding it
+          # into a `run:` block is the template-injection surface zizmor flags.
+          # Routed through env and read as a shell variable, exactly as
+          # ci.yml routes github.base_ref.
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          declared="$(uv version --short)"
+          tagged="${TAG_NAME#v}"
+          if [ "$declared" != "$tagged" ]; then
+            echo "::error::tag $TAG_NAME names version $tagged, but pyproject.toml declares $declared"
+            exit 1
+          fi
+          echo "version OK: tag $TAG_NAME matches the declared $declared"
+
+      - name: build
+        # --no-sources disables the local [tool.uv.sources] overrides, so the
+        # artifact is built the way any other build tool would build it and not
+        # the way this workspace happens to resolve (FR-005). No --wheel: the
+        # sdist is published too and must be proven as well.
+        run: uv build --no-sources
+
+      - name: smoke test the wheel
+        # --isolated --no-project: the source tree is present in this job, so
+        # without these the smoke script would import the repository and prove
+        # nothing about the wheel.
+        run: uv run --isolated --no-project --with dist/*.whl tests/smoke_test.py
+
+      - name: smoke test the source distribution
+        # FR-014: the sdist is published too, so it is built from and exercised
+        # here as well — an sdist that cannot build is discovered by the first
+        # stranger to install it otherwise.
+        run: uv run --isolated --no-project --with dist/*.tar.gz tests/smoke_test.py
+
+      - name: upload the distribution
+        # These bytes, not a rebuild, are what the publishing job uploads: a
+        # second build could differ from the one just proven.
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish-pypi:
+    name: publish-pypi
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # FR-013: the publishing identity lives here and nowhere else. This job runs
+    # no project code, so it never checks the repository out (R3) — the split is
+    # the security boundary that leaves a compromised build step nothing to
+    # spend. It publishes the bytes `build` proved, never a rebuild.
+    environment:
+      name: pypi
+    permissions:
+      # FR-012: a short-lived OIDC token, exchanged with the trusted publisher
+      # configured on the index. No token, no secret, no stored credential.
+      id-token: write
+    steps:
+      - name: download the distribution
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: dist
+          path: dist/
+
+      - name: publish
+        # PEP 740 attestations are generated by this action itself under
+        # id-token: write alone — no separate attest step or extra permission.
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+  publish-mcp-registry:
+    name: publish-mcp-registry
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # FR-019: the registry verifies ownership by reading the description the
+    # index is already serving, so this cannot run before `publish-pypi` — a
+    # listing written earlier points at a version nobody can install yet.
+    # Unlike `publish-pypi` this job does check the repository out, because
+    # what it publishes is `server.json`, a file in the tree and not one of
+    # the built bytes. That is safe for the reason the split exists: it holds
+    # no index credential, and the artifact it would have to poison is already
+    # published.
+    permissions:
+      # FR-012, the same kind of short-lived identity the index is given: an
+      # OIDC token exchanged at the registry, never a stored credential.
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # No authenticated git operation happens after checkout in this job.
+          persist-credentials: false
+
+      - name: publish the registry entry
+        # The publisher is pinned by version and then by content for the same
+        # reason ci.yml pins it: `releases/latest` lets what this pipeline
+        # executes change with no commit here, and a release tag can still
+        # move its asset. `validate` runs again because ci.yml validated the
+        # proposal, not the tag.
+        run: |
+          curl -fsSL -o mcp-publisher.tar.gz https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz
+          echo "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc  mcp-publisher.tar.gz" | sha256sum -c -
+          tar -xzf mcp-publisher.tar.gz mcp-publisher
+          ./mcp-publisher validate
+          ./mcp-publisher login github-oidc
+          for attempt in 1 2 3 4 5; do
+            if ./mcp-publisher publish; then
+              echo "registry entry published on attempt $attempt"
+              exit 0
+            fi
+            echo "::warning::publish attempt $attempt failed — the index may not be serving the new description yet"
+            if [ "$attempt" -ne 5 ]; then
+              sleep 30
+            fi
+          done
+          echo "::error::the registry entry is still unpublished after 5 attempts; re-run this job alone once the index has caught up — nothing here needs rebuilding"
+          exit 1

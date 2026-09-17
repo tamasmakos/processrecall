@@ -1,6 +1,6 @@
 [project]
 name = "processrecall"
-description = "Agentic memory: knowledge-graph ingestion + hybrid retrieval, llm-free or ontology-guided"
+description = "Procedural graph memory: captures what the agent does, recalls how it was done before."
 requires-python = ">=3.11"
 readme = "README.md"
 license = "Apache-2.0"
@@ -41,9 +41,14 @@ dependencies = [
     "tree-sitter>=0.26.0",
     "tree-sitter-language-pack>=1.19.0",
     # The stdio server (`server/mcp/`). The floor is the first release with the
-    # stdio transport. No cap: the old `<2` guarded `mcp.server.fastmcp`, an
-    # import the rewritten server (T053) decides for itself.
-    "mcp>=1.0.0",
+    # stdio transport. The cap is back, for a different reason than the one that
+    # retired it: the old `<2` guarded `mcp.server.fastmcp`, an import the
+    # rewritten server decides for itself, but 2.x also removed
+    # `Server.list_tools`, which `stdio_server.py` decorates. The lock pins 1.27
+    # here, so the suite never saw it; a fresh `uvx processrecall` resolved 2.2.0
+    # and died on startup. Raise the floor past 2.0 only with that decorator
+    # ported.
+    "mcp>=1.0.0,<2",
 ]
 
 [project.optional-dependencies]
@@ -61,37 +66,31 @@ Repository = "https://github.com/tamasmakos/processrecall"
 Issues = "https://github.com/tamasmakos/processrecall/issues"
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.12.0,<0.13"]
+build-backend = "uv_build"
 
-[tool.hatch.build.targets.wheel]
-packages = ["processrecall"]
-# The two packs are data, not code (FR-024, R15): the concept index under
-# symbolic/data/ and the tool vocabularies under trajectory/vocab/. `packages`
-# ships the directory, but hatchling drops anything the VCS ignores — an
-# ignore rule matching *.json would silently produce an installed package with
-# no packs. `artifacts` force-includes them; tests/test_packaging.py asserts
-# both are declared here and both land in the built wheel.
-artifacts = [
-    "processrecall/symbolic/data/**/*.json",
-    "processrecall/trajectory/vocab/**/*.json",
-]
-
-[tool.hatch.build.targets.sdist]
-# `.claude` is the agent harness (skills, workflows, hooks) — version controlled so the
-# rules survive a clone, but it is not part of the distribution. hatchling drops
-# VCS-ignored files, so before it was tracked it was excluded for free; now that it is
-# tracked, only this line keeps ~1.5 MB of skills out of the sdist. `research/` holds
-# the prototypes and has no packaging obligations (R18).
-exclude = ["tests", "research", ".scratch", ".claude", "CLAUDE.md"]
+[tool.uv.build-backend]
+# This is the whole build configuration, and that is the point (R2). hatchling
+# dropped whatever the VCS ignored, so the two packs — the concept index under
+# symbolic/data/ and the tool vocabularies under trajectory/vocab/ (FR-024,
+# R15) — needed an `artifacts` force-include, and `.claude`, `tests` and
+# `research` needed an sdist exclusion once they were tracked. uv_build ships
+# the whole module root, strips only bytecode, and never consults `.gitignore`:
+# the packs cannot be silently dropped, and the sdist carries the manifest, the
+# module, the licence and the readme — nothing beside them. With no declaration
+# left to compare against, the archive assertion in tests/test_packaging.py is
+# the binding check rather than a second opinion.
+#
+# `module-root` is empty because the package sits at the repository root; the
+# backend otherwise looks for the `src/` layout this repository does not use.
+module-root = ""
 
 [project.scripts]
-# The stdio server keeps its console script: `server/mcp/stdio_server.py` is a
-# kept path that T053 rewrites in place, and README.md documents the name until
-# T081 rewrites it. The `processrecall` CLI script is gone with `cli/memory.py`;
-# the rewritten CLI (T032 onward) declares its own entry point when it lands —
-# an entry point naming a module that does not exist is a broken install, not
-# a placeholder.
+# Both console scripts bind to the same stdio server entry point: the bare
+# distribution name because registry clients run a published package by that
+# name with no arguments, and `processrecall-mcp` because it is kept for
+# existing invocations.
+processrecall = "processrecall.server.mcp.stdio_server:main"
 processrecall-mcp = "processrecall.server.mcp.stdio_server:main"
 
 # ── Dev tooling ────────────────────────────────────────────────────────────────
