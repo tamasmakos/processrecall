@@ -192,10 +192,23 @@ def _opt_out_of_capture(excluded: Path) -> None:
 
 
 def _opt_into_enforcement(home: Path) -> None:
-    """Turn ``enforce`` on the way an operator does — it is off by default (FR-049)."""
+    """Turn ``enforce`` on the way an operator does — it is off by default (FR-049).
+
+    ``min_support`` comes down to one with it, because of what the corpus is.
+    `PAYLOADS` is the shared edge-case fixture — clear, compaction, malformed,
+    a duplicate, an excluded project — and it carries one session in which each
+    opening happens exactly once. Every `Start` edge derived from it therefore
+    has support 1, and the default floor of 2 (FR-045a) filters all three away
+    before `Triggers.fire` ever looks at them, so guidance is silent no matter
+    how often the corpus is replayed: the rows carry fixed ids, capture is
+    idempotent over them, and a second pass adds no support. The floor is
+    lowered here rather than the assertion relaxed — one observation is
+    evidence enough in *this* replay, and the served path stays the real one,
+    fusion and triggers and rendering included.
+    """
     config = home / STORE_DIR / "config.json"
     config.parent.mkdir(parents=True, exist_ok=True)
-    config.write_text(json.dumps({"enforce": True}), encoding="utf-8")
+    config.write_text(json.dumps({"enforce": True, "min_support": 1}), encoding="utf-8")
 
 
 def _derive_the_graph(project: Path, index_path: Path) -> int:
