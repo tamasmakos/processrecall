@@ -67,8 +67,10 @@ SDIST_REQUIRED = (
 
 #: R2: tracked directories that are workspace, not source. hatchling dropped
 #: them only because they were listed; uv_build never reaches outside the module
-#: root, and this is what proves it still does not.
-SDIST_EXCLUDED_DIRS = ("tests/", ".claude/", "research/")
+#: root, and this is what proves it still does not. `research/` was a third
+#: entry until its prototypes left the repository; a prefix no path can have is
+#: not evidence of anything.
+SDIST_EXCLUDED_DIRS = ("tests/", ".claude/")
 
 #: The backend's two exclusion lists. Both are absent today (R2), and with no
 #: force-include list left to contradict one, a pattern added here is the single

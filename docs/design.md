@@ -176,8 +176,8 @@ index*.
   stays a Python interface until a refiner exists.
 
 ### 3.13 Deferred
-- Evaluation harness (replay, next-step top-k, loop rate, entity recall). Prototypes move
-  unchanged to `research/` as its seed.
+- Evaluation harness (replay, next-step top-k, loop rate, entity recall). The prototypes
+  seed it, kept unchanged outside the published tree.
 - Self-evolution refiner (later a Claude skill, not a separate LLM client).
 - Entity layer, bitemporal validity, tree-sitter-bash, OTel adapter, second harness,
   marketplace listing.
