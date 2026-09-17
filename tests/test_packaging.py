@@ -265,9 +265,7 @@ def test_the_distribution_name_is_a_console_script() -> None:
 
     module_path, _, attribute = STDIO_SERVER_ENTRY_POINT.partition(":")
     assert find_spec(module_path) is not None, f"{module_path} is declared but not importable"
-    assert hasattr(import_module(module_path), attribute), (
-        f"{module_path} has no {attribute}()"
-    )
+    assert hasattr(import_module(module_path), attribute), f"{module_path} has no {attribute}()"
 
 
 def test_wheel_under_ceiling_and_ships_both_packs(tmp_path: Path) -> None:
