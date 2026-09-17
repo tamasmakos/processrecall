@@ -1,4 +1,5 @@
 # processrecall
+<!-- mcp-name: io.github.tamasmakos/processrecall -->
 
 Procedural graph memory for a coding agent. It records what the agent *did* —
 every completed action as a node in a temporal procedural graph — and serves

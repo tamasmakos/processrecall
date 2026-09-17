@@ -89,7 +89,7 @@ changes what is built and proves it against the archive, not against configurati
 The single fact this feature turns on. Written before any publishing exists, so that no channel
 is ever added without a test that keeps its version honest.
 
-- [ ] **T006** Create `tests/test_release_versions.py`, marked `unit`, asserting that one
+- [X] **T006** Create `tests/test_release_versions.py`, marked `unit`, asserting that one
   authoritative version — `project.version` in `pyproject.toml` — equals every derived copy:
   `version` in `.claude-plugin/plugin.json`, `version` and `packages[0].version` in
   `server.json`. Assert also the **plugin pin rule** (FR-008a): the `version` in
@@ -186,7 +186,7 @@ The MVP slice. When this phase lands, anyone on the internet can install the pac
 
 ## Phase 4 (User Story 2, P2): The server is listed in the official registry (FR-016..FR-020)
 
-- [ ] **T014** Create `server.json` at the repository root: `$schema` pointing at
+- [X] **T014** Create `server.json` at the repository root: `$schema` pointing at
   `https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json`, `name`
   `io.github.tamasmakos/processrecall` (the namespace GitHub authentication grants — R5),
   `description` identical to `project.description`, `repository` with `url` and
@@ -197,7 +197,7 @@ The MVP slice. When this phase lands, anyone on the internet can install the pac
   omitting them.
   - Verify: `uv run pytest -q tests/test_release_versions.py`
 
-- [ ] **T015** [P] Add `<!-- mcp-name: io.github.tamasmakos/processrecall -->` to `README.md` on
+- [X] **T015** [P] Add `<!-- mcp-name: io.github.tamasmakos/processrecall -->` to `README.md` on
   its own line directly below the title. It must be followed by a newline and carry no trailing
   punctuation, or the registry's matcher fails (R5). The readme is the published description,
   and descriptions are captured at publication, so this must be in the tagged commit — a marker
