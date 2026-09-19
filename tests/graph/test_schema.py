@@ -105,11 +105,28 @@ def test_main_without_render_refuses_with_a_nonzero_exit() -> None:
         main([])
 
 
-def test_every_rendered_body_is_the_generated_region_of_its_contract() -> None:
-    """A hand edit inside the markers is a failing test, not a doc change (FR-030)."""
-    for generated in render_bodies():
+def test_generated_contracts_match_declaration() -> None:
+    """Re-rendering rewrites each contract byte for byte, so a hand edit inside the
+    markers is a failing test, not a doc change (FR-001, FR-030, SC-001).
+    """
+    bodies = render_bodies()
+    assert {generated.document for generated in bodies} == {
+        "graph-schema-v2.md",
+        "telemetry-records.md",
+    }
+    for generated in bodies:
         document = (CONTRACTS / generated.document).read_text(encoding="utf-8")
-        assert generated.body in document, generated.document
+        opening, *_, closing = generated.body.splitlines()
+        start = document.index(opening)
+        end = document.index(closing, start) + len(closing)
+        assert document[start:end] == generated.body, generated.document
+
+
+#: T009 also asks that every attribute a reader binds has a declared origin row
+#: (SC-001). `processrecall/trajectory/telemetry.py` is that reader, and T013 is what
+#: creates it — nothing in the codebase binds an OTel attribute yet, so there is
+#: nothing to check against. That half of the coverage check belongs with T013,
+#: where the reader and the assertion can land together.
 
 
 #: What the store itself must hold: every table of a layer that has rows of its own.
