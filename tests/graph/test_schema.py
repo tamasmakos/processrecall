@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import sqlite3
+from collections.abc import Mapping
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 
+from processrecall.graph.episodic import open_index
 from processrecall.graph.schema import (
     CALLERS_PER_ENTITY,
     CONSUMED_RECORDS,
@@ -13,6 +17,7 @@ from processrecall.graph.schema import (
     PRECEDES_ENTITIES,
     SNAPSHOT_FORMAT,
     STORE_SCHEMA_VERSION,
+    FieldType,
     Table,
     main,
     render_bodies,
@@ -105,3 +110,35 @@ def test_every_rendered_body_is_the_generated_region_of_its_contract() -> None:
     for generated in render_bodies():
         document = (CONTRACTS / generated.document).read_text(encoding="utf-8")
         assert generated.body in document, generated.document
+
+
+#: What the store itself must hold: every table of a layer that has rows of its own.
+PERSISTED_TABLES = tuple(table for layer in LAYERS if layer.persisted for table in layer.tables)
+
+#: The expected SQLite type per `FieldType`, spelled independently of
+#: `ddl._SQLITE_TYPES`: comparing the store against the renderer's own mapping
+#: would let a wrong entry there pass (FR-030 wants store and declaration
+#: compared, not the renderer compared with itself).
+_EXPECTED_SQLITE_TYPES: Mapping[FieldType, str] = {
+    FieldType.TEXT: "TEXT",
+    FieldType.INTEGER: "INTEGER",
+    FieldType.REAL: "REAL",
+    FieldType.JSON: "TEXT",
+}
+
+
+def _stored_columns(connection: sqlite3.Connection, table: str) -> dict[str, str]:
+    """Each column the store holds for *table*, and the type it was declared with."""
+    return {str(row[1]): str(row[2]) for row in connection.execute(f"PRAGMA table_info({table})")}
+
+
+def test_store_columns_match_declaration(tmp_path: Path) -> None:
+    """A store opened fresh is the declaration's shape, field by field (FR-030, SC-001)."""
+    with closing(open_index(tmp_path / "episodes.db")) as connection:
+        for table in PERSISTED_TABLES:
+            stored = _stored_columns(connection, table.name)
+            for field in table.fields:
+                expected = _EXPECTED_SQLITE_TYPES[field.type]
+                assert stored.get(field.name) == expected, (table.name, field.name)
+            undeclared = set(stored) - {field.name for field in table.fields}
+            assert not undeclared, (table.name, sorted(undeclared))

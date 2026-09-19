@@ -26,6 +26,8 @@ import sqlite3
 from pathlib import Path
 
 from processrecall.config import home_dir
+from processrecall.graph.migrate import MIGRATABLE_VERSION, align_to_declaration, migrate_forward
+from processrecall.graph.schema import STORE_SCHEMA_VERSION
 from processrecall.graph.store import SequenceKey
 
 #: The one private store (FR-052). Private: it holds snippets and prompts, and
@@ -39,9 +41,11 @@ DEFAULT_DATABASE_PATH = home_dir() / "episodes.db"
 NEW_SEQUENCE_SOURCES = frozenset({"clear", "fork"})
 
 #: The shape below, stamped into ``meta`` when the store is created and checked
-#: on every open. It changes when a column does, and a store stamped with
-#: anything else is refused rather than written to.
-SCHEMA_VERSION = "1"
+#: on every open. Taken from the declaration rather than spelled a second time:
+#: it changes when a column does. A store stamped `MIGRATABLE_VERSION` is
+#: carried forward on open; one stamped anything else is refused rather than
+#: written to.
+SCHEMA_VERSION = STORE_SCHEMA_VERSION
 
 #: What R10 sets on every connection. `journal_mode` is a property of the file
 #: and survives; the other three are per-connection and so are re-applied on
@@ -54,9 +58,13 @@ _PRAGMAS = (
 )
 
 
-#: The shape of `contracts/storage.md`, verbatim. `IF NOT EXISTS` throughout so
-#: that opening is idempotent: every hook invocation opens the same store, and
-#: only the first one finds it empty.
+#: The constrained core of `contracts/storage.md`, verbatim: the two episodic
+#: tables whose keys, uniqueness and foreign keys the writers rely on, and the
+#: bookkeeping tables no layer declares. Everything the declaration adds on top
+#: — the v2 tables, and the nullable columns of these two — is rendered from
+#: `graph/schema.py` by `align_to_declaration`, so no declared field is spelled
+#: here as well. `IF NOT EXISTS` throughout so that opening is idempotent: every
+#: hook invocation opens the same store, and only the first one finds it empty.
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sequences (
     conversation_id  TEXT    NOT NULL,
@@ -147,8 +155,10 @@ def _stored_schema_version(connection: sqlite3.Connection) -> str | None:
 def open_index(path: Path = DEFAULT_DATABASE_PATH) -> sqlite3.Connection:
     """Open the episodic index at ``path``, creating it on first use.
 
-    Applies the settings R10 fixes and leaves the store at the shape
-    `contracts/storage.md` specifies.
+    Applies the settings R10 fixes and leaves the store at the shape the
+    declaration in `graph/schema.py` specifies: a store already at
+    `SCHEMA_VERSION` gains whatever the declaration has since added, and one at
+    `MIGRATABLE_VERSION` is carried forward by `migrate_forward` (FR-029).
 
     Raises:
         sqlite3.DatabaseError: The store was written at a schema version this
@@ -165,14 +175,27 @@ def open_index(path: Path = DEFAULT_DATABASE_PATH) -> sqlite3.Connection:
     connection = sqlite3.connect(path)
     for pragma in _PRAGMAS:
         connection.execute(pragma)
-    if (stored := _stored_schema_version(connection)) not in (None, SCHEMA_VERSION):
+    known = (None, SCHEMA_VERSION, MIGRATABLE_VERSION)
+    if (stored := _stored_schema_version(connection)) not in known:
         connection.close()
         raise sqlite3.DatabaseError(
             f"{path} was written at schema version {stored}; this processrecall understands"
             f" version {SCHEMA_VERSION}. Nothing was read and nothing was written."
         )
     connection.executescript(_SCHEMA)
+    if stored == MIGRATABLE_VERSION:
+        if not migrate_forward(connection):
+            if _stored_schema_version(connection) != SCHEMA_VERSION:
+                connection.close()
+                raise sqlite3.DatabaseError(
+                    f"{path} was written at schema version {stored}; this processrecall understands"
+                    f" version {SCHEMA_VERSION}. Nothing was read and nothing was written."
+                )
+            with connection:
+                align_to_declaration(connection)
+        return connection
     with connection:
+        align_to_declaration(connection)
         connection.execute(
             "INSERT INTO meta (key, value) VALUES ('schema_version', ?)"
             " ON CONFLICT (key) DO NOTHING",

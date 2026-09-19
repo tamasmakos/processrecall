@@ -49,6 +49,12 @@ def test_open_index_creates_the_tables_and_indexes_the_contract_specifies(
     assert _names_of(index, "table") == {
         "sequences",
         "steps",
+        "code_entities",
+        "code_relations",
+        "inferences",
+        "agents",
+        "step_touches",
+        "step_consumes",
         "annotations",
         "epochs",
         "counters",

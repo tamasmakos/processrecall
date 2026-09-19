@@ -15,13 +15,10 @@ The statements are rendered from `graph/schema.py` via `graph/ddl.py`, so a fiel
 added to the declaration migrates an existing store without being spelled a
 second time here.
 
-Not yet called from `episodic.open_index`: that call, and the DDL move to
-`SCHEMA_VERSION = "2"`, belong to T006. Wiring it in earlier would ask
-`open_index` to carry a store forward to a version its own schema and its own
-refusal check do not understand yet, turning a fresh store's first-ever open
-into an immediate refusal. Until T006 lands, a store stamped `1` opens and
-stays at `1`; this module is exercised directly, by the tests in
-`tests/graph/test_migration.py`.
+`episodic.open_index` calls `migrate_forward` when it finds a store stamped `1`,
+and `align_to_declaration` on every other open: a store already at `2` gains
+whatever the declaration has added since it was created, without being counted
+as a migration.
 
 Example:
     from processrecall.graph.migrate import migrate_forward
@@ -72,6 +69,16 @@ def _forward_statements(connection: sqlite3.Connection) -> tuple[str, ...]:
     )
 
 
+def align_to_declaration(connection: sqlite3.Connection) -> None:
+    """Bring *connection*'s store to the declared shape, in the caller's transaction.
+
+    Idempotent: a table already present and a column already added yield no
+    statement, so every open after the first writes nothing.
+    """
+    for statement in _forward_statements(connection):
+        connection.execute(statement)
+
+
 def _stamped_version(connection: sqlite3.Connection) -> str | None:
     """The version stamped in `meta`, or `None` when nothing is stamped."""
     row = connection.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
@@ -101,8 +108,7 @@ def migrate_forward(connection: sqlite3.Connection) -> bool:
         if _stamped_version(connection) != MIGRATABLE_VERSION:
             connection.rollback()
             return False
-        for statement in _forward_statements(connection):
-            connection.execute(statement)
+        align_to_declaration(connection)
         connection.execute(
             "UPDATE meta SET value = ? WHERE key = 'schema_version'",
             (STORE_SCHEMA_VERSION,),
