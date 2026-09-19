@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -132,3 +133,34 @@ def test_a_write_interrupted_part_way_leaves_the_previous_snapshot_readable(
     assert file.read() == snapshot
     assert counters.counted["snapshot_written"] == 1
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_routing_rule_rejects_reference_in_node_body(
+    tmp_path: Path, counters: FakeCounters, snapshot: Snapshot
+) -> None:
+    """A node attribute that is really a reference is refused, by name (FR-016)."""
+    path = tmp_path / "graph.json"
+    misrouted = replace(
+        snapshot,
+        nodes={"ChangeImplementation/Edit": {"support": 475, "target": "ArtifactEvaluation"}},
+    )
+
+    with pytest.raises(ValueError, match="target"):
+        SnapshotFile(path, counters).write(misrouted)
+
+    assert not path.exists()
+    assert counters.counted["snapshot_written"] == 0
+
+
+def test_routing_rule_rejects_a_plain_value_written_as_an_edge(
+    tmp_path: Path, counters: FakeCounters, snapshot: Snapshot
+) -> None:
+    """An edge that connects no identities is a node attribute, not an edge (FR-016)."""
+    path = tmp_path / "graph.json"
+    misrouted = replace(snapshot, edges=[{"support": 38, "weight": 0.4}])
+
+    with pytest.raises(ValueError, match="support, weight"):
+        SnapshotFile(path, counters).write(misrouted)
+
+    assert not path.exists()
+    assert counters.counted["snapshot_written"] == 0

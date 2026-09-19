@@ -6,6 +6,13 @@ in a diff is what makes FR-054's "safe to commit deliberately" true. This
 module is that file and nothing else: it stamps a format, lands a write
 atomically, and refuses a shape it does not understand.
 
+The stamp is `graph/schema.py`'s: `SNAPSHOT_FORMAT` is imported rather than
+repeated, so the two modules cannot disagree on what format they mean. The
+routing rule of FR-016 is enforced at write off the declaration's own
+`reference` flags, for whichever body key is spelled the way the declaration
+spells its field — a reference aliased under a different key is outside what
+this check can see.
+
 Node and edge bodies cross this seam already shaped — pre-serialised into
 JSON-native values by aggregation — so the served form can change without
 aggregation knowing and aggregation can change without the file format
@@ -26,7 +33,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
@@ -34,15 +41,22 @@ from pathlib import Path
 from typing import Any
 
 from processrecall.config import STORE_DIR, Counters
+from processrecall.graph.schema import LAYERS, SNAPSHOT_FORMAT
 
 #: The snapshot's filename, under `~/.processrecall` and under
 #: `<project>/.processrecall` (`contracts/storage.md`).
 SNAPSHOT_NAME = "graph.json"
 
-#: The version stamp every snapshot carries. An unknown one is a refusal
-#: rather than a `KeyError` inside a hook (R11), which is the whole reason the
-#: field exists.
-SNAPSHOT_FORMAT = 1
+#: Every field name the declaration marks a reference to another identity. The
+#: routing rule of FR-016 is enforced off this set, so a field that becomes a
+#: reference in the declaration becomes an edge here without a second edit.
+_REFERENCE_KEYS = frozenset(
+    field.name
+    for layer in LAYERS
+    for table in layer.tables
+    for field in table.fields
+    if field.reference
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +102,14 @@ class SnapshotFile:
         stays a rename: across a filesystem boundary it degrades to
         copy-then-delete and silently stops being atomic. An interrupted write
         therefore leaves the previous snapshot readable.
+
+        Raises:
+            ValueError: A body sits on the wrong side of the routing rule
+                (FR-016). Nothing is written: the served form is the form that
+                gets traversed, so a misrouted body is refused here rather than
+                left for every reader of the file to trip over.
         """
+        _routed_as_declared(snapshot)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         handle, temporary = tempfile.mkstemp(dir=self._path.parent, suffix=".tmp")
         try:
@@ -114,6 +135,8 @@ class SnapshotFile:
             document = json.loads(self._path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             document = {}
+        # An unknown format is a refusal rather than a `KeyError` inside a hook
+        # (R11), which is the whole reason the field exists.
         if document.get("format") != SNAPSHOT_FORMAT:
             self._counters.bump("snapshot_unreadable")
             return None
@@ -122,6 +145,50 @@ class SnapshotFile:
         except (KeyError, TypeError, ValueError):
             self._counters.bump("snapshot_unreadable")
             return None
+
+
+def _routed_as_declared(snapshot: Snapshot) -> None:
+    """Refuse *snapshot* unless every body is on the side FR-016 sends it to.
+
+    A reference to another identity is an edge, a plain value is a node
+    attribute; the declaration's `reference` flag is the only thing that says
+    which, so the two sides are checked off that one flag rather than a second
+    list of key names.
+    """
+    _nodes_carry_no_reference(snapshot.nodes)
+    _edges_carry_a_reference(snapshot.edges)
+
+
+def _nodes_carry_no_reference(nodes: Mapping[str, object]) -> None:
+    """Refuse a node body that carries a key the declaration marks a reference."""
+    for key, body in nodes.items():
+        if misrouted := sorted(_REFERENCE_KEYS.intersection(_body_keys(body))):
+            raise ValueError(
+                f"node {key!r} carries {', '.join(misrouted)}: the declaration marks "
+                "these references, and a reference is an edge, not a node attribute"
+            )
+
+
+def _edges_carry_a_reference(edges: Sequence[object]) -> None:
+    """Refuse an edge body that carries no key the declaration marks a reference."""
+    for position, body in enumerate(edges):
+        keys = sorted(_body_keys(body))
+        if not _REFERENCE_KEYS.intersection(keys):
+            raise ValueError(
+                f"edge {position} carries {', '.join(keys) or 'nothing'} and no reference "
+                "the declaration marks: a plain value is a node attribute, not an edge"
+            )
+
+
+def _body_keys(body: object) -> Collection[str]:
+    """*body*'s own keys, or none where it is not a JSON object at all.
+
+    A body that is not a JSON object at all is not this function's shape to
+    refuse: `graph/derive.py`'s `_as_mapping` is the guard that narrows a body
+    to a mapping by name, wherever a caller actually reads inside one; the
+    routing rule only asks which keys a body carries.
+    """
+    return body.keys() if isinstance(body, Mapping) else ()
 
 
 def _as_document(snapshot: Snapshot) -> dict[str, Any]:

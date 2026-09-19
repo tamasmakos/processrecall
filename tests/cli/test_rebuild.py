@@ -30,7 +30,7 @@ def test_rebuild_writes_both_snapshots_from_the_episodic_index(tmp_path: Path) -
     assert finished.returncode == 0, finished.stderr
     for path in (project / ".processrecall" / "graph.json", home / ".processrecall" / "graph.json"):
         document = snapshot_document(path)
-        assert document["format"] == 1
+        assert document["format"] == 2
         assert document["level"] == "class/program"
         nodes = document["nodes"]
         assert isinstance(nodes, dict)

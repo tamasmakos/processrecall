@@ -168,7 +168,7 @@ def test_the_transcript_fixture_is_synthetic_and_only_the_corrupt_line_is_unread
 
 def test_the_snapshot_is_the_shape_the_storage_contract_declares(snapshot: dict[str, Any]) -> None:
     """A hand-built snapshot, so a reader can be tested before a writer exists."""
-    assert snapshot["format"] == 1
+    assert snapshot["format"] == 2
     assert snapshot["level"] in LEVELS
     assert isinstance(snapshot["episode_high_water"], int)
     assert snapshot["nodes"] and snapshot["edges"]
