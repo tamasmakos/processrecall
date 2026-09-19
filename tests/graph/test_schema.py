@@ -109,6 +109,32 @@ def test_step_declares_result_and_decision_as_two_axes() -> None:
     assert not shared_values, "a value on both axes is the collapse FR-022 forbids"
 
 
+def test_procedure_declares_the_activation_that_orders_candidates() -> None:
+    """Candidate ordering reads a recency-weighted activation off the procedure, so it is
+    folded onto the node beside the raw support it outranks (FR-024, FR-039).
+    """
+    declared = {field.name: field for field in _declared_tables()["procedures"].fields}
+    assert declared["activation"].type == FieldType.REAL
+    assert declared["support"].type == FieldType.INTEGER
+
+
+def test_transition_declares_dependency_measure_lift_and_lower_bound() -> None:
+    """The three ranking statistics are real-valued attributes of the transition itself:
+    a direction, a lift over the target's base rate, and the only rate a statement may
+    say out loud (FR-025, FR-040, FR-041).
+    """
+    declared = {field.name: field for field in _declared_tables()["transitions"].fields}
+    assert {
+        "dependency_measure": declared["dependency_measure"].type,
+        "lift": declared["lift"].type,
+        "reported_rate_lower": declared["reported_rate_lower"].type,
+    } == {
+        "dependency_measure": FieldType.REAL,
+        "lift": FieldType.REAL,
+        "reported_rate_lower": FieldType.REAL,
+    }
+
+
 def test_render_emits_the_consumed_records_body(capsys: pytest.CaptureFixture[str]) -> None:
     """`--render` writes the telemetry contract's generated body (FR-001)."""
     assert main(["--render"]) == 0
