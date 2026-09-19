@@ -89,6 +89,7 @@ def test_show_config_names_where_every_value_came_from(tmp_path: Path) -> None:
     assert resolved["k"] == ("5", "file")
     assert resolved["h"] == ("4", "environment")
     assert resolved["level"] == ("class/program", "default")
+    assert resolved["telemetry_path"] == ("(unset)", "default"), "an unset value must still print"
     assert set(resolved) == {field.name for field in fields(Config)}
 
 

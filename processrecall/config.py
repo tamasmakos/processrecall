@@ -143,6 +143,20 @@ class Config:
             serving level while buying 2 points top-3 — configuration rather
             than a constant so that verdict can be revised without a code
             change.
+        telemetry_path: The collector output file the memory reads telemetry
+            from (FR-004). Empty is the shipped state: the developer names the
+            file the collector they run writes, and until they do there is no
+            telemetry source to read. Text rather than a ``Path``: this module
+            does no type coercion on load, ``config.json`` hands it back as
+            JSON text either way, and the empty string is a "not yet named"
+            sentinel a bare ``Path`` has none for.
+        unmeasured_traversals: Whether a traversal that has not beaten the
+            baseline on the held-out temporal split may contribute candidates
+            to the fused result (FR-036). Off is the shipped state: such a
+            traversal still runs and is still measured, but stays dark — its
+            candidates never reach the fused result — and this is the escape
+            hatch FR-036's "MAY remain available" allows an operator who wants
+            them anyway.
     """
 
     level: str = "class/program"
@@ -153,6 +167,8 @@ class Config:
     clean_prompt_weight: float = 4.0
     enforce: bool = False
     same_file_conditioning: bool = True
+    telemetry_path: str = ""
+    unmeasured_traversals: bool = False
 
     def __post_init__(self) -> None:
         """Refuse a serving level that names none of the materialised ones.

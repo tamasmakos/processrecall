@@ -89,3 +89,29 @@ def test_serving_level_outside_the_three_materialised_levels_is_refused(home: Pa
 
     with pytest.raises(ValueError, match="class/program"):
         load_config()
+
+
+def test_telemetry_path_is_unset_until_a_collector_file_is_named(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR-004: the developer points the memory at a file, so there is no default one."""
+    assert load_config().telemetry_path == ""
+
+    _write_config(home, {"telemetry_path": str(home / "collector.jsonl")})
+
+    assert load_config().telemetry_path == str(home / "collector.jsonl")
+
+    monkeypatch.setenv("PROCESSRECALL_TELEMETRY_PATH", str(home / "otel.jsonl"))
+
+    assert load_config().telemetry_path == str(home / "otel.jsonl")
+
+
+def test_unmeasured_traversals_stay_off_until_asked_for(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR-036: a traversal that has not beaten the baseline is reachable, not served."""
+    assert load_config().unmeasured_traversals is False
+
+    monkeypatch.setenv("PROCESSRECALL_UNMEASURED_TRAVERSALS", "true")
+
+    assert load_config().unmeasured_traversals is True

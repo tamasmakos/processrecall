@@ -60,6 +60,16 @@ def _table(rows: Mapping[str, object]) -> str:
     return "\n".join(f"{name:<{width}} {value}" for name, value in rows.items())
 
 
+def _or_unset(value: object) -> str:
+    """*value* as one column of a table: a setting spelled as nothing says so.
+
+    Only the empty string is unset — ``False`` and ``0`` are values an
+    operator chose and print as themselves — and it prints as a word rather than
+    as a gap, because a gap is a column the reader of the table loses.
+    """
+    return "(unset)" if value == "" else f"{value}"
+
+
 def counter_report(store: EpisodicStore) -> str:
     """Every counter the package can increment, against what *store* kept (R16)."""
     return _table(counter_table(store))
@@ -75,7 +85,10 @@ def config_report() -> str:
     """
     config = load_config()
     return _table(
-        {name: f"{getattr(config, name)} {source}" for name, source in config_sources().items()}
+        {
+            name: f"{_or_unset(getattr(config, name))} {source}"
+            for name, source in config_sources().items()
+        }
     )
 
 
