@@ -71,11 +71,15 @@ class Field:
             reference is served as an edge, a plain value as a node attribute.
             Where the referred identity is a composite key, every component of
             it carries the flag.
+        primary_key: Whether this field is (part of) the table's identity, as
+            data-model.md marks it (`text, PK`). SQLite-neutral: it says what
+            the row's key is, not how a column spells that in DDL.
     """
 
     name: str
     type: FieldType
     reference: str = ""
+    primary_key: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,9 +107,9 @@ class Layer:
     tables: tuple[Table, ...]
 
 
-def _text(name: str, reference: str = "") -> Field:
+def _text(name: str, reference: str = "", primary_key: bool = False) -> Field:
     """A `FieldType.TEXT` field — the common case, spelled once."""
-    return Field(name=name, type=FieldType.TEXT, reference=reference)
+    return Field(name=name, type=FieldType.TEXT, reference=reference, primary_key=primary_key)
 
 
 def _integer(name: str, reference: str = "") -> Field:
@@ -130,7 +134,7 @@ _SEMANTIC_TABLES = (
     Table(
         name="code_entities",
         fields=(
-            _text("entity_key"),
+            _text("entity_key", primary_key=True),
             _text("kind"),
             _text("extension"),
             _text("language"),
@@ -223,7 +227,7 @@ _EPISODIC_TABLES = (
     Table(
         name="inferences",
         fields=(
-            _text("inference_id"),
+            _text("inference_id", primary_key=True),
             _text("sequence_key", reference="sequences"),
             _text("model"),
             _integer("input_tokens"),
@@ -247,7 +251,7 @@ _EPISODIC_TABLES = (
     Table(
         name="agents",
         fields=(
-            _text("agent_id"),
+            _text("agent_id", primary_key=True),
             _text("kind"),
             _text("agent_type"),
             _text("agent_source"),
