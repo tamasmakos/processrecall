@@ -59,6 +59,41 @@ class FieldType(StrEnum):
     JSON = "json"
 
 
+class StepResult(StrEnum):
+    """Axis one of a step's outcome: whether the call could do the thing (FR-022)."""
+
+    OK = "ok"
+    FAILURE = "failure"
+
+
+class StepDecision(StrEnum):
+    """Axis two: whether the call was allowed to try (FR-022).
+
+    Kept apart from `StepResult` because a refusal is a policy signal and a failure is
+    a capability signal; one enumeration over both is what made every step read
+    `neutral`.
+    """
+
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
+class DecisionSource(StrEnum):
+    """Who decided a step's `decision` (FR-008).
+
+    `USER_ABORT` and `USER_REJECT` are the only two that mean a refusal, and they
+    arrive on `claude_code.tool_decision` records alone — a reject axis fed from tool
+    results would be silently empty.
+    """
+
+    CONFIG = "config"
+    HOOK = "hook"
+    USER_PERMANENT = "user_permanent"
+    USER_TEMPORARY = "user_temporary"
+    USER_ABORT = "user_abort"
+    USER_REJECT = "user_reject"
+
+
 @dataclass(frozen=True, slots=True)
 class Field:
     """One declared field, and where the routing rule sends it.
@@ -74,12 +109,17 @@ class Field:
         primary_key: Whether this field is (part of) the table's identity, as
             data-model.md marks it (`text, PK`). SQLite-neutral: it says what
             the row's key is, not how a column spells that in DDL.
+        vocabulary: The values this field may take, empty when it is open. A
+            closed vocabulary is part of the contract: the generated document
+            lists it, so a reader learns the values from the declaration rather
+            than from the writer that happens to fill the column.
     """
 
     name: str
     type: FieldType
     reference: str = ""
     primary_key: bool = False
+    vocabulary: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +150,11 @@ class Layer:
 def _text(name: str, reference: str = "", primary_key: bool = False) -> Field:
     """A `FieldType.TEXT` field — the common case, spelled once."""
     return Field(name=name, type=FieldType.TEXT, reference=reference, primary_key=primary_key)
+
+
+def _closed(name: str, vocabulary: type[StrEnum]) -> Field:
+    """A `FieldType.TEXT` field that takes one of an enumerated set of values."""
+    return Field(name=name, type=FieldType.TEXT, vocabulary=tuple(member.value for member in vocabulary))
 
 
 def _integer(name: str, reference: str = "") -> Field:
@@ -158,6 +203,7 @@ _SEMANTIC_TABLES = (
     ),
 )
 
+
 #: Layer 2. What happened. Every field this feature adds is nullable and
 #: nothing is backfilled (R14): null here means the hook captured the step
 #: before telemetry existed and genuinely did not know.
@@ -204,6 +250,8 @@ _EPISODIC_TABLES = (
             _text("template"),
             _text("files"),
             _text("result_snippet"),
+            # The v1 collapsed column: kept readable for stores still on it, migrated
+            # forward onto `result`/`decision` by FR-029, never written by v2 code.
             _text("outcome"),
             _text("record_ref"),
             _text("occurred_at"),
@@ -211,10 +259,10 @@ _EPISODIC_TABLES = (
             _text("symbol_ref"),
             _text("valid_from"),
             _text("invalidated_at"),
-            _text("result"),
+            _closed("result", StepResult),
             _text("kind"),
-            _text("decision"),
-            _text("decision_source"),
+            _closed("decision", StepDecision),
+            _closed("decision_source", DecisionSource),
             _integer("duration_ms"),
             _text("error_type"),
             _integer("input_size_bytes"),
@@ -463,6 +511,35 @@ def _tables_and_edges() -> str:
     )
 
 
+def _closed_vocabularies() -> str:
+    """The closed vocabularies of `contracts/graph-schema-v2.md`.
+
+    What values a constrained field may take, so the contract carries the vocabulary
+    and not only the column (FR-022, FR-008).
+    """
+    rows = tuple(
+        (
+            f"`{table.name}`",
+            f"`{field.name}`",
+            ", ".join(f"`{value}`" for value in field.vocabulary),
+        )
+        for layer in LAYERS
+        for table in layer.tables
+        for field in table.fields
+        if field.vocabulary
+    )
+    return "\n".join(
+        (
+            "## Closed vocabularies",
+            "",
+            "A field listed here takes one of these values and no other; every field not",
+            "listed is open.",
+            "",
+            _markdown_table(("Table", "Field", "Values"), rows),
+        )
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class GeneratedBody:
     """One contract document's generated region, markers included.
@@ -487,7 +564,10 @@ def _generated(document: str, body: str) -> GeneratedBody:
 def render_bodies() -> tuple[GeneratedBody, ...]:
     """Every generated contract region, rendered from the declaration (FR-030)."""
     return (
-        _generated("graph-schema-v2.md", _tables_and_edges()),
+        _generated(
+            "graph-schema-v2.md",
+            f"{_tables_and_edges()}\n\n{_closed_vocabularies()}",
+        ),
         _generated("telemetry-records.md", _records_consumed()),
     )
 

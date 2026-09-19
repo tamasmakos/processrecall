@@ -90,6 +90,25 @@ def test_honesty_fields_are_declared_as_plain_values() -> None:
         assert not field.reference
 
 
+def test_step_declares_result_and_decision_as_two_axes() -> None:
+    """Result says whether the call could act, decision whether it was allowed to, and
+    each takes its own closed vocabulary (FR-022, FR-008).
+    """
+    declared = {field.name: field for field in _declared_tables()["steps"].fields}
+    assert declared["result"].vocabulary == ("ok", "failure")
+    assert declared["decision"].vocabulary == ("accepted", "rejected")
+    assert declared["decision_source"].vocabulary == (
+        "config",
+        "hook",
+        "user_permanent",
+        "user_temporary",
+        "user_abort",
+        "user_reject",
+    )
+    shared_values = set(declared["result"].vocabulary) & set(declared["decision"].vocabulary)
+    assert not shared_values, "a value on both axes is the collapse FR-022 forbids"
+
+
 def test_render_emits_the_consumed_records_body(capsys: pytest.CaptureFixture[str]) -> None:
     """`--render` writes the telemetry contract's generated body (FR-001)."""
     assert main(["--render"]) == 0
