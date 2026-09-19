@@ -12,8 +12,9 @@ describes the thing itself is a node attribute. In SQLite a reference lives in
 a foreign-keyed column, because there the foreign key *is* the edge; the rule
 bites at snapshot write, where the served form is the form that gets traversed.
 
-Declaration only — no I/O, no SQLite, no reader. This module is imported by the
-hot path, so it stays a description of the shape and never touches the store.
+Declaration only — no SQLite, no reader. This module is imported by the hot path,
+so it stays a description of the shape and never touches the store; its only I/O
+is the `--render` seam, reached solely through `python -m processrecall.graph.schema`.
 
 Example:
     from processrecall.graph.schema import LAYERS
@@ -23,6 +24,7 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -354,3 +356,154 @@ LAYERS = (
     Layer(name="episodic", persisted=True, tables=_EPISODIC_TABLES),
     Layer(name="procedural", persisted=False, tables=_PROCEDURAL_TABLES),
 )
+
+
+@dataclass(frozen=True, slots=True)
+class TelemetryRecord:
+    """One OTel log record the episodic layer is sourced from (FR-001, FR-002).
+
+    Attributes:
+        name: The `event.name` the collector writes.
+        becomes: The episodic shape the record turns into.
+        note: What a reader of the contract has to know about the record.
+    """
+
+    name: str
+    becomes: str
+    note: str = ""
+
+
+#: The records consumed, in the order the generated contract lists them. Nothing
+#: else is read: an unlisted record has no row to become.
+CONSUMED_RECORDS = (
+    TelemetryRecord("claude_code.user_prompt", "a sequence", "opens the turn, carries `prompt.id`"),
+    TelemetryRecord("claude_code.api_request", "an inference"),
+    TelemetryRecord(
+        "claude_code.api_error",
+        "an inference that failed",
+        "the terminal signal; retries are not separate events",
+    ),
+    TelemetryRecord(
+        "claude_code.api_refusal",
+        "an inference that was refused",
+        "refusals arrive on a successful stream and never fire `api_error`",
+    ),
+    TelemetryRecord(
+        "claude_code.tool_result", "a step that ran", "not emitted for a rejected call"
+    ),
+    TelemetryRecord(
+        "claude_code.tool_decision",
+        "a step's permission outcome",
+        "the **only** record a rejected call produces",
+    ),
+    TelemetryRecord(
+        "claude_code.subagent_completed",
+        "an agent",
+        "the only events-mode record naming an agent type",
+    ),
+)
+
+
+def _table_row(cells: tuple[str, ...]) -> str:
+    """One Markdown table row."""
+    return f"| {' | '.join(cells)} |"
+
+
+def _markdown_table(headers: tuple[str, ...], rows: tuple[tuple[str, ...], ...]) -> str:
+    """A Markdown table: header, separator, one row per tuple."""
+    separator = _table_row(tuple("---" for _ in headers))
+    return "\n".join((_table_row(headers), separator, *(_table_row(row) for row in rows)))
+
+
+def _records_consumed() -> str:
+    """The body of `contracts/telemetry-records.md` (FR-001, FR-002)."""
+    rows = tuple((f"`{record.name}`", record.becomes, record.note) for record in CONSUMED_RECORDS)
+    return "\n".join(
+        (
+            "## Records consumed",
+            "",
+            f"{len(CONSUMED_RECORDS)} records, and no others. Metrics are not consumed.",
+            "",
+            _markdown_table(("Record", "What it becomes", "Note"), rows),
+        )
+    )
+
+
+def _edge_targets(table: Table) -> str:
+    """The tables a table's reference fields point at, in declaration order."""
+    targets = dict.fromkeys(field.reference for field in table.fields if field.reference)
+    return ", ".join(f"`{target}`" for target in targets) or "none"
+
+
+def _field_names(table: Table) -> str:
+    """The table's fields, in declaration order, so a rename or swap shows in the render."""
+    return ", ".join(f"`{field.name}`" for field in table.fields)
+
+
+def _tables_and_edges() -> str:
+    """The body of `contracts/graph-schema-v2.md`: where the routing rule sends each table."""
+    rows = tuple(
+        (layer.name, f"`{table.name}`", _field_names(table), _edge_targets(table))
+        for layer in LAYERS
+        for table in layer.tables
+    )
+    return "\n".join(
+        (
+            "## Declared tables and their edges",
+            "",
+            "A field declaring a target is an edge to that table; every other field is a node",
+            "attribute of the table it is declared on.",
+            "",
+            _markdown_table(("Layer", "Table", "Fields", "Edges to"), rows),
+        )
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class GeneratedBody:
+    """One contract document's generated region, markers included.
+
+    Attributes:
+        document: The file name under `contracts/` the body belongs to.
+        body: The region, opening and closing marker included, so that containment in
+            the document is the agreement check FR-030 asks for.
+    """
+
+    document: str
+    body: str
+
+
+def _generated(document: str, body: str) -> GeneratedBody:
+    """Wrap a rendered body in the markers that delimit it in its document."""
+    marker = f"<!-- generated: {document} by python -m processrecall.graph.schema --render -->"
+    region = f"{marker}\n\n{body}\n\n<!-- /generated -->"
+    return GeneratedBody(document=document, body=region)
+
+
+def render_bodies() -> tuple[GeneratedBody, ...]:
+    """Every generated contract region, rendered from the declaration (FR-030)."""
+    return (
+        _generated("graph-schema-v2.md", _tables_and_edges()),
+        _generated("telemetry-records.md", _records_consumed()),
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """`python -m processrecall.graph.schema --render`: the declaration as contract."""
+    from argparse import ArgumentParser
+
+    parser = ArgumentParser(prog="python -m processrecall.graph.schema", description=__doc__)
+    parser.add_argument(
+        "--render",
+        action="store_true",
+        help="write the generated contract bodies to stdout",
+    )
+    if not parser.parse_args(argv).render:
+        parser.error("nothing to render: pass --render")
+    for generated in render_bodies():
+        print(generated.body)
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover - the module's command-line seam
+    raise SystemExit(main())

@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from processrecall.graph.schema import (
     CALLERS_PER_ENTITY,
+    CONSUMED_RECORDS,
     LAYERS,
     PRECEDES_ENTITIES,
     SNAPSHOT_FORMAT,
     STORE_SCHEMA_VERSION,
     Table,
+    main,
+    render_bodies,
 )
+
+CONTRACTS = Path(__file__).resolve().parents[2] / ".claude/specs/007-otel-graph-schema-v2/contracts"
 
 
 def test_declares_the_three_layers_in_stack_order() -> None:
@@ -74,3 +83,25 @@ def test_honesty_fields_are_declared_as_plain_values() -> None:
     for table_name, field_name in honesty.items():
         field = next(f for f in declared[table_name].fields if f.name == field_name)
         assert not field.reference
+
+
+def test_render_emits_the_consumed_records_body(capsys: pytest.CaptureFixture[str]) -> None:
+    """`--render` writes the telemetry contract's generated body (FR-001)."""
+    assert main(["--render"]) == 0
+    rendered = capsys.readouterr().out
+    assert "## Records consumed" in rendered
+    for record in CONSUMED_RECORDS:
+        assert f"`{record.name}`" in rendered
+
+
+def test_main_without_render_refuses_with_a_nonzero_exit() -> None:
+    """No flag, nothing to render: the CLI refuses rather than exiting quietly."""
+    with pytest.raises(SystemExit):
+        main([])
+
+
+def test_every_rendered_body_is_the_generated_region_of_its_contract() -> None:
+    """A hand edit inside the markers is a failing test, not a doc change (FR-030)."""
+    for generated in render_bodies():
+        document = (CONTRACTS / generated.document).read_text(encoding="utf-8")
+        assert generated.body in document, generated.document
