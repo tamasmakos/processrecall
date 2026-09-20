@@ -318,12 +318,16 @@ class Report:
         baseline: `usual_next` alone, which every row is judged against.
         fused: The fusable traversals (`FUSED`) fused — the numbers each row's
             `without` is compared against.
+        fused_p_value: The significance of the full fused ranking against
+            `baseline` (SC-010): the headline comparison the report's
+            conclusion rests on gets the same sign test every other row does.
         rows: One line per traversal other than the baseline.
     """
 
     split: Split
     baseline: Ranking
     fused: Ranking
+    fused_p_value: float
     rows: tuple[Row, ...]
 
     def __str__(self) -> str:
@@ -335,7 +339,7 @@ class Report:
             "",
             _COLUMNS,
             _line(self.baseline),
-            _line(self.fused),
+            _line(self.fused, self.fused_p_value),
         ]
         for row in self.rows:
             lines += ["", _line(row.alone, row.baseline_p_value), _line(row.without, row.p_value)]
@@ -418,6 +422,7 @@ def measure(corpus: Iterable[Session], config: Config) -> Report:
         split=split,
         baseline=baseline,
         fused=fused,
+        fused_p_value=significance(baseline, fused),
         rows=tuple(
             measurement.row(traversal, fused, baseline) for traversal in TRAVERSALS[1:]
         ),
