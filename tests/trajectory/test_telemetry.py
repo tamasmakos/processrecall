@@ -19,6 +19,7 @@ from processrecall.trajectory.offset import OFFSET_NAME, OffsetFile
 from processrecall.trajectory.telemetry import (
     SESSION_ATTRIBUTE,
     ProjectAttribution,
+    SessionGaps,
     recognised_records,
     records_in_line,
     step_from_verdict,
@@ -361,3 +362,25 @@ def test_subagent_completed_and_inference_become_agents_with_kind() -> None:
     named_subagent = {**main_thread, "query_source": "code-reviewer"}
     assert agent_from_record(main_thread, key).kind == "main"
     assert agent_from_record(named_subagent, key).kind == "subagent"
+
+
+def test_gap_counter_bumps_once_per_session(counters: FakeCounters) -> None:
+    gaps = SessionGaps(counters)
+
+    # The tool-details gate is off for every record of a session, so ten
+    # thousand records report one condition: the count has to say "one session
+    # ran with the gate off", not how busy that session was
+    # (`contracts/counters.md`).
+    for _ in range(3):
+        gaps.report("session-synthetic-1", "gap_tool_details")
+    gaps.report("session-synthetic-1", "gap_ttft")
+    # A second session with the same gate off is a second condition to fix.
+    gaps.report("session-synthetic-2", "gap_tool_details")
+
+    assert counters.counted["gap_tool_details"] == 2
+    assert counters.counted["gap_ttft"] == 1
+    # The set of gaps is closed, and the name reaches `bump` here as a variable
+    # rather than as the literal `tests/graph/test_counters.py` scans for, so a
+    # name from outside the set is refused where it is passed in.
+    with pytest.raises(ValueError):
+        gaps.report("session-synthetic-1", "telemetry_records_read")

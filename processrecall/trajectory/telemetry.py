@@ -189,6 +189,23 @@ _DECISION_SOURCE_VALUES = frozenset(
 _RESULT_OK = "ok"
 _RESULT_FAILURE = "failure"
 
+#: Why a consumed field is not there, one name per cause because the fixes
+#: differ: turn spans on, turn the tool-details gate on, or upgrade the harness
+#: (`contracts/counters.md`, R9). The set is closed. Spelled out here rather than
+#: read off `processrecall/graph/store.py`'s ``COUNTERS``, which this layer sits
+#: below and so may not import.
+GAP_COUNTERS = frozenset(
+    {
+        "gap_ttft",
+        "gap_permission_wait",
+        "gap_agent_nesting",
+        "gap_stop_reason",
+        "gap_error_class",
+        "gap_tool_details",
+        "gap_version_floor",
+    }
+)
+
 
 def records_in_line(line: str) -> Iterator[TelemetryRecord]:
     """Every log record the batched OTLP/JSON *line* carries, flattened (FR-001, FR-002).
@@ -331,6 +348,44 @@ class ProjectAttribution:
         if bound is None:
             self._counters.bump("telemetry_session_unbound")
         return bound
+
+
+class SessionGaps:
+    """Each gap counter bumped once per field per session (`contracts/counters.md`).
+
+    A gate that is off, a span exporter that is not running or a harness below a
+    field's floor is one condition for the whole session it holds in. Bumped per
+    record instead, the count would report how busy the session was rather than
+    that the condition is there to fix, and would bury every other counter next
+    to it.
+
+    The sink and what has already been reported are state rather than arguments
+    repeated at every call, so one instance spans one ingest pass.
+    """
+
+    def __init__(self, counters: Counters) -> None:
+        self._counters = counters
+        self._reported: set[tuple[str, str]] = set()
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(reported={len(self._reported)})"
+
+    def report(self, session_id: str, counter: str) -> None:
+        """Bump *counter* for *session_id*, unless it was already bumped for it.
+
+        Raises:
+            ValueError: *counter* is not one of :data:`GAP_COUNTERS`. The name
+                reaches ``bump`` from here as a variable rather than as the
+                literal `tests/graph/test_counters.py` scans for, so the closed
+                set is what keeps a name with no reader out.
+        """
+        if counter not in GAP_COUNTERS:
+            raise ValueError(f"not a gap counter: {counter!r}")
+        gap_in_session = (session_id, counter)
+        if gap_in_session in self._reported:
+            return
+        self._reported.add(gap_in_session)
+        self._counters.bump(counter)
 
 
 def in_record_order(
