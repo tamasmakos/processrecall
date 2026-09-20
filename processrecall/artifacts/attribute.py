@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from processrecall.artifacts.parse import Symbol, parse_source
+from processrecall.artifacts.parse import enclosing_symbol, parse_source
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,7 +41,7 @@ def attribute_edit(edit: Edit) -> str:
     reference = edit.path.as_posix()
     if (line := _edited_line(edit)) is None:
         return reference
-    enclosing = _enclosing(parse_source(edit.path, edit.text).symbols, line)
+    enclosing = enclosing_symbol(parse_source(edit.path, edit.text).symbols, line)
     return reference if enclosing is None else f"{reference}::{enclosing.qualified_name}"
 
 
@@ -56,11 +56,3 @@ def _edited_line(edit: Edit) -> int | None:
         # Ambiguous: the fragment recurs, so no single location is correct.
         return None
     return edit.text.count("\n", 0, found) + 1
-
-
-def _enclosing(symbols: tuple[Symbol, ...], line: int) -> Symbol | None:
-    """The narrowest of *symbols* whose range contains *line*, if any."""
-    containing = [symbol for symbol in symbols if symbol.start_line <= line <= symbol.end_line]
-    if not containing:
-        return None
-    return min(containing, key=lambda symbol: symbol.end_line - symbol.start_line)

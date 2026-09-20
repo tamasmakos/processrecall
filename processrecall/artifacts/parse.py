@@ -7,8 +7,9 @@ differs between Python, TypeScript/JavaScript, Go, Rust and shell is only which
 node types a grammar calls a definition and which field holds the name, so that
 pair is the whole per-language record and the traversal over it is written once.
 
-tree-sitter is imported here and nowhere else in the package: parsing is the one
-thing FR-064 keeps off the hot path, so nothing on it may import this module.
+tree-sitter is imported here and in :mod:`processrecall.artifacts.calls` and
+nowhere else in the package: parsing is the one thing FR-064 keeps off the hot
+path, so nothing on it may import either module.
 """
 
 from __future__ import annotations
@@ -150,13 +151,36 @@ _LANGUAGE_BY_SUFFIX: Mapping[str, str] = {
 
 def parse_source(path: Path, text: str) -> ParsedSource:
     """The symbols and imports of *text*, read with the grammar *path* selects."""
+    return parse_tree(path, text)[0]
+
+
+def parse_tree(path: Path, text: str) -> tuple[ParsedSource, Node | None]:
+    """*text*'s parsed source, alongside the root node it was read from.
+
+    Public so :mod:`processrecall.artifacts.calls` can walk the same tree for
+    call sites, which parsing itself does not report, without tree-sitting the
+    file a second time. ``root`` is ``None`` exactly when ``language`` is.
+    """
     language = _LANGUAGE_BY_SUFFIX.get(path.suffix)
     if language is None:
-        return ParsedSource(language=None, symbols=(), imports=())
+        return ParsedSource(language=None, symbols=(), imports=()), None
     tree = Parser(_language(language)).parse(text.encode("utf-8"))
     reading = _Reading(_GRAMMARS[language], path)
     reading.visit(tree.root_node)
-    return ParsedSource(language, tuple(reading.symbols), tuple(reading.imports))
+    parsed = ParsedSource(language, tuple(reading.symbols), tuple(reading.imports))
+    return parsed, tree.root_node
+
+
+def enclosing_symbol(symbols: tuple[Symbol, ...], line: int) -> Symbol | None:
+    """The narrowest of *symbols* whose range contains *line*, if any.
+
+    The one way a position in a file becomes a symbol, whether the position is
+    an edit's (FR-063) or a call site's (FR-018).
+    """
+    containing = [symbol for symbol in symbols if symbol.start_line <= line <= symbol.end_line]
+    if not containing:
+        return None
+    return min(containing, key=lambda symbol: symbol.end_line - symbol.start_line)
 
 
 class _Reading:
