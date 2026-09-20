@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from processrecall.graph.episodic import open_index
+from processrecall.graph.schema import DecisionSource, StepDecision, StepResult
 from processrecall.graph.store import (
     CaptureSource,
     EpisodicStep,
@@ -257,3 +258,67 @@ def test_compound_command_keeps_one_step_per_subactivity(store: SQLiteEpisodicSt
     )
     assert store.counters()["steps_recorded"] == 3
     assert "steps_duplicate" not in store.counters()
+
+
+def _verdict(dedup_key: str = "toolu_1") -> EpisodicStep:
+    """The step a `tool_decision` record leaves: a verdict and nothing the call did."""
+    return replace(
+        _step(dedup_key=dedup_key),
+        source=CaptureSource.TELEMETRY,
+        decision=StepDecision.ACCEPTED,
+        decision_source=DecisionSource.USER_TEMPORARY,
+        tool_source="builtin",
+    )
+
+
+def _ran(dedup_key: str = "toolu_1") -> EpisodicStep:
+    """The step the `tool_result` after an accepted verdict leaves: what the call did."""
+    return replace(
+        _step(dedup_key=dedup_key),
+        source=CaptureSource.TELEMETRY,
+        files=("src/store.py",),
+        result=StepResult.OK,
+        duration_ms=1204,
+        result_size_bytes=64,
+    )
+
+
+def test_accepted_decision_and_result_yield_one_step(store: SQLiteEpisodicStore) -> None:
+    """FR-008: two records of one permitted action leave one accepted step.
+
+    The touched files ride on the `tool_result`, and the verdict before it carries
+    none: a collapse that kept the verdict's row would keep the step and lose
+    every edge the action touched, which is what a refusal is supposed to look
+    like.
+    """
+    store.record(_verdict())
+
+    assert store.record(_ran()) is False
+
+    collapsed = _stored(store, "toolu_1")
+    assert collapsed.decision is StepDecision.ACCEPTED
+    assert collapsed.decision_source is DecisionSource.USER_TEMPORARY
+    assert collapsed.files == ("src/store.py",)
+    assert collapsed.duration_ms == 1204
+    assert len(store.steps(KEY)) == 1
+
+
+def test_result_then_its_accepted_decision_also_yields_one_step(
+    store: SQLiteEpisodicStore,
+) -> None:
+    """FR-008: the same collapse when the result reaches the store first.
+
+    Telemetry export can flush after a synchronous hook write, so the result
+    beating its own verdict to the store is a race the collapse must survive
+    in either order (SC-004), not just the one scenario 4 spells out.
+    """
+    store.record(_ran())
+
+    assert store.record(_verdict()) is False
+
+    collapsed = _stored(store, "toolu_1")
+    assert collapsed.decision is StepDecision.ACCEPTED
+    assert collapsed.decision_source is DecisionSource.USER_TEMPORARY
+    assert collapsed.files == ("src/store.py",)
+    assert collapsed.duration_ms == 1204
+    assert len(store.steps(KEY)) == 1

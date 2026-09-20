@@ -473,15 +473,76 @@ def _merge_captures(*, telemetry: EpisodicStep, hook: EpisodicStep) -> _MergedSt
     left as ``None`` — which is exactly what "the record did not carry it" means
     on an `EpisodicStep` (R14).
     """
-    filled: dict[str, Any] = {}
     disagreements = 0
     for name in _MERGED_FIELDS:
         primary, fallback = getattr(telemetry, name), getattr(hook, name)
-        if primary is None:
-            filled[name] = fallback
-        elif fallback is not None and primary != fallback:
+        if primary is not None and fallback is not None and primary != fallback:
             disagreements += 1
+    filled = _gaps_filled_from(telemetry, hook)
     return _MergedStep(replace(telemetry, source=CaptureSource.BOTH, **filled), disagreements)
+
+
+def _gaps_filled_from(primary: EpisodicStep, fallback: EpisodicStep) -> dict[str, Any]:
+    """The nullable fields *primary* did not carry, as *fallback* read them (R14)."""
+    return {
+        name: getattr(fallback, name) for name in _MERGED_FIELDS if getattr(primary, name) is None
+    }
+
+
+def _is_bare_verdict(step: EpisodicStep) -> bool:
+    """Whether *step* is a permission verdict with no run of its own behind it.
+
+    `claude_code.tool_decision` carries the decision axis and nothing the call
+    did: the result axis (`result`) arrives on `tool_result` alone and has no
+    hook fallback (`contracts/telemetry-records.md`), so a verdict still
+    waiting for its result is a step that says how the call was decided and not
+    how it went.
+    """
+    return step.decision is not None and step.result is None
+
+
+def _collapsed_verdict(stored: EpisodicStep, arriving: EpisodicStep) -> EpisodicStep | None:
+    """The one step an accept verdict and the result after it make, or ``None`` (FR-008).
+
+    An accepted decision and the `tool_result` that follows it are two records of
+    a single action under one tool-use id, and the store keeps one step for it.
+    The result's row is the one kept, because the touched edges ride on it and a
+    step collapsed onto the verdict's row would keep the action and lose every
+    file it touched; the verdict fills only the fields the result left as
+    ``None`` (R14), the decision axis among them.
+
+    ``None`` when neither step is a bare verdict, when both are, or when the
+    verdict rejected the call: FR-008 forbids touched edges on a refused step,
+    so a reject verdict colliding with a result row is left a plain duplicate
+    rather than collapsed.
+    """
+    if _is_bare_verdict(stored) == _is_bare_verdict(arriving):
+        return None
+    verdict, ran = (stored, arriving) if _is_bare_verdict(stored) else (arriving, stored)
+    if verdict.decision is not StepDecision.ACCEPTED:
+        return None
+    return replace(ran, **_gaps_filled_from(ran, verdict))
+
+
+def _reconciled(stored: EpisodicStep, arriving: EpisodicStep) -> _MergedStep | None:
+    """The one step *stored* and *arriving* resolve to, and how they disagreed.
+
+    A re-seen dedup key means one of two things: an accept verdict and its
+    result under one tool-use id (FR-008), tried first regardless of which
+    capture path each side came from — a verdict and result split across
+    telemetry and the hook are still one action, not a corroboration — or,
+    failing that, two different capture paths reporting the same call
+    (FR-007). ``None`` when neither applies: a plain replay carries nothing new.
+    """
+    if (collapsed := _collapsed_verdict(stored, arriving)) is not None:
+        return _MergedStep(collapsed, disagreement_count=0)
+    if {stored.source, arriving.source} != _CROSS_SOURCE:
+        return None
+    from_hook = arriving.source is CaptureSource.HOOK
+    return _merge_captures(
+        telemetry=stored if from_hook else arriving,
+        hook=arriving if from_hook else stored,
+    )
 
 
 def _step_params(step: EpisodicStep) -> tuple[Any, ...]:
@@ -662,27 +723,23 @@ class SQLiteEpisodicStore:
         return False
 
     def _merge_with_stored(self, arriving: EpisodicStep) -> None:
-        """Fold *arriving* into the step already under its dedup key (FR-007).
+        """Fold *arriving* into the step already under its dedup key (FR-007, FR-008).
 
-        Only when the two came from different capture paths, and only once the
-        duplicate itself is counted: the merge is how one tool call seen twice
-        stays one step carrying the union of both readings, in either arrival
-        order (SC-004). The read and the rewrite share one transaction so a
-        concurrent merge of the same key cannot land between them.
+        Only once the duplicate itself is counted: the merge is how one tool
+        call seen twice stays one step carrying the union of both readings, in
+        either arrival order (SC-004). Which reconciliation applies —
+        `_reconciled`'s question, not this method's. The read and the rewrite
+        share one transaction so a concurrent merge of the same key cannot land
+        between them.
         """
         with self._connection:
             stored = self._step_by_key(arriving.dedup_key)
-            if stored is None or {stored.source, arriving.source} != _CROSS_SOURCE:
+            if stored is None or (merged := _reconciled(stored, arriving)) is None:
                 return
-            from_hook = arriving.source is CaptureSource.HOOK
-            merged = _merge_captures(
-                telemetry=stored if from_hook else arriving,
-                hook=arriving if from_hook else stored,
-            )
             self._rewrite_step(merged.step)
         for _ in range(merged.disagreement_count):
             self.bump("telemetry_hook_disagreement")
-        if stored.source is CaptureSource.HOOK:
+        if stored.source is CaptureSource.HOOK and merged.step.source is CaptureSource.BOTH:
             # The initial insert counted this row under steps_from_hook before
             # telemetry had seen it; now that it has, the count moves with it
             # (contracts/counters.md), so both arrival orders end alike.
