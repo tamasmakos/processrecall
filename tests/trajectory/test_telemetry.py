@@ -12,6 +12,7 @@ from processrecall.graph.episodic import open_index
 from processrecall.graph.store import (
     SequenceKey,
     SQLiteEpisodicStore,
+    agent_from_record,
     inference_from_record,
 )
 from processrecall.trajectory.offset import OFFSET_NAME, OffsetFile
@@ -332,3 +333,31 @@ def test_api_records_become_inferences_with_outcome(tmp_path: Path) -> None:
     # (`contracts/telemetry-records.md`).
     anonymous = {name: value for name, value in requested.items() if "request_id" not in name}
     assert inference_from_record(anonymous, key).inference_id.startswith("syn-")
+
+
+def test_subagent_completed_and_inference_become_agents_with_kind() -> None:
+    (completed,) = _records_named("all_records.jsonl", "claude_code.subagent_completed")
+    key = SequenceKey(
+        conversation_id="session-synthetic-1", session_epoch=0, prompt_id="prompt-synthetic-1"
+    )
+
+    # `subagent_completed` is the only events-mode record naming an agent type
+    # (`contracts/telemetry-records.md`), so a row built from it is a sub-agent's
+    # by definition, carrying every attribute it names (R7).
+    from_completion = agent_from_record(completed, key)
+    assert from_completion.agent_id == key.agent_id
+    assert from_completion.kind == "subagent"
+    assert (from_completion.agent_type, from_completion.agent_source) == ("reviewer", "project")
+    assert (from_completion.is_built_in, from_completion.is_async) == (False, False)
+
+    # An inference record carries no agent fields at all, only the `query_source`
+    # that separates the turn's own main thread — `repl_main_thread` or
+    # `compact` — from sub-agent work without naming an instance (R7).
+    main_thread = {
+        "event.name": "claude_code.api_request",
+        "event.timestamp": "2026-01-05T10:00:00Z",
+        "query_source": "repl_main_thread",
+    }
+    named_subagent = {**main_thread, "query_source": "code-reviewer"}
+    assert agent_from_record(main_thread, key).kind == "main"
+    assert agent_from_record(named_subagent, key).kind == "subagent"

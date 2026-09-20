@@ -42,6 +42,7 @@ from processrecall.trajectory.telemetry import (
     SESSION_ATTRIBUTE,
     TIMESTAMP_ATTRIBUTE,
     TelemetryRecord,
+    optional_bool,
     optional_integer,
     optional_text,
     parse_instant,
@@ -324,6 +325,51 @@ class Inference:
     stop_reason: str | None = None
 
 
+#: Which of the two actors an `agents` row is (R7): the main thread, or a
+#: sub-agent it spawned. Events-only identity reaches a kind and no name, so the
+#: pair is the whole vocabulary of `agents.kind`.
+AgentKind = Literal["main", "subagent"]
+
+
+@dataclass(frozen=True, slots=True)
+class Agent:
+    """One actor the harness reported — a row of `agents` (FR-020).
+
+    ``agent_type``, ``agent_source``, ``is_built_in``, ``is_async`` and the
+    workflow pair come from `subagent_completed`, the only events-mode record
+    naming an agent type (R7). ``parent_agent_id`` is the `spawned` edge, and
+    span enrichment is its only source (R7), so a row built from events alone
+    leaves it unset rather than deriving a parent from adjacency.
+
+    Attributes:
+        agent_id: The identity the observation gave the actor.
+        kind: Whether the row is the main thread or a sub-agent of one.
+        first_seen: Where this observation places the actor. One observation sets
+            it and ``last_seen`` to the same instant; `record_agent` widens the
+            stored pair as further observations of the actor arrive.
+        last_seen: The other end of that interval.
+        agent_type: The category of sub-agent, where a record named one.
+        agent_source: Where the harness says the sub-agent definition came from.
+        is_built_in: Whether the sub-agent is one of the harness's own, where known.
+        is_async: Whether the sub-agent ran asynchronously, where known.
+        workflow_run_id: The workflow run the actor belongs to, where it does.
+        workflow_name: That run's name.
+        parent_agent_id: The actor that spawned this one, where enrichment saw it.
+    """
+
+    agent_id: str
+    kind: AgentKind
+    first_seen: datetime
+    last_seen: datetime
+    agent_type: str | None = None
+    agent_source: str | None = None
+    is_built_in: bool | None = None
+    is_async: bool | None = None
+    workflow_run_id: str | None = None
+    workflow_name: str | None = None
+    parent_agent_id: str | None = None
+
+
 #: What a step did to the entity it touched, in the vocabulary `step_touches.mode`
 #: holds (FR-021): the two are kept apart because a step that only read a file
 #: says nothing about the file having changed.
@@ -429,6 +475,14 @@ class EpisodicStore(Protocol):
 
     def inferences_for(self, key: SequenceKey) -> tuple[Inference, ...]:
         """Every model call recorded under *key*, in the order they were written."""
+        ...
+
+    def record_agent(self, agent: Agent) -> None:
+        """Write *agent*, folding a repeated observation of it into the one row (FR-020)."""
+        ...
+
+    def agent(self, agent_id: str) -> Agent | None:
+        """The actor *agent_id* names, or ``None`` when nothing observed it."""
         ...
 
     def record_touch(self, touch: StepTouch) -> None:
@@ -830,6 +884,63 @@ def inference_from_record(record: TelemetryRecord, key: SequenceKey) -> Inferenc
     )
 
 
+#: The two `query_source` values naming the turn's own main thread (R7); every
+#: other value — including a sub-agent's own name, which identifies no instance
+#: — reads as `subagent`, the one kind events-only mode can still tell apart.
+_MAIN_THREAD_QUERY_SOURCES = frozenset({"repl_main_thread", "compact"})
+
+
+def _kind_from_query_source(query_source: str | None) -> AgentKind:
+    """The agent kind *query_source* names, the degraded signal R7 leaves for it."""
+    return "main" if query_source in _MAIN_THREAD_QUERY_SOURCES else "subagent"
+
+
+def agent_from_record(record: TelemetryRecord, key: SequenceKey) -> Agent:
+    """The actor a `subagent_completed`, `api_request`, `api_error` or `api_refusal` *record* names (FR-020, R7).
+
+    Only `subagent_completed` names an `agent_type`, `agent_source`, `is_built_in`
+    or `is_async` — `contracts/telemetry-records.md` gives it no `query_source`, so
+    a row built from it is a sub-agent's by definition. The other three carry no
+    agent fields at all, only the `query_source` that separates the turn's own
+    main thread from sub-agent work without naming an instance (R7); `kind` is all
+    a row built from one of them can hold.
+
+    Neither shape carries `agent_id` — it is a span attribute only (R7) — so the
+    row's identity is *key*'s: the same `SequenceKey.agent_id` the turn's steps and
+    inferences are already filed under.
+
+    `workflow_run_id` and `workflow_name` are left unset here: `contracts/telemetry-records.md`
+    names no attribute of either shape that carries them.
+
+    Raises:
+        KeyError: *record* is none of the four record types an agent is read
+            from, or carries no `event.timestamp` to place it at.
+        ValueError: `event.timestamp` will not parse as an instant. Both are the
+            caller's to place, as they are for a step (`in_record_order`).
+    """
+    record_type = str(record[RECORD_TYPE_ATTRIBUTE])
+    occurred_at = parse_instant(str(record[TIMESTAMP_ATTRIBUTE]))
+    if record_type == _SUBAGENT_COMPLETED:
+        return Agent(
+            agent_id=key.agent_id,
+            kind="subagent",
+            first_seen=occurred_at,
+            last_seen=occurred_at,
+            agent_type=optional_text(record, "agent_type"),
+            agent_source=optional_text(record, "agent.source"),
+            is_built_in=optional_bool(record, "is_built_in"),
+            is_async=optional_bool(record, "is_async"),
+        )
+    if record_type not in _OUTCOME_BY_RECORD:
+        raise KeyError(record_type)
+    return Agent(
+        agent_id=key.agent_id,
+        kind=_kind_from_query_source(optional_text(record, "query_source")),
+        first_seen=occurred_at,
+        last_seen=occurred_at,
+    )
+
+
 def _inference_params(inference: Inference) -> tuple[Any, ...]:
     """*inference*'s values in `_INFERENCE_WRITE_COLUMNS` order, for a write to bind."""
     return (
@@ -873,6 +984,84 @@ def _inference_from_row(row: tuple[Any, ...], key: SequenceKey) -> Inference:
         status_code=None if row[13] is None else int(row[13]),
         attempt=None if row[14] is None else int(row[14]),
         stop_reason=None if row[15] is None else str(row[15]),
+    )
+
+
+#: Every `agents` column a write fills, in `_agent_params` order.
+_AGENT_WRITE_COLUMNS = (
+    "agent_id",
+    "kind",
+    "agent_type",
+    "agent_source",
+    "is_built_in",
+    "is_async",
+    "workflow_run_id",
+    "workflow_name",
+    "parent_agent_id",
+    "first_seen",
+    "last_seen",
+)
+
+#: What a read selects, in `_agent_from_row` order: the written columns minus the
+#: identity the reader asked by and so already holds.
+_AGENT_READ_COLUMNS = tuple(column for column in _AGENT_WRITE_COLUMNS if column != "agent_id")
+
+#: How a second observation of one actor folds into the row the first left.
+#: `COALESCE` in this direction keeps the two sources independent: the
+#: `subagent_completed` record names no parent, and arriving after enrichment it
+#: must not erase the one enrichment saw. The interval widens rather than moves,
+#: because records reach the store in neither the order they happened nor a
+#: stable one (R5).
+_AGENT_MERGE = (
+    "kind = excluded.kind,"
+    " agent_type = COALESCE(excluded.agent_type, agent_type),"
+    " agent_source = COALESCE(excluded.agent_source, agent_source),"
+    " is_built_in = COALESCE(excluded.is_built_in, is_built_in),"
+    " is_async = COALESCE(excluded.is_async, is_async),"
+    " workflow_run_id = COALESCE(excluded.workflow_run_id, workflow_run_id),"
+    " workflow_name = COALESCE(excluded.workflow_name, workflow_name),"
+    " parent_agent_id = COALESCE(excluded.parent_agent_id, parent_agent_id),"
+    " first_seen = MIN(first_seen, excluded.first_seen),"
+    " last_seen = MAX(last_seen, excluded.last_seen)"
+)
+
+
+def _agent_params(agent: Agent) -> tuple[Any, ...]:
+    """*agent*'s values in `_AGENT_WRITE_COLUMNS` order, for a write to bind."""
+    return (
+        agent.agent_id,
+        agent.kind,
+        agent.agent_type,
+        agent.agent_source,
+        agent.is_built_in,
+        agent.is_async,
+        agent.workflow_run_id,
+        agent.workflow_name,
+        agent.parent_agent_id,
+        agent.first_seen.isoformat(),
+        agent.last_seen.isoformat(),
+    )
+
+
+def _agent_from_row(row: tuple[Any, ...], agent_id: str) -> Agent:
+    """Rebuild the actor one `_AGENT_READ_COLUMNS` row of *agent_id* holds.
+
+    The stored `kind` is trusted as the vocabulary it was written in, for the
+    reason `touches_for` trusts a mode: `record_agent` is its only writer, and it
+    takes an `Agent` whose field is an `AgentKind` already.
+    """
+    return Agent(
+        agent_id=agent_id,
+        kind=cast("AgentKind", row[0]),
+        first_seen=datetime.fromisoformat(str(row[8])),
+        last_seen=datetime.fromisoformat(str(row[9])),
+        agent_type=None if row[1] is None else str(row[1]),
+        agent_source=None if row[2] is None else str(row[2]),
+        is_built_in=None if row[3] is None else bool(row[3]),
+        is_async=None if row[4] is None else bool(row[4]),
+        workflow_run_id=None if row[5] is None else str(row[5]),
+        workflow_name=None if row[6] is None else str(row[6]),
+        parent_agent_id=None if row[7] is None else str(row[7]),
     )
 
 
@@ -1289,6 +1478,30 @@ class SQLiteEpisodicStore:
             (_sequence_text(key),),
         )
         return tuple(_inference_from_row(row, key) for row in rows)
+
+    def record_agent(self, agent: Agent) -> None:
+        """Write *agent* as a row of `agents`, folding a repeat observation into it (FR-020).
+
+        Nothing here looks the parent up. The `spawned` edge is the child's own
+        `parent_agent_id` (`contracts/graph-schema-v2.md`), so a sub-agent
+        observed before anything had observed its parent forms the edge anyway,
+        and the parent's own row arriving later neither completes nor repairs it.
+        """
+        with self._connection:
+            self._connection.execute(
+                f"INSERT INTO agents ({', '.join(_AGENT_WRITE_COLUMNS)})"  # nosec B608
+                f" VALUES ({', '.join('?' * len(_AGENT_WRITE_COLUMNS))})"
+                f" ON CONFLICT (agent_id) DO UPDATE SET {_AGENT_MERGE}",
+                _agent_params(agent),
+            )
+
+    def agent(self, agent_id: str) -> Agent | None:
+        """The actor *agent_id* names, or ``None`` when nothing observed it."""
+        row = self._connection.execute(
+            f"SELECT {', '.join(_AGENT_READ_COLUMNS)} FROM agents WHERE agent_id = ?",  # nosec B608
+            (agent_id,),
+        ).fetchone()
+        return None if row is None else _agent_from_row(row, agent_id)
 
     def record_touch(self, touch: StepTouch) -> None:
         """Write *touch* against the step it names, and count it if it got no further than the file (FR-021).

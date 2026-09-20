@@ -19,6 +19,7 @@ import pytest
 from processrecall.graph.episodic import open_index
 from processrecall.graph.schema import DecisionSource, StepDecision, StepResult
 from processrecall.graph.store import (
+    Agent,
     CaptureSource,
     EpisodicStep,
     EpisodicStore,
@@ -220,3 +221,41 @@ def test_the_shipped_store_is_substitutable_for_the_seam_fr_056(
     store: SQLiteEpisodicStore,
 ) -> None:
     assert isinstance(store, EpisodicStore)
+
+
+def test_spawn_edge_forms_when_subagent_arrives_first(store: SQLiteEpisodicStore) -> None:
+    """The parent is named on the child's own row, so neither arrival order loses it.
+
+    `parent_agent_id` is observed in span enrichment and nowhere else (R7), and
+    enrichment sees the sub-agent before the turn that spawned it has an agent
+    row; the `subagent_completed` event that names the type and the workflow run
+    arrives afterwards and names no parent at all.
+    """
+    spawned_at = datetime(2026, 9, 13, 10, 1, tzinfo=UTC)
+    completed_at = datetime(2026, 9, 13, 10, 2, tzinfo=UTC)
+    enriched = Agent(
+        agent_id="sub-1",
+        kind="subagent",
+        first_seen=spawned_at,
+        last_seen=spawned_at,
+        parent_agent_id="main-1",
+    )
+    completed = Agent(
+        agent_id="sub-1",
+        kind="subagent",
+        first_seen=completed_at,
+        last_seen=completed_at,
+        agent_type="code-reviewer",
+        workflow_run_id="run-7",
+        workflow_name="tdd",
+    )
+    parent = replace(enriched, agent_id="main-1", kind="main", parent_agent_id=None)
+
+    store.record_agent(enriched)
+    store.record_agent(completed)
+    store.record_agent(parent)
+
+    assert store.agent("sub-1") == replace(
+        completed, first_seen=spawned_at, parent_agent_id="main-1"
+    )
+    assert store.agent("main-1") == parent

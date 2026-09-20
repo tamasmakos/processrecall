@@ -450,6 +450,17 @@ def optional_integer(record: TelemetryRecord, attribute: str) -> int | None:
     return None if value is None else int(value)
 
 
+def optional_bool(record: TelemetryRecord, attribute: str) -> bool | None:
+    """*attribute* as a bool, or ``None`` when *record* did not carry one (R14).
+
+    A value present but not a bool is treated the same as absent, for the reason
+    :func:`step_result` guards `success` the same way: a flag spelled as
+    something other than a boolean says nothing about the axis it names.
+    """
+    value = record.get(attribute)
+    return value if isinstance(value, bool) else None
+
+
 def _validated_source(record: TelemetryRecord) -> str | None:
     """*record*'s `source`, or ``None`` when absent or not one `_DECISION_SOURCE_VALUES` names."""
     source = record.get("source")
