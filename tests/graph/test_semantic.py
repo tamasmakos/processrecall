@@ -10,7 +10,13 @@ from time import perf_counter
 
 import pytest
 
-from processrecall.cli.derive import SemanticPass, derive_relations, derive_semantic
+from processrecall.cli.derive import (
+    ModifiedPosition,
+    SemanticPass,
+    derive_relations,
+    derive_semantic,
+    resolve_touch,
+)
 from processrecall.graph.semantic import (
     CodeEntity,
     CodeRelation,
@@ -20,7 +26,7 @@ from processrecall.graph.semantic import (
     entity_key,
     touched_entities,
 )
-from processrecall.graph.store import EpisodicStep
+from processrecall.graph.store import EpisodicStep, StepTouch
 
 from .conftest import make_aggregate_step, sequence
 
@@ -217,6 +223,32 @@ def test_renamed_file_does_not_repoint_a_touched_edge() -> None:
     assert read == (
         TouchedEntity(entity_key="processrecall/graph/semantic.py", entity=None, file=None),
     )
+
+
+def test_modified_position_resolves_to_the_enclosing_symbol() -> None:
+    """FR-046, SC-015: a modified position inside a symbol's range resolves the touch
+    to the narrowest symbol enclosing it and counts as resolved; a position no entity
+    of that file encloses stays the file's, which is the honest answer there."""
+    entities = (
+        make_entity("pkg/module.py", "file"),
+        replace(make_entity("pkg/module.py#Recorder", "class"), start_line=4, end_line=8),
+        replace(make_entity("pkg/module.py#Recorder.record", "method"), start_line=7, end_line=8),
+        replace(make_entity("other/module.py#work", "function"), start_line=1, end_line=50),
+    )
+    recorded = StepTouch(step_id=1, entity_key="pkg/module.py", mode="modified")
+    counters = FakeCounters()
+
+    resolved = resolve_touch(ModifiedPosition(recorded, line=8, entities=entities), counters)
+    between = resolve_touch(ModifiedPosition(recorded, line=1, entities=entities), counters)
+
+    assert resolved == StepTouch(
+        step_id=1,
+        entity_key="pkg/module.py#Recorder.record",
+        mode="modified",
+        resolution="symbol",
+    )
+    assert between == recorded
+    assert counters.counted == Counter({"touched_symbol_resolved": 1})
 
 
 def test_renamed_file_stays_unmatched_through_derivation(tmp_path: Path) -> None:

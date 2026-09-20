@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
 
@@ -49,7 +49,7 @@ from processrecall.graph.semantic import (
     CodeRelation,
     entity_key,
 )
-from processrecall.graph.store import EpisodicStep
+from processrecall.graph.store import EpisodicStep, StepTouch
 from processrecall.trajectory.offset import OFFSET_NAME, OffsetFile
 from processrecall.trajectory.paths import EXTERNAL_ROOT, HOME_ROOT
 
@@ -105,10 +105,11 @@ def derive_semantic(work: SemanticPass, store: Counters) -> tuple[CodeEntity, ..
     which is what keeps the pass proportional to the unit of work instead of to
     the repository.
 
-    The symbols a changed file declares become rows of their own in T092, which
-    resolves a touched position against their line ranges; this pass establishes
-    the file row each of them hangs off, and the fingerprint that says whether
-    the file needs reading at all.
+    The symbols a changed file declares still become rows of their own later;
+    this pass establishes the file row each of them hangs off, and the
+    fingerprint that says whether the file needs reading at all. `resolve_touch`
+    is what matches a modified position against the line ranges those rows
+    carry (FR-046).
     """
     derived = []
     texts = _touched_texts(work, store)
@@ -155,6 +156,81 @@ def derive_relations(work: SemanticPass, store: Counters) -> tuple[CodeRelation,
         if row.relation == UNRESOLVED_CALL:
             store.bump("semantic_unresolved_call")
     return rows
+
+
+@dataclass(frozen=True, slots=True)
+class ModifiedPosition:
+    """One recorded touch, the line it landed on, and what it is resolved against.
+
+    Attributes:
+        touch: The touch as the episodic layer recorded it — the file, the mode,
+            and `file` resolution, which is the honest answer at record time
+            because the symbol is only knowable once the file has been parsed.
+        line: The 1-based line the modification named inside that file, the
+            numbering `processrecall.artifacts.parse.Symbol` carries its bounds in.
+        entities: The code entities the position is matched against, as
+            `derive_semantic` derived them.
+    """
+
+    touch: StepTouch
+    line: int
+    entities: tuple[CodeEntity, ...]
+
+
+def resolve_touch(position: ModifiedPosition, store: Counters) -> StepTouch:
+    """*position*'s touch, re-pointed at the symbol enclosing it (FR-046).
+
+    Scoped to a modification: FR-046 resolves "where a modification names a
+    file and a position within it", and a read touch has no edit position to
+    resolve, so it is returned as recorded. Otherwise, the touch as recorded
+    when no entity of that file encloses the line: a file-level touch is the
+    honest answer there, not a symbol that was never found. A resolved one
+    bumps `touched_symbol_resolved`.
+    """
+    if position.touch.mode != "modified":
+        return position.touch
+    enclosing = _enclosing_key(position)
+    if enclosing is None:
+        return position.touch
+    store.bump("touched_symbol_resolved")
+    return replace(position.touch, entity_key=enclosing, resolution="symbol")
+
+
+def _enclosing_key(position: ModifiedPosition) -> str | None:
+    """The key of the narrowest entity enclosing *position*, or ``None`` for no entity.
+
+    Narrowest wins, the same reading `artifacts.parse.enclosing_symbol` gives a
+    parsed position: an edit inside a method is the method's, not that of the
+    class around it. Ties on span break on the entity key, so the choice does
+    not depend on the order the entities were derived in.
+    """
+    enclosing = [
+        (span[1] - span[0], entity.entity_key)
+        for entity in position.entities
+        if (span := _enclosed_span(entity, position)) is not None
+    ]
+    return min(enclosing)[1] if enclosing else None
+
+
+def _enclosed_span(entity: CodeEntity, position: ModifiedPosition) -> tuple[int, int] | None:
+    """*entity*'s line range when it is *position*'s file and holds its line.
+
+    Matched on the file half of the key rather than on the range alone, because a
+    line number means nothing outside the file it was read in: a symbol of
+    another file whose range happens to span the same lines encloses nothing here.
+    The touch's own key is split the same way, since a touch already recorded
+    against a symbol still names a file to match on.
+    """
+    span = entity.line_range
+    if span is None or entity.file_key != _file_key(position.touch.entity_key):
+        return None
+    start, end = span
+    return span if start <= position.line <= end else None
+
+
+def _file_key(key: str) -> str:
+    """The file half of a `code_entities`-style *key*, split the way `graph.semantic` does."""
+    return key.split("#", 1)[0]
 
 
 def _touched_texts(work: SemanticPass, store: Counters) -> dict[str, str]:
