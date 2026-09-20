@@ -14,6 +14,7 @@ from processrecall.trajectory.telemetry import (
     ProjectAttribution,
     recognised_records,
     records_in_line,
+    step_from_verdict,
 )
 
 #: The synthetic OTLP corpus T001 built to `contracts/telemetry-records.md`.
@@ -215,3 +216,35 @@ def test_unparsable_line_loses_its_records_not_the_pass(counters: FakeCounters) 
     assert list(recognised_records(wrong_shape, counters)) == []
     assert list(recognised_records(wrong_nested_shape, counters)) == []
     assert counters.counted["telemetry_record_partial"] == 3
+
+
+def _verdicts(fixture_name: str) -> list[dict[str, str | int | bool]]:
+    """Every `tool_decision` record the named fixture carries, flattened."""
+    lines = (TELEMETRY_FIXTURES / fixture_name).read_text(encoding="utf-8").splitlines()
+    return [
+        dict(record)
+        for line in lines
+        if line.strip()
+        for record in records_in_line(line)
+        if record["event.name"] == "claude_code.tool_decision"
+    ]
+
+
+def test_rejected_decision_becomes_refused_step_with_no_touches() -> None:
+    (verdict,) = _verdicts("all_records.jsonl")
+    # With `OTEL_LOG_TOOL_DETAILS` on, a verdict carries the arguments of the
+    # call it refused, so the step has to drop them rather than never see them.
+    refused = verdict | {"tool_parameters": '{"command": "rm -rf build"}'}
+
+    step = step_from_verdict(refused)
+
+    assert step.decision == "rejected"
+    assert step.decision_source == "user_reject"
+    assert step.tool_name == "Bash"
+    assert step.tool_call_id == "toolu_synthetic_0002"
+    # The call never ran: no touched edges (FR-008), and no duration or result
+    # size either. The absence is what the rejection looks like, not a gap a
+    # later source is expected to fill (R14).
+    assert step.tool_call_arguments == {}
+    assert step.duration_ms is None
+    assert step.result_size_bytes is None

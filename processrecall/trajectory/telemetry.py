@@ -33,6 +33,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from processrecall.config import Counters
+from processrecall.trajectory.event import SourceKind, TrajectoryEvent
 from processrecall.trajectory.records import CONSUMED_EVENT_NAMES
 
 #: The flattened attribute naming which of the consumed record types a record
@@ -44,6 +45,10 @@ RECORD_TYPE_ATTRIBUTE = "event.name"
 #: by ``OTEL_METRICS_INCLUDE_SESSION_ID``: with the gate off it is absent, and
 #: every record is unattributable rather than wrongly attributed.
 SESSION_ATTRIBUTE = "session.id"
+
+#: The flattened attribute carrying the user turn a record belongs to, the
+#: correlation key threaded through every record type.
+PROMPT_ATTRIBUTE = "prompt.id"
 
 #: The two attributes a record's place in the read order comes from
 #: (`contracts/telemetry-records.md`). `event.sequence` breaks a tie and decides
@@ -68,7 +73,7 @@ _STANDARD_ATTRIBUTES = frozenset(
         SEQUENCE_ATTRIBUTE,
         SESSION_ATTRIBUTE,
         "app.version",
-        "prompt.id",
+        PROMPT_ATTRIBUTE,
     }
 )
 
@@ -160,6 +165,23 @@ _VALUE_READERS: Mapping[str, Callable[[Any], str | int | bool]] = {
     "intValue": int,
     "boolValue": bool,
 }
+
+#: The decision axis as `tool_decision` spells it, mapped onto the spelling the
+#: step stores it in (:class:`~processrecall.graph.schema.StepDecision`). Written
+#: out here rather than imported: `processrecall/graph/store.py` already imports
+#: `trajectory.event` for the event it stores, so the dependency runs graph ->
+#: trajectory, and importing `graph.schema` back into this module would run the
+#: same edge the other way.
+_DECISION_VALUES: Mapping[str, str] = {"accept": "accepted", "reject": "rejected"}
+
+#: The `source` spellings a verdict ever carries
+#: (:class:`~processrecall.graph.schema.DecisionSource`'s closed set), spelled
+#: out here for the same reason `_DECISION_VALUES` is. A spelling outside it is
+#: dropped to ``None`` here rather than passed through raw only to explode much
+#: later at `DecisionSource(row[21])` in `graph/store.py`.
+_DECISION_SOURCE_VALUES = frozenset(
+    {"config", "hook", "user_permanent", "user_temporary", "user_abort", "user_reject"}
+)
 
 
 def records_in_line(line: str) -> Iterator[TelemetryRecord]:
@@ -341,3 +363,75 @@ def _read_position(record: TelemetryRecord) -> tuple[datetime, int]:
     if written_at.tzinfo is None:
         written_at = written_at.replace(tzinfo=UTC)
     return written_at, int(record[SEQUENCE_ATTRIBUTE])
+
+
+def step_from_verdict(record: TelemetryRecord) -> TrajectoryEvent:
+    """The step a `claude_code.tool_decision` record is (FR-008).
+
+    The only record a rejected call produces, and it says how the call was
+    decided rather than how it went: the step carries the decision axis and the
+    source that decided it, and carries no duration, no result size and no
+    touched edges. A refused call ran nothing and touched nothing, so each of
+    those absences *is* the refusal rather than a field a later source is
+    expected to fill in (R14).
+
+    The arguments are dropped even when `OTEL_LOG_TOOL_DETAILS` put them on the
+    verdict, because the touched edges are derived from them and FR-008 forbids
+    a refused step any. This drops them on an accepted verdict too, which for a
+    compound shell command means the verdict decomposes to one sub-activity
+    while the `tool_result` behind it decomposes to several (R6, T020): only
+    ordinal 0 can collapse against the verdict, and the later sub-activities
+    keep `decision=None`. Spreading the decision axis across every sub-activity
+    of one tool-use id is the accept-verdict collapse task's to fix, not this
+    one's. A verdict whose `decision` the harness spells some other way leaves
+    the axis unset rather than guessed at.
+
+    ``tool_source`` rides along even though nothing in this task asked for it,
+    because `contracts/telemetry-records.md` marks `tool_decision` its only
+    carrier (floor v2.1.214): no other record, and so no other task, ever
+    reaches it again.
+
+    ``project_dir`` is empty because no telemetry record carries a working
+    directory (R4): the project is the one :class:`ProjectAttribution` resolved
+    through `session.id`, not one this record could name. ``record_ref`` points a
+    human at the record type and the tool call rather than at a collector line,
+    which rotates.
+
+    Raises:
+        KeyError, ValueError: *record* carries no readable position. Records
+            reach here through :func:`in_record_order`, which is where an
+            unplaceable one is dropped and counted (FR-009).
+    """
+    occurred_at, event_sequence = _read_position(record)
+    tool_call_id = str(record.get("tool_use_id", ""))
+    return TrajectoryEvent(
+        operation_name="execute_tool",
+        conversation_id=str(record.get(SESSION_ATTRIBUTE, "")),
+        agent_id="",
+        agent_name="",
+        tool_name=str(record.get("tool_name", "")),
+        tool_call_id=tool_call_id,
+        tool_call_arguments={},
+        tool_call_result="",
+        prompt_id=str(record.get(PROMPT_ATTRIBUTE, "")),
+        project_dir="",
+        record_ref=f"{record.get(RECORD_TYPE_ATTRIBUTE, '')}#{tool_call_id}",
+        occurred_at=occurred_at,
+        source_kind=SourceKind.LIVE,
+        decision=_DECISION_VALUES.get(str(record.get("decision", ""))),
+        decision_source=_validated_source(record),
+        tool_source=_optional_text(record, "tool_source"),
+        event_sequence=event_sequence,
+    )
+
+
+def _optional_text(record: TelemetryRecord, attribute: str) -> str | None:
+    """*attribute* as text, or ``None`` when *record* did not carry it (R14)."""
+    value = record.get(attribute)
+    return None if value is None else str(value)
+
+
+def _validated_source(record: TelemetryRecord) -> str | None:
+    """*record*'s `source`, or ``None`` when absent or not one `_DECISION_SOURCE_VALUES` names."""
+    source = record.get("source")
+    return str(source) if isinstance(source, str) and source in _DECISION_SOURCE_VALUES else None
