@@ -64,7 +64,7 @@ from processrecall.graph.store import (
     SQLiteEpisodicStore,
     log_fallback,
 )
-from processrecall.guidance.fusion import Fusion
+from processrecall.guidance.fusion import CandidateList, Fusion, Scope
 from processrecall.guidance.locate import locate
 from processrecall.guidance.neighborhood import Neighborhood
 from processrecall.guidance.render import BulletRenderer, Deadline, GuidanceStatement
@@ -412,10 +412,16 @@ def _opening_guidance(opening: _Opening) -> str:
 
 
 def _fused_openings(opening: _Opening) -> tuple[TransitionEdge, ...]:
-    """The moves that open a prompt, this project's ahead of every other's (FR-048)."""
-    fused = Fusion(opening.counters).fuse(
-        _moves_from(_project_snapshot(opening.project_dir), START_KEY, opening.counters),
-        _moves_from(home_dir() / SNAPSHOT_NAME, START_KEY, opening.counters),
+    """The moves that open a prompt, this project's weighed above every other's (FR-032)."""
+    fused = Fusion(opening.config, opening.counters).fuse(
+        CandidateList(
+            edges=_moves_from(_project_snapshot(opening.project_dir), START_KEY, opening.counters),
+            scope=Scope.PROJECT,
+        ),
+        CandidateList(
+            edges=_moves_from(home_dir() / SNAPSHOT_NAME, START_KEY, opening.counters),
+            scope=Scope.GLOBAL,
+        ),
     )
     return tuple(candidate.edge for candidate in fused.edges)
 

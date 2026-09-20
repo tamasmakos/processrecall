@@ -9,14 +9,16 @@ from __future__ import annotations
 
 from collections import Counter
 
+from processrecall.config import Config
 from processrecall.graph.abstract import AbstractGraph, TransitionEdge, aggregate
-from processrecall.guidance.fusion import Fusion, Scope
+from processrecall.guidance.fusion import CandidateList, Fusion, Scope
 
 from .conftest import walk
 
 READ = "Inspection/Read/py"
 EDIT = "ChangeImplementation/Edit/py"
 TEST = "ArtifactEvaluation/pytest/py"
+SEARCH = "Search/Grep/py"
 
 LEVEL = "class/program"
 
@@ -56,7 +58,10 @@ def test_a_procedure_unseen_in_this_project_is_answered_from_the_global_graph() 
     global_candidates = out_of(graph_of((EDIT, TEST), (EDIT, TEST)), EDIT)
     counters = FakeCounters()
 
-    fused = Fusion(counters).fuse((), global_candidates)
+    fused = Fusion(Config(), counters).fuse(
+        CandidateList(edges=(), scope=Scope.PROJECT),
+        CandidateList(edges=global_candidates, scope=Scope.GLOBAL),
+    )
 
     assert [edge.edge.target for edge in fused.edges] == [served(TEST)]
     assert [edge.scope for edge in fused.edges] == [Scope.GLOBAL]
@@ -70,7 +75,10 @@ def test_a_procedure_this_project_has_recorded_is_answered_from_its_own_graph() 
     fallback = out_of(graph_of((EDIT, READ), (EDIT, READ)), EDIT)
     counters = FakeCounters()
 
-    fused = Fusion(counters).fuse(project, fallback)
+    fused = Fusion(Config(), counters).fuse(
+        CandidateList(edges=project, scope=Scope.PROJECT),
+        CandidateList(edges=fallback, scope=Scope.GLOBAL),
+    )
 
     assert fused.edges[0].scope is Scope.PROJECT
     assert fused.edges[0].edge.target == served(TEST)
@@ -83,7 +91,10 @@ def test_a_move_both_graphs_rank_high_outranks_one_only_this_project_has() -> No
     project = out_of(graph_of((EDIT, TEST), (EDIT, TEST), (EDIT, READ), (EDIT, READ)), EDIT)
     fallback = out_of(graph_of((EDIT, READ), (EDIT, READ)), EDIT)
 
-    fused = Fusion(FakeCounters()).fuse(project, fallback)
+    fused = Fusion(Config(), FakeCounters()).fuse(
+        CandidateList(edges=project, scope=Scope.PROJECT),
+        CandidateList(edges=fallback, scope=Scope.GLOBAL),
+    )
 
     assert [edge.edge.target for edge in fused.edges] == [served(READ), served(TEST)]
     assert {edge.scope for edge in fused.edges} == {Scope.PROJECT}
@@ -95,9 +106,38 @@ def test_a_move_only_other_projects_have_made_is_served_last_and_marked_global()
     fallback = out_of(graph_of((EDIT, TEST), (EDIT, TEST), (EDIT, READ), (EDIT, READ)), EDIT)
     counters = FakeCounters()
 
-    fused = Fusion(counters).fuse(project, fallback)
+    fused = Fusion(Config(), counters).fuse(
+        CandidateList(edges=project, scope=Scope.PROJECT),
+        CandidateList(edges=fallback, scope=Scope.GLOBAL),
+    )
 
     assert [edge.edge.target for edge in fused.edges] == [served(TEST), served(READ)]
     assert [edge.scope for edge in fused.edges] == [Scope.PROJECT, Scope.GLOBAL]
     assert fused.scope is Scope.PROJECT
     assert counters.counted == Counter()
+
+
+def test_project_weight_does_not_gate_global_candidates() -> None:
+    """FR-032: the preference is a weight, so agreement elsewhere can outrank it.
+
+    Under a gate every project candidate precedes every global one, whatever the
+    reciprocal ranks say. Here two global traversals reach the same move and it
+    is served first, ahead of both of this project's own — the project weight
+    leans the order, it does not partition it.
+    """
+    project = out_of(graph_of((EDIT, TEST), (EDIT, TEST), (EDIT, READ), (EDIT, READ)), EDIT)
+    agreed = out_of(graph_of((EDIT, SEARCH), (EDIT, SEARCH)), EDIT)
+
+    fused = Fusion(Config(), FakeCounters()).fuse(
+        CandidateList(edges=project, scope=Scope.PROJECT),
+        CandidateList(edges=agreed, scope=Scope.GLOBAL),
+        CandidateList(edges=agreed, scope=Scope.GLOBAL),
+    )
+
+    assert [edge.edge.target for edge in fused.edges] == [
+        served(SEARCH),
+        served(TEST),
+        served(READ),
+    ]
+    assert [edge.scope for edge in fused.edges] == [Scope.GLOBAL, Scope.PROJECT, Scope.PROJECT]
+    assert fused.scope is Scope.PROJECT

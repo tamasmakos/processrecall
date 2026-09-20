@@ -26,7 +26,7 @@ from processrecall.graph.abstract import TransitionEdge
 from processrecall.graph.episodic import open_index
 from processrecall.graph.snapshot import SNAPSHOT_NAME
 from processrecall.graph.store import EpisodicStore, SQLiteEpisodicStore
-from processrecall.guidance.fusion import FusedCandidates, FusedEdge, Fusion
+from processrecall.guidance.fusion import CandidateList, FusedCandidates, Fusion, Scope
 from processrecall.guidance.locate import locate
 from processrecall.guidance.render import GuidanceStatement
 from processrecall.guidance.successors import successors_from
@@ -99,9 +99,7 @@ def _answer(ask: _Ask) -> dict[str, Any]:
     """The moves made from *ask*'s position, as the caller reads them back."""
     fused = _fused(ask)
     statements = [
-        statement
-        for candidate in _supported(fused.edges, ask.store)
-        for statement in _statements(candidate.edge)
+        statement for candidate in fused.edges for statement in _statements(candidate.edge)
     ]
     return {
         "procedure": ask.source,
@@ -112,30 +110,20 @@ def _answer(ask: _Ask) -> dict[str, Any]:
     }
 
 
-def _supported(candidates: tuple[FusedEdge, ...], counters: EpisodicStore) -> tuple[FusedEdge, ...]:
-    """*candidates* whose edge clears the configured support floor (FR-045a).
-
-    A call here is the occasion no trigger gates, but a single observation is
-    still silence: an edge below the floor exists without being evidence
-    enough to serve, the same reading `Triggers._cleared` gives it.
-    """
-    minimum = load_config().min_support
-    supported = tuple(candidate for candidate in candidates if candidate.edge.support >= minimum)
-    if candidates and not supported:
-        counters.bump("guidance_below_support")
-    return supported
-
-
 def _fused(ask: _Ask) -> FusedCandidates:
-    """This project's moves out of *ask*'s position, the other projects' behind them (FR-048).
+    """This project's moves out of *ask*'s position, the other projects' weighed in (FR-032).
 
     The same fusion the hook serves from, so a procedure this project has
     never recorded is still answered — marked as somebody else's experience
-    and counted as the fallback it is.
+    and counted as the fallback it is — and the support floor the answer owes
+    FR-045a is the one `Fusion` applies to each list before ranking it.
     """
-    return Fusion(ask.store).fuse(
-        _successors(ask.project_dir / STORE_DIR / SNAPSHOT_NAME, ask),
-        _successors(home_dir() / SNAPSHOT_NAME, ask),
+    return Fusion(load_config(), ask.store).fuse(
+        CandidateList(
+            edges=_successors(ask.project_dir / STORE_DIR / SNAPSHOT_NAME, ask),
+            scope=Scope.PROJECT,
+        ),
+        CandidateList(edges=_successors(home_dir() / SNAPSHOT_NAME, ask), scope=Scope.GLOBAL),
     )
 
 

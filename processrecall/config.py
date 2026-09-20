@@ -128,6 +128,11 @@ class Config:
             node (R7).
         min_support: Supporting episodic steps an edge needs before guidance
             may be served from it. Below it the edge still exists, silently.
+        project_weight: How much a candidate list from this project's own
+            graph outweighs a cross-project one in the fused ranking
+            (FR-032). Big enough that the project's ranking decides between
+            otherwise equal lists, small enough that two agreeing traversals
+            elsewhere still win.
         backoff_order: How many preceding procedures the variable-order
             back-off starts from (FR-028, R6).
         clean_prompt_weight: How much a transition observed inside a
@@ -163,6 +168,7 @@ class Config:
     k: int = 3
     h: int = 1
     min_support: int = 2
+    project_weight: float = 1.5
     backoff_order: int = 3
     clean_prompt_weight: float = 4.0
     enforce: bool = False
