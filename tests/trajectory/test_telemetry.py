@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 from collections import Counter
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -20,12 +22,14 @@ from processrecall.guidance.locate import locate
 from processrecall.trajectory.offset import OFFSET_NAME, OffsetFile
 from processrecall.trajectory.telemetry import (
     SESSION_ATTRIBUTE,
+    CollectorSource,
     ProjectAttribution,
     SessionGaps,
     recognised_records,
     records_in_line,
     report_span_only_gaps,
     report_tool_detail_gap,
+    source_state,
     step_from_verdict,
     step_result,
 )
@@ -79,6 +83,37 @@ def test_rotated_file_resets_offset_and_does_not_duplicate(
     completed = list(offsets.appended_lines(collector))
 
     assert completed == ['{"n": 4}']
+
+
+def test_absent_and_stale_sources_are_counted_not_raised(
+    tmp_path: Path, counters: FakeCounters
+) -> None:
+    opened_at = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
+
+    # The developer named a path before their collector ever wrote it: a cold
+    # start, so the hook's own capture stands as the record (FR-010).
+    absent = CollectorSource(tmp_path / "never-written.jsonl", opened_at)
+    # A collector that stopped before this session opened: the file is there and
+    # parses, but nothing in it can belong to the session being closed.
+    stopped = tmp_path / "stopped.jsonl"
+    stopped.write_bytes(b'{"n": 1}\n')
+    os.utime(stopped, (0, (opened_at - timedelta(days=1)).timestamp()))
+    # One the collector appended to while the session ran: nothing to report.
+    appended = tmp_path / "telemetry.jsonl"
+    appended.write_bytes(b'{"n": 2}\n')
+    os.utime(appended, (0, (opened_at + timedelta(seconds=1)).timestamp()))
+
+    assert source_state(absent, counters) == "absent"
+    assert source_state(CollectorSource(stopped, opened_at), counters) == "stale"
+    assert source_state(CollectorSource(appended, opened_at), counters) is None
+    # A pass that names no session judges presence only: `rebuild --project`
+    # closes no session, so it has nothing to call a present file stale against.
+    assert source_state(CollectorSource(stopped), counters) is None
+    # A directory where the file should be reads as the cold start too: the
+    # pass says what it found, and an OSError would reach the fold behind it.
+    assert source_state(CollectorSource(tmp_path, opened_at), counters) == "absent"
+    assert counters.counted["telemetry_absent"] == 2
+    assert counters.counted["telemetry_stale"] == 1
 
 
 class FakeBindings:

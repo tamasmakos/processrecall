@@ -9,6 +9,8 @@ first is the property, not what the drain would do if called alone.
 from __future__ import annotations
 
 import json
+import os
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -16,7 +18,7 @@ import pytest
 from processrecall.graph.episodic import open_index
 from processrecall.graph.store import SQLiteEpisodicStore
 from processrecall.trajectory.offset import OFFSET_NAME
-from tests.cli.conftest import record_turn, run_cli
+from tests.cli.conftest import STARTED_AT, record_turn, run_cli
 
 #: Lines written by a real collector, as the fixture corpus spells them.
 TELEMETRY = Path(__file__).resolve().parents[1] / "fixtures" / "telemetry" / "events_only.jsonl"
@@ -69,3 +71,20 @@ def test_a_configured_collector_file_that_is_absent_is_counted_not_raised(
     assert finished.returncode == 0, finished.stderr
     assert finished.stdout.splitlines()[0] == f"{tmp_path / 'never-written.jsonl'}  absent"
     assert counter(home, "telemetry_absent") == 1
+
+
+def test_a_configured_collector_file_older_than_the_closing_session_is_counted_not_raised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home, project = tmp_path / "home", tmp_path / "project"
+    record_turn(home, project, "Inspection/Read")
+    collector = tmp_path / "stopped.jsonl"
+    collector.write_bytes(b'{"n": 1}\n')
+    os.utime(collector, (0, (STARTED_AT - timedelta(days=1)).timestamp()))
+    monkeypatch.setenv("PROCESSRECALL_TELEMETRY_PATH", str(collector))
+
+    finished = run_cli(home, "rebuild", "--project", str(project))
+
+    assert finished.returncode == 0, finished.stderr
+    assert finished.stdout.splitlines()[0] == f"{collector}  stale"
+    assert counter(home, "telemetry_stale") == 1

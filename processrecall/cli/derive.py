@@ -36,6 +36,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
 
@@ -52,27 +53,32 @@ from processrecall.graph.semantic import (
 from processrecall.graph.store import EpisodicStep, StepTouch
 from processrecall.trajectory.offset import OFFSET_NAME, OffsetFile
 from processrecall.trajectory.paths import EXTERNAL_ROOT, HOME_ROOT
+from processrecall.trajectory.telemetry import CollectorSource, source_state
 
 
-def drain(telemetry_path: str, store: Counters) -> str | None:
+def drain(
+    telemetry_path: str, store: Counters, session_opened_at: datetime | None = None
+) -> str | None:
     """Take what the collector at *telemetry_path* appended since the last pass.
 
     ``None`` when no collector file is configured: that is the shipped state
     (`processrecall.config.Config.telemetry_path`), and a pass with no
     telemetry source has nothing to say about one rather than a count of zero.
 
-    A configured file that is not there yet is a cold start — the developer
-    named it before their collector wrote it — so it is counted and reported,
-    not raised: this pass also folds the snapshots, and none of that work may
-    be lost to a telemetry source being late. Ageing a file that has gone
-    stale is T061's, not this guard's.
+    A source with nothing to drain is reported rather than raised on, in the
+    words `processrecall.trajectory.telemetry.source_state` gives it: this pass
+    also folds the snapshots, and none of that work may be lost to a telemetry
+    source being late or stopped. *session_opened_at* is when the session this
+    pass closes began, so that a source last written before it reads as stale
+    rather than as merely present; callers with no session to name — there are
+    none left, `rebuild --project` now reads it from the episodic store — leave
+    it ``None`` and reach only the cold-start verdict.
     """
     if not telemetry_path:
         return None
     target = Path(telemetry_path)
-    if not target.is_file():
-        store.bump("telemetry_absent")
-        return f"{target}  absent"
+    if (state := source_state(CollectorSource(target, session_opened_at), store)) is not None:
+        return f"{target}  {state}"
     offsets = OffsetFile(home_dir() / OFFSET_NAME, store)
     return f"{target}  lines={sum(1 for _ in offsets.appended_lines(target))}"
 

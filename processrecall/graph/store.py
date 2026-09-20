@@ -474,6 +474,16 @@ class EpisodicStore(Protocol):
         """The most recently opened, not-yet-closed turn *project_key* names."""
         ...
 
+    def most_recently_opened_sequence_for_project(self, project_key: str) -> Sequence | None:
+        """The most recently opened turn *project_key* names, whatever its status.
+
+        Unlike `latest_sequence_for_project`, which a caller reading "where
+        things stand" must never read a closed turn's position off, the turn a
+        detached rebuild pass wants is exactly the one `SessionEnd` closed
+        before spawning it (FR-010).
+        """
+        ...
+
     def declare_outcome(self, key: SequenceKey, outcome: str) -> None:
         """Record *outcome* on *key* beside its derived verdict (FR-035)."""
         ...
@@ -1405,6 +1415,23 @@ class SQLiteEpisodicStore:
             "SELECT conversation_id, session_epoch, prompt_id, agent_id FROM sequences"
             " WHERE status != ? AND project_dir_key = ? ORDER BY started_at DESC LIMIT 1",
             (CLOSED, project_key),
+        ).fetchone()
+        if row is None:
+            return None
+        return self.sequence(SequenceKey(str(row[0]), int(row[1]), str(row[2]), str(row[3])))
+
+    def most_recently_opened_sequence_for_project(self, project_key: str) -> Sequence | None:
+        """The most recently opened turn *project_key* names, whatever its status.
+
+        `latest_sequence_for_project`'s own query with the ``status != CLOSED``
+        filter dropped: the rebuild pass this serves runs after the session it
+        closes has already been marked `CLOSED` by the `Stop` hook, so filtering
+        that status out would always miss it.
+        """
+        row = self._connection.execute(
+            "SELECT conversation_id, session_epoch, prompt_id, agent_id FROM sequences"
+            " WHERE project_dir_key = ? ORDER BY started_at DESC LIMIT 1",
+            (project_key,),
         ).fetchone()
         if row is None:
             return None

@@ -24,12 +24,16 @@ Example:
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from datetime import datetime
+from pathlib import Path
 from typing import Any, cast
 
 from processrecall.cli.derive import drain
 from processrecall.graph.abstract import edge_key
 from processrecall.graph.derive import Derivation
 from processrecall.graph.snapshot import Snapshot, SnapshotFile
+from processrecall.graph.store import EpisodicStore
+from processrecall.trajectory.paths import project_key
 
 
 def rebuild(source: Derivation) -> str:
@@ -41,8 +45,14 @@ def rebuild(source: Derivation) -> str:
     code-structure derive step plan.md places beside it is US3's
     (`graph/semantic.py`, `artifacts/calls.py`), not yet built, so this only
     drains and folds.
+
+    Drained against the session `--project` names, not the file's own mtime:
+    `_session_opened_at` reads the episodic store for the turn most recently
+    opened against this project, which by the time this job runs is the one
+    `SessionEnd` just closed (FR-010, `contracts/collector-transport.md`).
     """
-    report = drain(source.config.telemetry_path, source.store)
+    opened_at = _session_opened_at(source.store, source.project_dir)
+    report = drain(source.config.telemetry_path, source.store, opened_at)
     lines = [] if report is None else [report]
     for path, snapshot, orphaned in source.snapshots():
         SnapshotFile(path, source.store).write(snapshot)
@@ -51,6 +61,21 @@ def rebuild(source: Derivation) -> str:
             f"  annotations_orphaned={orphaned}"
         )
     return "\n".join(lines)
+
+
+def _session_opened_at(store: EpisodicStore, project_dir: Path) -> datetime | None:
+    """When the turn most recently opened against *project_dir* began.
+
+    ``None`` when the project has recorded no turn at all, which is a cold
+    index rather than a session to compare a collector file's age against.
+    `--project` names a directory and no session, so the episodic store is
+    read for the turn `SessionEnd` closed just before spawning this job —
+    already `CLOSED` by the time this runs, which is why the closed ones are
+    not filtered out here the way `EpisodicStore.latest_sequence_for_project`
+    filters them for a caller asking what is running now.
+    """
+    sequence = store.most_recently_opened_sequence_for_project(project_key(str(project_dir)))
+    return None if sequence is None else sequence.started_at
 
 
 def check(source: Derivation) -> str | None:

@@ -30,6 +30,7 @@ import json
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Protocol
 
 from processrecall.config import Counters
@@ -205,6 +206,70 @@ GAP_COUNTERS = frozenset(
         "gap_version_floor",
     }
 )
+
+
+#: What a pass found where the collector file was configured, when it found
+#: nothing to drain (`contracts/collector-transport.md`).
+_SOURCE_ABSENT = "absent"
+_SOURCE_STALE = "stale"
+
+
+@dataclass(frozen=True, slots=True)
+class CollectorSource:
+    """The collector file a pass is about to drain, and the session it closes.
+
+    Attributes:
+        path: The configured file the developer's own collector writes. Nothing
+            here creates it, so "not there" is a state of the source rather than
+            a failure of the pass.
+        session_opened_at: When the session being closed opened. A file last
+            written before that instant holds none of that session's records.
+            ``None`` for a pass that names no session, such as `processrecall
+            rebuild --project`, which can only tell a present source from an
+            absent one.
+    """
+
+    path: Path
+    session_opened_at: datetime | None = None
+
+
+def source_state(source: CollectorSource, counters: Counters) -> str | None:
+    """Why *source* has nothing for this pass to drain, or ``None`` when it has.
+
+    ``"absent"`` for a configured path that is not a file to read — a cold
+    start, the developer named it before their collector wrote it — and
+    ``"stale"`` for one last written before the session being closed opened, so
+    that none of that session's work reached it. Each bumps its counter
+    (``telemetry_absent``, ``telemetry_stale``) and is returned for the pass to
+    report; neither raises, because the pass that drains also folds the
+    snapshots and none of that work may be lost to a telemetry source being
+    late or stopped (FR-010).
+
+    Staleness is read off the file's modification time, which is when the
+    collector last appended to it, so a stale source is passed over without
+    being opened.
+    """
+    written_at = _last_written(source.path)
+    if written_at is None:
+        counters.bump("telemetry_absent")
+        return _SOURCE_ABSENT
+    if source.session_opened_at is not None and written_at < source.session_opened_at:
+        counters.bump("telemetry_stale")
+        return _SOURCE_STALE
+    return None
+
+
+def _last_written(path: Path) -> datetime | None:
+    """When *path* was last written, or ``None`` when it is no file to read.
+
+    A path that cannot be stat'ed reads the same as one that is not there: a
+    cold start is all a pass can say about either, and the error belongs to the
+    collector that owns the file rather than to the job draining it.
+    """
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, UTC) if path.is_file() else None
+    except OSError:
+        return None
 
 
 def records_in_line(line: str) -> Iterator[TelemetryRecord]:
