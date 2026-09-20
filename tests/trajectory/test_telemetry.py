@@ -1,4 +1,4 @@
-"""The collector file's persisted read offset: resumption, rotation, mid-write lines."""
+"""The collector file: its persisted read offset, and which project a record belongs to (R4)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,10 @@ from pathlib import Path
 import pytest
 
 from processrecall.trajectory.offset import OFFSET_NAME, OffsetFile
+from processrecall.trajectory.telemetry import (
+    SESSION_ATTRIBUTE,
+    ProjectAttribution,
+)
 
 
 class FakeCounters:
@@ -55,3 +59,34 @@ def test_rotated_file_resets_offset_and_does_not_duplicate(
     completed = list(offsets.appended_lines(collector))
 
     assert completed == ['{"n": 4}']
+
+
+class FakeBindings:
+    """The session→project bindings a SessionStart hook would have recorded."""
+
+    def __init__(self, bound: dict[str, str]) -> None:
+        self._bound = bound
+
+    def project_for_session(self, session_id: str) -> str | None:
+        return self._bound.get(session_id)
+
+
+def test_unbound_session_is_dropped_and_counted(counters: FakeCounters) -> None:
+    bindings = FakeBindings({"session-opened-by-a-hook": "project-a"})
+    attribution = ProjectAttribution(bindings, counters)
+
+    records = [
+        {SESSION_ATTRIBUTE: "session-opened-by-a-hook", "event.name": "claude_code.tool_result"},
+        # A session the collector saw but no hook ever opened: nothing says where
+        # the work happened, so it is dropped rather than stored unattributed.
+        {SESSION_ATTRIBUTE: "session-no-hook-opened", "event.name": "claude_code.tool_result"},
+        # OTEL_METRICS_INCLUDE_SESSION_ID off: no attribution key at all.
+        {"event.name": "claude_code.tool_result"},
+    ]
+    attributed = list(attribution.attributed(records))
+
+    assert [record.project_key for record in attributed] == ["project-a"]
+    assert [record.attributes[SESSION_ATTRIBUTE] for record in attributed] == [
+        "session-opened-by-a-hook"
+    ]
+    assert counters.counted["telemetry_session_unbound"] == 2
