@@ -20,7 +20,6 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from math import sqrt
 from typing import Protocol
 
 from processrecall.config import Counters
@@ -34,10 +33,6 @@ CHARACTER_BUDGET = 1200
 #: The soft budget inside the hook's 5-second fence, in seconds (R9): the
 #: elapsed time at which an answer is already too late to be worth serving.
 SOFT_BUDGET_SECONDS = 0.25
-
-#: The standard score of a 95% interval, the confidence FR-040 states every
-#: served rate at.
-_CONFIDENCE_Z = 1.96
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,25 +191,13 @@ def _line(statement: GuidanceStatement) -> str:
 
 
 def _avoidance(edge: TransitionEdge, pitfall: Pitfall) -> GuidanceStatement:
-    """*pitfall* as the warning it is served as: the move, then how often it is refused."""
-    rate = _lower_bound(pitfall.refusal_rate, pitfall.observations)
+    """*pitfall* as the warning it is served as: the move, then how often it is refused.
+
+    "at least" because `Pitfall.refusal_rate` is already the lower bound of the
+    interval over the refusals counted, not the proportion of them (FR-040).
+    """
     return GuidanceStatement(
-        text=f"avoid {edge.target} after {edge.source}: refused at least {rate:.0%} of the time",
+        text=f"avoid {edge.target} after {edge.source}:"
+        f" refused at least {pitfall.refusal_rate:.0%} of the time",
         support=pitfall.support,
     )
-
-
-def _lower_bound(rate: float, observations: int) -> float:
-    """The Wilson lower bound of *rate* over *observations*, at 95% (FR-040).
-
-    What few observations buy is a weak claim, and the bound is where that is
-    spent: two refusals out of two are not a certainty, so they are not served
-    as one. Wilson rather than the normal approximation because the rates worth
-    warning about sit near 1, where the symmetric interval leaves the unit
-    interval altogether.
-    """
-    z_squared = _CONFIDENCE_Z**2
-    margin = _CONFIDENCE_Z * sqrt(
-        rate * (1 - rate) / observations + z_squared / (4 * observations**2)
-    )
-    return (rate + z_squared / (2 * observations) - margin) / (1 + z_squared / observations)

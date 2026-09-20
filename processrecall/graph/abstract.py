@@ -29,6 +29,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from itertools import pairwise
+from math import sqrt
 from typing import Any, cast
 
 from processrecall.config import LEVELS, ActivityClass, Config, ProcessType
@@ -79,6 +80,10 @@ _REFUSED_USUALLY = 0.5
 #: went on to evaluate before the move is named as the one that skips
 #: verification (FR-027): the same majority `_REFUSED_USUALLY` is.
 _UNVERIFIED_USUALLY = 0.5
+
+#: The standard normal quantile behind the 95% interval every reported rate is
+#: the lower bound of (FR-040).
+_CONFIDENCE_Z = 1.96
 
 #: The oldest a fold can be: every real observation is later, so the first one
 #: replaces it. Public because `edit.py` gives an authored edge the same value
@@ -201,6 +206,22 @@ _FAILURE_KINDS = (PitfallKind.TOOL_ERROR, *_FAILURE_MARKERS.keys())
 FAILURE_KINDS: frozenset[PitfallKind] = frozenset(_FAILURE_KINDS)
 
 
+def _lower_bound(rate: float, observations: int) -> float:
+    """The Wilson lower bound of *rate* over *observations* observations, at 95% (FR-040).
+
+    What few observations buy is a weak claim, and the bound is where that is
+    spent: one failure in three is not a third, because three observations do
+    not pin a third down. Wilson rather than the normal approximation because
+    the rates worth warning about sit near 1, where the symmetric interval
+    leaves the unit interval altogether.
+    """
+    z_squared = _CONFIDENCE_Z**2
+    margin = _CONFIDENCE_Z * sqrt(
+        rate * (1 - rate) / observations + z_squared / (4 * observations**2)
+    )
+    return (rate + z_squared / (2 * observations) - margin) / (1 + z_squared / observations)
+
+
 @dataclass(frozen=True, slots=True)
 class Pitfall:
     """One known way a transition goes wrong — derived, never authored.
@@ -211,21 +232,23 @@ class Pitfall:
             repeated.
         support: Observations behind it, so nothing is rendered as a warning
             without the count that earned it (FR-044).
-        failure_rate: Share of the move's observations that failed. ``0.0``
-            wherever the kind counts something other than failures and so makes
-            no claim about how its observations went.
-        refusal_rate: Share of the move's observations that were refused. Its
-            own field rather than a second reading of *failure_rate*, because a
-            refusal is a policy signal and a failure a capability one (FR-022),
-            and one number over both is what the two axes exist to prevent.
-        unverified_rate: Share of the move's observations that left the change
-            it followed with nothing evaluating it. Its own field for the
-            reason *refusal_rate* is: skipping verification is neither a
-            capability nor a policy signal, and the kind reading it is the only
-            one making the claim.
-        observations: What *refusal_rate* and *unverified_rate* are a share of.
-            Its own field rather than a second reading of *support*, which
-            counts distinct steps and is not always the rate's denominator.
+        failure_rate: How often the move failed, as the `_lower_bound` of the
+            share of its observations that did rather than that share itself
+            (FR-040). ``0.0`` wherever the kind counts something other than
+            failures and so makes no claim about how its observations went.
+        refusal_rate: How often the move was refused, bounded the way
+            *failure_rate* is. Its own field rather than a second reading of
+            *failure_rate*, because a refusal is a policy signal and a failure
+            a capability one (FR-022), and one number over both is what the two
+            axes exist to prevent.
+        unverified_rate: How often the move left the change it followed with
+            nothing evaluating it, bounded the way *failure_rate* is. Its own
+            field for the reason *refusal_rate* is: skipping verification is
+            neither a capability nor a policy signal, and the kind reading it
+            is the only one making the claim.
+        observations: The count the rates are the `_lower_bound` over. Its own
+            field rather than a second reading of *support*, which counts
+            distinct steps and is not always the denominator.
     """
 
     kind: PitfallKind
@@ -440,12 +463,18 @@ class _EdgeFold:
         break ties on the template's own text so a rebuild names the same one
         (FR-032). They differ only in which counter is ranked, which count
         clears the floor, and which rate counts as over-represented.
+
+        Over-representation is judged on the observed proportion, but the rate
+        handed back is its `_lower_bound`: what earns a warning is how the move
+        actually went, what the warning may claim is only what the counts
+        support (FR-040).
         """
-        rate = counted.total() / self.outcomes.total()
+        observations = self.outcomes.total()
+        rate = counted.total() / observations
         if count_for_floor < min_support or rate <= threshold:
             return None
         ranked = sorted(counted.items(), key=lambda item: (-item[1], item[0]))
-        return ranked[0][0], rate
+        return ranked[0][0], _lower_bound(rate, observations)
 
     def _failure_pitfall(self, kind: PitfallKind, baseline: _Baseline) -> Pitfall | None:
         """This move's pitfall of failure *kind*, where it earns one.

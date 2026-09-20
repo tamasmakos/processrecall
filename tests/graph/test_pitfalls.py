@@ -42,7 +42,7 @@ def test_a_move_failing_more_than_the_base_rate_is_a_tool_error() -> None:
     moved = edge(graph, "ChangeImplementation/Edit -> ArtifactEvaluation/Pytest")
     (pitfall,) = moved.pitfalls
     assert pitfall.kind is PitfallKind.TOOL_ERROR
-    assert pitfall.failure_rate == 1.0
+    assert round(pitfall.failure_rate, 3) == 0.342
     assert pitfall.support == 2
     assert pitfall.evidence == "Pytest <File>"
 
@@ -152,7 +152,6 @@ def test_refused_pitfall_counts_refusals() -> None:
     assert pitfall.kind is PitfallKind.REFUSED
     assert pitfall.evidence == "Bash <File>"
     assert pitfall.support == 3
-    assert pitfall.refusal_rate == 2 / 3
 
 
 def edit_then_test_erroring(
@@ -202,3 +201,19 @@ def test_every_declared_pitfall_kind_derives_from_rows() -> None:
 
     assert set(derived) == set(PitfallKind)
     assert all(kind in kinds for kind, kinds in derived.items())
+
+
+def test_reported_rate_is_the_lower_bound_not_the_proportion() -> None:
+    """FR-040: two refusals in three observations is not served as two thirds."""
+    steps = (
+        edit_then_refused_command("p1", 1)
+        + edit_then_refused_command("p2", 3)
+        + edit_then_accepted_command("p3", 5)
+    )
+
+    graph = aggregate(steps, level="class/program")
+
+    moved = edge(graph, "ChangeImplementation/Edit -> ArtifactEvaluation/Bash")
+    (pitfall,) = moved.pitfalls
+    assert pitfall.refusal_rate < 2 / 3
+    assert round(pitfall.refusal_rate, 3) == 0.208
