@@ -50,6 +50,17 @@ def test_python_symbols_are_qualified_by_their_nesting() -> None:
     }
 
 
+def test_symbol_carries_qualified_name() -> None:
+    """FR-017: a symbol carries the path it was read from beside its qualified
+    name, so it identifies itself without the file being held alongside it."""
+    path = Path("processrecall/recorder.py")
+
+    parsed = parse_source(path, PYTHON_SOURCE)
+
+    assert parsed.symbols
+    assert {symbol.path for symbol in parsed.symbols} == {path}
+
+
 def test_python_line_range_spans_the_whole_definition() -> None:
     """FR-062: a symbol's line range covers its whole body, not just its header."""
     parsed = parse_source(Path("recorder.py"), PYTHON_SOURCE)

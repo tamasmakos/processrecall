@@ -1,7 +1,8 @@
 """Source text read as the symbols and imports FR-062 asks every language for.
 
 One seam, :func:`parse_source`: a path for the language and the text already in
-hand, answered with qualified names, line ranges and imported modules. What
+hand, answered with qualified names beside the path they came from, line ranges
+and imported modules. What
 differs between Python, TypeScript/JavaScript, Go, Rust and shell is only which
 node types a grammar calls a definition and which field holds the name, so that
 pair is the whole per-language record and the traversal over it is written once.
@@ -30,11 +31,16 @@ if TYPE_CHECKING:
 class Symbol:
     """A definition an edit can be attributed to, by name and by line.
 
+    ``path`` is the file it was read from, exactly as :func:`parse_source` was
+    given it: a symbol carries it beside its qualified name so the pair that
+    identifies it travels together (FR-017).
+
     ``start_line`` and ``end_line`` are 1-based and inclusive, the numbering an
     editor reports, so a line located in the file compares against them
     directly (FR-063).
     """
 
+    path: Path
     qualified_name: str
     start_line: int
     end_line: int
@@ -148,7 +154,7 @@ def parse_source(path: Path, text: str) -> ParsedSource:
     if language is None:
         return ParsedSource(language=None, symbols=(), imports=())
     tree = Parser(_language(language)).parse(text.encode("utf-8"))
-    reading = _Reading(_GRAMMARS[language])
+    reading = _Reading(_GRAMMARS[language], path)
     reading.visit(tree.root_node)
     return ParsedSource(language, tuple(reading.symbols), tuple(reading.imports))
 
@@ -156,8 +162,9 @@ def parse_source(path: Path, text: str) -> ParsedSource:
 class _Reading:
     """One traversal of one tree, carrying the enclosing names down with it."""
 
-    def __init__(self, grammar: _Grammar) -> None:
+    def __init__(self, grammar: _Grammar, path: Path) -> None:
         self._grammar = grammar
+        self._path = path
         self.symbols: list[Symbol] = []
         self.imports: list[str] = []
 
@@ -207,7 +214,9 @@ class _Reading:
         if named is None:
             return prefix
         qualified = f"{prefix}{self._qualifier(node)}{_text(named)}"
-        self.symbols.append(Symbol(qualified, node.start_point[0] + 1, node.end_point[0] + 1))
+        self.symbols.append(
+            Symbol(self._path, qualified, node.start_point[0] + 1, node.end_point[0] + 1)
+        )
         return f"{qualified}."
 
 
