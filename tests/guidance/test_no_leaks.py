@@ -24,7 +24,6 @@ import re
 import sqlite3
 import sys
 from collections.abc import Collection, Iterable, Iterator, Mapping
-from contextlib import closing
 from dataclasses import asdict
 from itertools import chain
 from pathlib import Path
@@ -33,10 +32,9 @@ from typing import Any
 import pytest
 
 from processrecall.cli.rebuild import rebuild
-from processrecall.config import STORE_DIR, Config, home_dir
+from processrecall.config import STORE_DIR, Config
 from processrecall.graph.abstract import aggregate
 from processrecall.graph.derive import Derivation, _sequences
-from processrecall.graph.episodic import open_index
 from processrecall.graph.keys import group_by_sequence
 from processrecall.graph.schema import LAYERS
 from processrecall.graph.snapshot import SNAPSHOT_NAME
@@ -44,7 +42,6 @@ from processrecall.graph.store import EpisodicStep, SQLiteEpisodicStore
 from processrecall.guidance.locate import locate
 from processrecall.guidance.neighborhood import extract
 from processrecall.guidance.triggers import Firing, Triggers
-from processrecall.integrations.claude_code.hooks import capture
 from tests.guidance.conftest import CORPUS_PROJECT, corpus_payloads
 
 #: An absolute path anywhere in a served string, by either of R4's spellings:
@@ -161,34 +158,6 @@ def _servable(firing: Firing) -> str:
     from before the detector sees it.
     """
     return json.dumps([asdict(edge) for edge in firing.edges], default=str)
-
-
-@pytest.fixture
-def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """The project the corpus is replayed in, under a home directory of its own."""
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
-    return tmp_path / "demo"
-
-
-@pytest.fixture
-def connection(project: Path) -> Iterator[sqlite3.Connection]:
-    """The whole corpus, recorded through the capture path the harness uses.
-
-    The index is named rather than defaulted: `open_index` binds its default
-    at import, so an in-process replay that left it out would record into the
-    real home directory instead of this test's.
-    """
-    with closing(open_index(home_dir() / "episodes.db")) as connection:
-        for payload in _payloads(project):
-            capture(payload, connection)
-        yield connection
-
-
-@pytest.fixture
-def store(connection: sqlite3.Connection) -> SQLiteEpisodicStore:
-    """The recorded corpus as every served surface reads it back."""
-    return SQLiteEpisodicStore(connection)
 
 
 @pytest.fixture
