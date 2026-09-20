@@ -46,6 +46,11 @@ class Symbol:
     start_line: int
     end_line: int
 
+    @property
+    def line_range(self) -> tuple[int, int]:
+        """The bounds as the one pair a code entity carries them as (FR-017)."""
+        return self.start_line, self.end_line
+
 
 @dataclass(frozen=True, slots=True)
 class ParsedSource:
@@ -177,10 +182,14 @@ def enclosing_symbol(symbols: tuple[Symbol, ...], line: int) -> Symbol | None:
     The one way a position in a file becomes a symbol, whether the position is
     an edit's (FR-063) or a call site's (FR-018).
     """
-    containing = [symbol for symbol in symbols if symbol.start_line <= line <= symbol.end_line]
+    containing = []
+    for symbol in symbols:
+        start, end = symbol.line_range
+        if start <= line <= end:
+            containing.append(symbol)
     if not containing:
         return None
-    return min(containing, key=lambda symbol: symbol.end_line - symbol.start_line)
+    return min(containing, key=lambda symbol: symbol.line_range[1] - symbol.line_range[0])
 
 
 class _Reading:

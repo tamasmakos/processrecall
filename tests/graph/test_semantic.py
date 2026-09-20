@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from time import perf_counter
@@ -126,6 +127,26 @@ def test_symbol_entity_refuses_a_file_key() -> None:
     """A symbol is keyed by the file it lives in and its own name, never the file alone."""
     with pytest.raises(ValueError, match="function"):
         make_entity("processrecall/graph/semantic.py", "function")
+
+
+def test_symbol_entity_carries_its_line_range() -> None:
+    """FR-017, FR-046: the bounds a parsed symbol hands on travel into the row as
+    one pair, which is what a touched position is matched against; a file has none."""
+    entity = replace(
+        make_entity("processrecall/graph/semantic.py#CodeEntity", "class"),
+        start_line=88,
+        end_line=142,
+    )
+
+    assert entity.line_range == (88, 142)
+    assert make_entity("processrecall/graph/semantic.py", "file").line_range is None
+
+
+def test_entity_with_half_a_line_range_is_refused() -> None:
+    """One bound alone encloses nothing, so a position resolved against it would
+    answer the file for an edit inside the symbol (FR-046)."""
+    with pytest.raises(ValueError, match="both bounds"):
+        replace(make_entity("pkg/module.py#work", "function"), start_line=12)
 
 
 def test_symbol_without_its_file_entity_is_refused() -> None:

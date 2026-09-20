@@ -27,6 +27,8 @@ from datetime import datetime
 from pathlib import PurePath
 from typing import Literal
 
+from processrecall.graph import schema
+
 #: What a code entity is, in the vocabulary `code_entities.kind` holds (FR-017).
 EntityKind = Literal["file", "module", "class", "function", "method"]
 
@@ -116,14 +118,16 @@ class CodeEntity:
     end_line: int | None = None
 
     def __post_init__(self) -> None:
-        """Refuse a row whose kind and key disagree on whether it names a symbol.
+        """Refuse a row whose key, kind and bounds disagree on which entity it is.
 
         Raises:
             ValueError: A `file` row carries a ``#``, or a symbol row carries
                 none. Either way the key no longer says which entity the row is
                 about, and a touched edge resolved against it answers the wrong
-                one (FR-017).
+                one (FR-017). Or the line range is half set, which
+                `processrecall.graph.schema.line_range` refuses (FR-046).
         """
+        _ = self.line_range
         names_symbol = self.file_key != self.entity_key
         if self.kind == FILE_KIND and names_symbol:
             raise ValueError(
@@ -140,6 +144,16 @@ class CodeEntity:
     def file_key(self) -> str:
         """The key of the file this entity lives in; its own key, for a file."""
         return _file_key(self.entity_key)
+
+    @property
+    def line_range(self) -> tuple[int, int] | None:
+        """The bounds a parsed symbol handed on, as one pair; `None` for a file.
+
+        The value a touched position is resolved against (FR-046), checked by
+        `processrecall.graph.schema.line_range` so a row with one bound and not
+        the other is refused where it is built rather than where it is read.
+        """
+        return schema.line_range(self.start_line, self.end_line)
 
 
 @dataclass(frozen=True, slots=True)

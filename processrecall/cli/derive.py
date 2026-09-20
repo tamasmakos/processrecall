@@ -105,8 +105,8 @@ def derive_semantic(work: SemanticPass, store: Counters) -> tuple[CodeEntity, ..
     which is what keeps the pass proportional to the unit of work instead of to
     the repository.
 
-    The symbols a changed file declares become rows of their own in T091, which
-    carries a parsed symbol's line range into an entity; this pass establishes
+    The symbols a changed file declares become rows of their own in T092, which
+    resolves a touched position against their line ranges; this pass establishes
     the file row each of them hangs off, and the fingerprint that says whether
     the file needs reading at all.
     """

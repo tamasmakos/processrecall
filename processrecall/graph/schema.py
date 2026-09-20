@@ -290,9 +290,8 @@ def line_range(start_line: int | None, end_line: int | None) -> tuple[int, int] 
 
     Refuses a half-set pair: one bound alone encloses nothing, so a touched edge
     resolved against it would answer `file` for an edit inside the symbol (FR-046).
-    Checked here, on the declaration, because the write side that will call this
-    (`graph/semantic.py`, T091) does not exist yet; T091 wires the parsed symbol's
-    bounds through this same check on its way into the code entity.
+    Checked here, on the declaration, and called by `graph/semantic.py`'s code
+    entity, which wires a parsed symbol's bounds through it on the way into the row.
 
     Raises:
         ValueError: *start_line* and *end_line* disagree on whether the symbol

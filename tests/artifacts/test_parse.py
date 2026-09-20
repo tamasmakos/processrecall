@@ -61,6 +61,15 @@ def test_symbol_carries_qualified_name() -> None:
     assert {symbol.path for symbol in parsed.symbols} == {path}
 
 
+def test_symbol_carries_its_line_range() -> None:
+    """FR-017, FR-046: a symbol answers with its bounds as one pair, the value a
+    code entity carries and a touched position is resolved against."""
+    parsed = parse_source(Path("recorder.py"), PYTHON_SOURCE)
+
+    record = _named(parsed, "Recorder.record")
+    assert record.line_range == (8, 9)
+
+
 def test_python_line_range_spans_the_whole_definition() -> None:
     """FR-062: a symbol's line range covers its whole body, not just its header."""
     parsed = parse_source(Path("recorder.py"), PYTHON_SOURCE)
