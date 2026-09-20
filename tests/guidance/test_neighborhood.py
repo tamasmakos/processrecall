@@ -69,7 +69,7 @@ def test_a_procedure_that_loops_yields_each_move_once() -> None:
 def test_a_position_the_graph_holds_no_node_for_yields_silence() -> None:
     """An unrecorded procedure has no outgoing moves — an empty neighbourhood, not a fault."""
     graph = aggregate(walk(READ, EDIT), level=LEVEL)
-    position = Position(key="Unseen/Thing", previous=None)
+    position = Position(key="Unseen/Thing")
 
     neighborhood = extract(graph, position, h=1)
 

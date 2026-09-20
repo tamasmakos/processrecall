@@ -71,9 +71,7 @@ def scoped_request(
     Its key is unread by the paths anchored on the code or on the kind of work,
     which are the paths a scoped request is built for here.
     """
-    return Position(
-        key=EDIT_KEY, previous=None, symbol=symbol, file=file, kind_of_work=kind_of_work
-    )
+    return Position(key=EDIT_KEY, symbol=symbol, file=file, kind_of_work=kind_of_work)
 
 
 def edit_then_refused_command(prompt: str) -> tuple[EpisodicStep, ...]:

@@ -7,6 +7,8 @@ step landed on — never the one being asked about.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from processrecall.guidance.locate import locate
@@ -16,6 +18,7 @@ from .conftest import walk
 READ = "Inspection/Read/py"
 EDIT = "ChangeImplementation/Edit/py"
 TEST = "ArtifactEvaluation/pytest/py"
+FILE = "src/render.py"
 
 
 def test_the_position_is_the_node_the_previous_step_landed_on() -> None:
@@ -55,3 +58,26 @@ def test_an_unknown_level_is_rejected() -> None:
 
     with pytest.raises(ValueError):
         locate(steps, level="bogus")
+
+
+def test_position_carries_last_k_steps_and_active_symbol() -> None:
+    """FR-038: the working state is the last k steps and the symbol in hand, not one row."""
+    walked = walk(*(READ, EDIT) * 4)
+    worked_on = replace(walked[-1], symbol_ref=f"{FILE}::Renderer.render")
+    steps = (*walked[:-1], worked_on)
+
+    position = locate(steps, level="class/program")
+
+    assert position.recent == steps[3:]
+    assert position.previous is worked_on
+    assert position.symbol == f"{FILE}#Renderer.render"
+
+
+def test_position_carries_the_file_most_recently_touched() -> None:
+    """FR-038: the working state names the file being worked on, not only the symbol."""
+    read, edited = walk(READ, EDIT)
+    steps = (replace(read, files=("src/other.py",)), replace(edited, files=(FILE,)))
+
+    position = locate(steps, level="class/program")
+
+    assert position.file == FILE
