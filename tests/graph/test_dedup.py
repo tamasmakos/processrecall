@@ -23,6 +23,7 @@ from processrecall.graph.store import (
     SequenceKey,
     SQLiteEpisodicStore,
 )
+from processrecall.procedures.step import steps_from
 from processrecall.trajectory.event import SourceKind, TrajectoryEvent
 
 from .conftest import make_step
@@ -224,3 +225,35 @@ def test_telemetry_value_wins_on_disagreement_in_both_orders(
         assert merged.source is CaptureSource.BOTH
     assert store.counters()["telemetry_hook_disagreement"] == 4
     assert store.counters()["steps_duplicate"] == 2
+
+
+def test_compound_command_keeps_one_step_per_subactivity(store: SQLiteEpisodicStore) -> None:
+    """R6, Principle II: FR-006 governs the identity material, not the decomposition.
+
+    Three sub-activities of one `tool_use_id`, as in
+    `test_each_sub_activity_of_one_tool_call_keeps_its_own_key` above, but pinned
+    through `record`/`steps` rather than the key alone, and through the grammar's
+    own decomposition rather than a hand-supplied ordinal range — a regression in
+    either the identity or the decomposition shows up as steps the store never kept.
+    """
+    event = replace(
+        _event(tool_call_id="toolu_compound"),
+        tool_call_arguments={"command": "cmake .. && ctest && git commit -m wip"},
+    )
+    subactivities = steps_from(event, None)
+    assert len(subactivities) == 3, subactivities
+
+    steps = tuple(
+        _step(dedup_key=KEY.dedup_key(event, ordinal=sub.ordinal), position=sub.ordinal)
+        for sub in subactivities
+    )
+    for step in steps:
+        assert store.record(step), step.dedup_key
+
+    assert tuple(step.dedup_key for step in store.steps(KEY)) == (
+        "toolu_compound#0",
+        "toolu_compound#1",
+        "toolu_compound#2",
+    )
+    assert store.counters()["steps_recorded"] == 3
+    assert "steps_duplicate" not in store.counters()
