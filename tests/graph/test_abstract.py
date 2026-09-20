@@ -255,3 +255,17 @@ def test_procedure_reports_median_duration() -> None:
     graph = aggregate(steps, level="class/program")
 
     assert graph.nodes["Inspection/Read"].median_duration_ms == 30
+
+
+def test_missing_cost_reads_unknown_not_zero() -> None:
+    """FR-003, Edge Cases: a cost the harness never emitted reads unknown, never free."""
+    steps = tuple(
+        make_step("Inspection/Read/py", position=position, step_id=position + 1)
+        for position in range(3)
+    )
+
+    unreported = aggregate(steps, level="class/program")
+    partly_reported = aggregate(steps, level="class/program", costs={3: 900})
+
+    assert unreported.nodes["Inspection/Read"].median_cost_micros is None
+    assert partly_reported.nodes["Inspection/Read"].median_cost_micros == 900
