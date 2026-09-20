@@ -268,6 +268,29 @@ _SEMANTIC_TABLES = (
 )
 
 
+def line_range(start_line: int | None, end_line: int | None) -> tuple[int, int] | None:
+    """The bounds `code_entities` carries for a symbol, or `None` for a file (FR-017).
+
+    Refuses a half-set pair: one bound alone encloses nothing, so a touched edge
+    resolved against it would answer `file` for an edit inside the symbol (FR-046).
+    Checked here, on the declaration, because the write side that will call this
+    (`graph/semantic.py`, T091) does not exist yet; T091 wires the parsed symbol's
+    bounds through this same check on its way into the code entity.
+
+    Raises:
+        ValueError: *start_line* and *end_line* disagree on whether the symbol
+            has bounds at all — one is set and the other is `None`.
+    """
+    if start_line is None and end_line is None:
+        return None
+    if start_line is None or end_line is None:
+        raise ValueError(
+            f"line range ({start_line}, {end_line}): a symbol declares both bounds or "
+            "neither, because the pair is what a touched position is resolved against"
+        )
+    return start_line, end_line
+
+
 #: Layer 2. What happened. Every field this feature adds is nullable and
 #: nothing is backfilled (R14): null here means the hook captured the step
 #: before telemetry existed and genuinely did not know.

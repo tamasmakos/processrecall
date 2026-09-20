@@ -19,6 +19,7 @@ from processrecall.graph.schema import (
     STORE_SCHEMA_VERSION,
     FieldType,
     Table,
+    line_range,
     main,
     render_bodies,
 )
@@ -94,6 +95,20 @@ def test_honesty_fields_are_declared_as_plain_values() -> None:
     for table_name, field_name in honesty.items():
         field = next(f for f in declared[table_name].fields if f.name == field_name)
         assert not field.reference
+
+
+def test_code_entity_declares_a_line_range() -> None:
+    """A symbol spans a line range, and one bound without the other is rejected: the
+    pair is what the touched edge is resolved against at derivation time (FR-017, FR-046).
+    """
+    declared = {field.name: field for field in _declared_tables()["code_entities"].fields}
+    assert declared["start_line"].type == FieldType.INTEGER
+    assert declared["end_line"].type == FieldType.INTEGER
+    assert line_range(start_line=12, end_line=40) == (12, 40)
+    assert line_range(start_line=None, end_line=None) is None
+    for start, end in ((12, None), (None, 40)):
+        with pytest.raises(ValueError, match="line range"):
+            line_range(start_line=start, end_line=end)
 
 
 def test_step_declares_result_and_decision_as_two_axes() -> None:
