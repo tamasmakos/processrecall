@@ -24,6 +24,7 @@ from processrecall.trajectory.telemetry import (
     SessionGaps,
     recognised_records,
     records_in_line,
+    report_span_only_gaps,
     report_tool_detail_gap,
     step_from_verdict,
     step_result,
@@ -419,3 +420,66 @@ def test_gate_off_still_records_and_serves(tmp_path: Path, counters: FakeCounter
     position = locate(recorded, "class/program/ext")
     assert position.key == step.node_key
     assert position.file is None
+
+
+def test_events_only_run_leaves_only_three_model_gaps(
+    tmp_path: Path, counters: FakeCounters
+) -> None:
+    """Spans absent entirely: the model is produced whole, three fields are not (SC-006).
+
+    The run is above every version floor and the tool-details gate is on, so the
+    span side is the only thing missing from it — which leaves exactly the three
+    fields R9 found no event carries. `gap_stop_reason` and `gap_error_class`
+    are not among them: they refine an `outcome` the events already produce, so
+    their absence degrades detail rather than the model (R9).
+    """
+    lines = (TELEMETRY_FIXTURES / "events_only.jsonl").read_text(encoding="utf-8").splitlines()
+    records = [
+        record for line in lines if line.strip() for record in recognised_records(line, counters)
+    ]
+    gaps = SessionGaps(counters)
+    for record in records:
+        report_span_only_gaps(record, gaps)
+
+    # One turn carrying one record of each consumed type, so each part of the
+    # model below is built from the record the contract names as its source.
+    by_type = {str(record["event.name"]): record for record in records}
+    assert len(by_type) == len(records)
+    connection = open_index(tmp_path / "episodes.db")
+    try:
+        (step,) = record_event(step_from_verdict(by_type["claude_code.tool_decision"]), connection)
+        store = SQLiteEpisodicStore(connection)
+        key = step.sequence_key
+        store.record_inference(inference_from_record(by_type["claude_code.api_request"], key))
+        store.record_agent(agent_from_record(by_type["claude_code.subagent_completed"], key))
+        sequence = store.sequence(key)
+        (recorded,) = store.steps(key)
+        (inference,) = store.inferences_for(key)
+        agent = store.agent(key.agent_id)
+    finally:
+        connection.close()
+
+    # Every part of the model is produced: the turn, the step that ran inside it,
+    # the model call that asked for the step, and the actor that did the work.
+    assert sequence is not None
+    assert recorded.template == "Edit"
+    assert (inference.inference_id, inference.outcome, inference.cost_micros) == (
+        "req_synthetic_0051",
+        "ok",
+        3940,
+    )
+    assert agent is not None
+    assert (agent.kind, agent.agent_type) == ("subagent", "reviewer")
+    # No span, so no time to first token, no split of the step's duration into
+    # waiting for the operator and running, and no parent to hang the sub-agent
+    # off — the `spawned` edge the nesting gap is about.
+    assert agent.parent_agent_id is None
+    # `gap_stop_reason` and `gap_error_class` are excluded before the compare:
+    # quickstart.md §6 allows either to also be raised, since they report absent
+    # enrichment rather than an incomplete model, and an events-only run that
+    # later grows one must not fail this on that account.
+    model_gaps = {name for name in counters.counted if name.startswith("gap_")} - {
+        "gap_stop_reason",
+        "gap_error_class",
+    }
+    assert model_gaps == {"gap_ttft", "gap_permission_wait", "gap_agent_nesting"}

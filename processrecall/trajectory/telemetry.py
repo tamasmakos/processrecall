@@ -423,6 +423,59 @@ def report_tool_detail_gap(record: TelemetryRecord, gaps: SessionGaps) -> None:
         gaps.report(session_id, "gap_tool_details")
 
 
+#: Each span-only part of the model: the gap its absence is, and the record
+#: types whose row is the event-side half of it (R9, `contracts/counters.md`).
+#: Read by record type alone rather than by an attribute's absence: no span
+#: reader exists yet, so no record reaching here ever carries `first_content_ms`
+#: or `parent_agent_id` regardless, and `contracts/counters.md` names no
+#: attribute for `gap_permission_wait` at all — the wait is inside a tool
+#: span's duration, not a column of its own. Once a span reader exists, telling
+#: a merged record from an events-only one is that task's guard to add, with
+#: the attribute names it actually lands. `stop_reason` and `error_class` are
+#: deliberately not here — they refine an `outcome` the events produce whole,
+#: so their absence is absent enrichment rather than a part of the model missing.
+_SPAN_ONLY_RECORD_TYPES: Mapping[str, frozenset[str]] = {
+    # Only a call that returned content has a first token to time: an error
+    # returned no body and a refusal no content, so neither is missing a value it
+    # could have had.
+    "gap_ttft": frozenset({"claude_code.api_request"}),
+    # The wait for the operator is inside a tool span's duration and inside no
+    # event's, so what is missing is the split of a step's `duration_ms` into
+    # waiting and running.
+    "gap_permission_wait": _TOOL_RECORD_NAMES,
+    # A sub-agent whose parent nothing named is a `spawned` edge that cannot be
+    # derived. The main thread has no parent to be missing, so this is read off
+    # the one record type that names a sub-agent.
+    "gap_agent_nesting": frozenset({"claude_code.subagent_completed"}),
+}
+
+
+def report_span_only_gaps(record: TelemetryRecord, gaps: SessionGaps) -> None:
+    """Report each span-only part of the model *record*'s type carries no span for (SC-006).
+
+    A record of a type that would carry the field is the span side not having
+    reached the row it becomes: with no trace file configured that is every
+    record, and these three gaps are the whole difference between an
+    events-only run and a full one. A record of a type the field never sits on
+    reports nothing.
+
+    A record whose `session.id` never arrived is left alone for the same reason
+    `report_tool_detail_gap` leaves it alone: a gap counted against no session
+    could not be bumped once per session.
+
+    Nothing calls this yet: the ingest pass that drains the collector will,
+    once it exists, the way `recognised_records`' own docstring flags the same
+    gap for itself.
+    """
+    session_id = record.get(SESSION_ATTRIBUTE)
+    if not isinstance(session_id, str):
+        return
+    record_type = record.get(RECORD_TYPE_ATTRIBUTE)
+    for counter, record_names in _SPAN_ONLY_RECORD_TYPES.items():
+        if record_type in record_names:
+            gaps.report(session_id, counter)
+
+
 def in_record_order(
     records: Iterable[TelemetryRecord], counters: Counters
 ) -> tuple[TelemetryRecord, ...]:
