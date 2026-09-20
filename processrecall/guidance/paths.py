@@ -48,6 +48,10 @@ AFTER_CHANGE = "after_change"
 #: The traversal anchored on the entity in hand, as its candidates name it (FR-034).
 ON_ENTITY = "on_entity"
 
+#: The traversal anchored on the callers of the entity just changed, as its
+#: candidates name it (FR-034).
+AFTER_CALLERS = "after_callers"
+
 #: The traversal reading the moves a kind of work opens with, as its candidates
 #: name it (FR-034). Shorter than the function it names, because the counter the
 #: name builds is the one the contract publishes: `path_prompt_start`.
@@ -177,7 +181,11 @@ def after_change_to_entity(
     the position, rather than the in-edges `on_entity` reads instead.
     """
     return _traversal_over_precedes(
-        graph, entity_key, AFTER_CHANGE, counters=counters, procedure_of=lambda edge: edge.source
+        graph,
+        frozenset({entity_key}),
+        AFTER_CHANGE,
+        counters=counters,
+        procedure_of=lambda edge: edge.source,
     )
 
 
@@ -198,21 +206,52 @@ def on_entity(
     answers with nothing; the path is counted as having run either way (FR-034).
     """
     return _traversal_over_precedes(
-        graph, entity_key, ON_ENTITY, counters=counters, procedure_of=lambda edge: edge.target
+        graph,
+        frozenset({entity_key}),
+        ON_ENTITY,
+        counters=counters,
+        procedure_of=lambda edge: edge.target,
+    )
+
+
+def after_callers(
+    graph: AbstractGraph, entity_key: str, *, counters: Counters
+) -> tuple[Candidate, ...]:
+    """The moves that follow work on the callers of *entity_key* — the blast radius.
+
+    `after_change_to_entity` one anchor further out: a symbol is rarely changed
+    without the code calling it being looked at next, and this is the path that
+    answers with those moves. The callers are read off the projection rows
+    themselves, pre-computed at derivation time and bounded there (R17), so the
+    hot path never walks a call graph and this layer stays free of the code
+    layer FR-037 keeps out of it.
+
+    *entity_key* is the modified symbol, passed by the caller for the reason it
+    is in `after_change_to_entity`. What is anchored on is its callers, so a
+    symbol the projection carries no callers for answers with nothing — the
+    ordinary case for an entity nothing calls, or one the projection's bound cut
+    the callers of. The path is counted as having run either way (FR-034).
+    """
+    return _traversal_over_precedes(
+        graph,
+        _callers_of(graph, entity_key),
+        AFTER_CALLERS,
+        counters=counters,
+        procedure_of=lambda edge: edge.source,
     )
 
 
 def _traversal_over_precedes(
     graph: AbstractGraph,
-    entity_key: str,
+    entity_keys: frozenset[str],
     traversal: str,
     *,
     counters: Counters,
     procedure_of: Callable[[TransitionEdge], str],
 ) -> tuple[Candidate, ...]:
-    """The edges of *graph* whose *procedure_of* side precedes work on *entity_key*."""
+    """The edges of *graph* whose *procedure_of* side precedes work on *entity_keys*."""
     counters.bump(f"path_{traversal}")
-    procedures = _procedures_preceding_work_on(graph, entity_key)
+    procedures = _procedures_preceding_work_on(graph, entity_keys)
     return tuple(
         Candidate(transition=edge, traversal=traversal)
         for edge in graph.edges
@@ -220,9 +259,18 @@ def _traversal_over_precedes(
     )
 
 
-def _procedures_preceding_work_on(graph: AbstractGraph, entity_key: str) -> frozenset[str]:
-    """The procedures *graph*'s projection says precede work on *entity_key*."""
-    return frozenset(row.source for row in graph.precedes if row.entity_key == entity_key)
+def _procedures_preceding_work_on(
+    graph: AbstractGraph, entity_keys: frozenset[str]
+) -> frozenset[str]:
+    """The procedures *graph*'s projection says precede work on any of *entity_keys*."""
+    return frozenset(row.source for row in graph.precedes if row.entity_key in entity_keys)
+
+
+def _callers_of(graph: AbstractGraph, entity_key: str) -> frozenset[str]:
+    """The callers *graph*'s projection carries pre-computed for *entity_key* (R17)."""
+    return frozenset(
+        caller for row in graph.precedes if row.entity_key == entity_key for caller in row.callers
+    )
 
 
 def prompt_start_for_process(

@@ -326,13 +326,21 @@ class PrecedesWorkOn:
             path, or the symbol inside it after a ``#``.
         support: Episodic steps behind the pairing, which is what the projection
             keeps its bounded top of. Unread by the traversals in `paths.py`,
-            which only need `source` and `entity_key`; T043 is what ranks and
-            bounds rows by it when it derives the projection into the snapshot.
+            which read `source`, `entity_key` and `callers`; T043 is what ranks
+            and bounds rows by it when it derives the projection into the
+            snapshot.
+        callers: The `code_entities` keys of the symbols calling *entity_key*,
+            pre-computed at derivation time and bounded to
+            `schema.CALLERS_PER_ENTITY`, so the callers traversal reads them off
+            the row rather than walking a call graph at serve time (R17). Empty
+            until T043 derives them, and empty too where nothing calls the
+            entity, which the traversal answers with nothing.
     """
 
     source: str
     entity_key: str
     support: int
+    callers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

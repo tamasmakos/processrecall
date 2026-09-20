@@ -17,6 +17,7 @@ from processrecall.graph.schema import DecisionSource, StepDecision
 from processrecall.graph.store import EpisodicStep
 from processrecall.guidance.locate import locate
 from processrecall.guidance.paths import (
+    after_callers,
     after_change_to_entity,
     generalised,
     on_entity,
@@ -38,8 +39,14 @@ LEVEL = "class/program"
 #: The `class/program` key of `EDIT`, which is what a projection row names.
 EDIT_KEY = "ChangeImplementation/Edit"
 
+#: The `class/program` key of `BASH`, which is what a projection row names.
+BASH_KEY = "ArtifactEvaluation/Bash"
+
 #: One code entity, spelled the way `code_entities` keys a symbol.
 ENTITY = "processrecall/guidance/paths.py#after_change_to_entity"
+
+#: A caller of `ENTITY`, as the projection's pre-computed caller list names it.
+CALLER = "processrecall/guidance/render.py#statements"
 
 
 class FakeCounters:
@@ -211,3 +218,37 @@ def test_prompt_start_filters_by_kind_of_work() -> None:
         "Start -> ChangeImplementation/Edit"
     ]
     assert counters.counted["path_prompt_start"] == 1
+
+
+def test_after_callers_uses_precomputed_callers() -> None:
+    """FR-031, R17: the callers come off the projected row, so no call graph is walked."""
+    steps = walk(EDIT, TEST) + walk(BASH, WRITE, prompt="p2")
+    graph = replace(
+        aggregate(steps, level=LEVEL),
+        precedes=(
+            PrecedesWorkOn(source=EDIT_KEY, entity_key=ENTITY, support=2, callers=(CALLER,)),
+            PrecedesWorkOn(source=BASH_KEY, entity_key=CALLER, support=2),
+        ),
+    )
+    counters = FakeCounters()
+
+    candidates = after_callers(graph, ENTITY, counters=counters)
+
+    assert [candidate.transition.edge_key for candidate in candidates] == [
+        "ArtifactEvaluation/Bash -> ChangeImplementation/Write"
+    ]
+    assert counters.counted["path_after_callers"] == 1
+
+
+def test_after_callers_answers_nothing_for_an_entity_with_no_callers() -> None:
+    """FR-034: an entity the projection carries no callers for still counts as run."""
+    graph = replace(
+        aggregate(walk(EDIT, TEST), level=LEVEL),
+        precedes=(PrecedesWorkOn(source=EDIT_KEY, entity_key=ENTITY, support=2),),
+    )
+    counters = FakeCounters()
+
+    candidates = after_callers(graph, ENTITY, counters=counters)
+
+    assert candidates == ()
+    assert counters.counted["path_after_callers"] == 1
