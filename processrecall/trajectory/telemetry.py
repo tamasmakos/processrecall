@@ -183,6 +183,12 @@ _DECISION_SOURCE_VALUES = frozenset(
     {"config", "hook", "user_permanent", "user_temporary", "user_abort", "user_reject"}
 )
 
+#: The result axis's two spellings
+#: (:class:`~processrecall.graph.schema.StepResult`), written out here for the
+#: same reason `_DECISION_VALUES` is.
+_RESULT_OK = "ok"
+_RESULT_FAILURE = "failure"
+
 
 def records_in_line(line: str) -> Iterator[TelemetryRecord]:
     """Every log record the batched OTLP/JSON *line* carries, flattened (FR-001, FR-002).
@@ -319,7 +325,9 @@ class ProjectAttribution:
     def _project_key(self, attributes: TelemetryRecord) -> str | None:
         """The project *attributes* is attributable to, counting the drop if none."""
         session_id = attributes.get(SESSION_ATTRIBUTE)
-        bound = self._bindings.project_for_session(session_id) if isinstance(session_id, str) else None
+        bound = (
+            self._bindings.project_for_session(session_id) if isinstance(session_id, str) else None
+        )
         if bound is None:
             self._counters.bump("telemetry_session_unbound")
         return bound
@@ -435,3 +443,37 @@ def _validated_source(record: TelemetryRecord) -> str | None:
     """*record*'s `source`, or ``None`` when absent or not one `_DECISION_SOURCE_VALUES` names."""
     source = record.get("source")
     return str(source) if isinstance(source, str) and source in _DECISION_SOURCE_VALUES else None
+
+
+def step_result(record: TelemetryRecord) -> str | None:
+    """The result axis a `claude_code.tool_result` *record* reports (FR-022).
+
+    `failure` when the harness said the call did not succeed, or named the class
+    of failure it hit; `ok` when it said the call succeeded and named none. Both
+    readings are consulted rather than the flag alone because an `error_type` is
+    only ever written on a call that hit one, so it settles the axis whatever the
+    flag says.
+
+    ``None`` when the record reports neither, the `tool_decision` a refused call
+    leaves among them: a record with no error flag says nothing about this axis,
+    and reading it as `ok` would count a call that never ran as one that worked
+    (R14). A flag spelled as something other than a boolean, or an `error_type`
+    that is not non-empty text, is unreported for the same reason rather than
+    read for its presence or its truthiness.
+
+    The decision axis is untouched here. Whether the call was allowed to try is a
+    policy signal — `decision_type` on this record, `decision` on the verdict —
+    and FR-022 forbids collapsing the two: a permitted call that failed and a
+    refused one that never ran are different facts about different things.
+
+    Nothing calls this yet: folding a `tool_result` into the accepted step
+    T029 already collapsed onto is a later task's, not this one's — this
+    function only makes the reading available.
+    """
+    error_type = record.get("error_type")
+    if isinstance(error_type, str) and error_type:
+        return _RESULT_FAILURE
+    success = record.get("success")
+    if not isinstance(success, bool):
+        return None
+    return _RESULT_OK if success else _RESULT_FAILURE

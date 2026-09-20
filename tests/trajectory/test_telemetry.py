@@ -15,6 +15,7 @@ from processrecall.trajectory.telemetry import (
     recognised_records,
     records_in_line,
     step_from_verdict,
+    step_result,
 )
 
 #: The synthetic OTLP corpus T001 built to `contracts/telemetry-records.md`.
@@ -218,16 +219,26 @@ def test_unparsable_line_loses_its_records_not_the_pass(counters: FakeCounters) 
     assert counters.counted["telemetry_record_partial"] == 3
 
 
-def _verdicts(fixture_name: str) -> list[dict[str, str | int | bool]]:
-    """Every `tool_decision` record the named fixture carries, flattened."""
+def _records_named(fixture_name: str, event_name: str) -> list[dict[str, str | int | bool]]:
+    """Every record of type *event_name* the named fixture carries, flattened."""
     lines = (TELEMETRY_FIXTURES / fixture_name).read_text(encoding="utf-8").splitlines()
     return [
         dict(record)
         for line in lines
         if line.strip()
         for record in records_in_line(line)
-        if record["event.name"] == "claude_code.tool_decision"
+        if record["event.name"] == event_name
     ]
+
+
+def _verdicts(fixture_name: str) -> list[dict[str, str | int | bool]]:
+    """Every `tool_decision` record the named fixture carries, flattened."""
+    return _records_named(fixture_name, "claude_code.tool_decision")
+
+
+def _results(fixture_name: str) -> list[dict[str, str | int | bool]]:
+    """Every `tool_result` record the named fixture carries, flattened."""
+    return _records_named(fixture_name, "claude_code.tool_result")
 
 
 def test_rejected_decision_becomes_refused_step_with_no_touches() -> None:
@@ -248,3 +259,24 @@ def test_rejected_decision_becomes_refused_step_with_no_touches() -> None:
     assert step.tool_call_arguments == {}
     assert step.duration_ms is None
     assert step.result_size_bytes is None
+
+
+def test_failed_tool_result_is_failure_and_still_accepted() -> None:
+    # A permitted call that exited non-zero: the harness reports the failure on
+    # the `tool_result` and the permission on the verdict before it, so the two
+    # axes of FR-022 must stay independent — a failure is a capability signal
+    # and must not read as the refusal a rejected call would leave.
+    (failed,) = _results("gate_off.jsonl")
+    (verdict,) = _verdicts("gate_off.jsonl")
+
+    # The failed record carries its own `decision_type: accept`, yet
+    # `step_result` reads only the result axis and leaves it alone.
+    assert failed["decision_type"] == "accept"
+    assert step_result(failed) == "failure"
+    assert step_from_verdict(verdict).decision == "accepted"
+    # The other two readings of the axis: a call the harness said succeeded, and
+    # a record carrying neither the flag nor an error type, which reports
+    # nothing about the axis rather than defaulting to `ok` (R14).
+    (succeeded,) = _results("batched.jsonl")
+    assert step_result(succeeded) == "ok"
+    assert step_result({"event.name": "claude_code.tool_result"}) is None
