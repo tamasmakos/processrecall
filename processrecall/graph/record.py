@@ -23,6 +23,7 @@ from dataclasses import dataclass
 
 from processrecall.exceptions import PackError
 from processrecall.graph.episodic import SequenceIdentity
+from processrecall.graph.schema import CaptureSource
 from processrecall.graph.store import (
     EpisodicStep,
     Sequence,
@@ -33,7 +34,7 @@ from processrecall.graph.templates import template_of
 from processrecall.procedures.outcome import Outcome, classify_outcome
 from processrecall.procedures.step import SubActivity, steps_from
 from processrecall.procedures.taxonomy import identify_procedure
-from processrecall.trajectory.event import TrajectoryEvent
+from processrecall.trajectory.event import SourceKind, TrajectoryEvent
 from processrecall.trajectory.paths import normalise_path, project_key
 from processrecall.trajectory.vocabulary import load_vocabulary
 
@@ -63,8 +64,25 @@ class _Action:
     activities: tuple[SubActivity, ...]
 
 
+def _capture_source(event: TrajectoryEvent) -> CaptureSource | None:
+    """*event*'s row's capture label: the hook's, only for a live action.
+
+    Stamped as the hook's capture for a live action: the label is what makes
+    the row telemetry's fallback — the store folds a telemetry record for the
+    same tool call into it and wins every field both carry (FR-007). A
+    backfilled action reads no live telemetry counterpart either, but leaves
+    this unset rather than claiming the hook wrote it, so ``steps_from_hook``
+    stays the count of steps the *hook* wrote with none (``contracts/counters.md``).
+    """
+    return CaptureSource.HOOK if event.source_kind is SourceKind.LIVE else None
+
+
 def _step_of(activity: SubActivity, action: _Action) -> EpisodicStep:
-    """One sub-activity of *action*, as the row the episodic index stores."""
+    """One sub-activity of *action*, as the row the episodic index stores.
+
+    The fields telemetry alone carries are left unset here rather than
+    guessed at (R14); the capture label is :func:`_capture_source`'s.
+    """
     event = action.event
     identity = identify_procedure(activity)
     position = action.first_position + activity.ordinal
@@ -81,6 +99,7 @@ def _step_of(activity: SubActivity, action: _Action) -> EpisodicStep:
         result_snippet=event.tool_call_result,
         outcome=action.outcome,
         record_ref=event.record_ref,
+        source=_capture_source(event),
     )
 
 
@@ -115,6 +134,7 @@ def record_event(
                 key=key,
                 project_dir_key=project_key(event.project_dir),
                 started_at=event.occurred_at,
+                source=_capture_source(event),
             )
         )
         action = _Action(

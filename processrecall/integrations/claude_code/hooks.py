@@ -54,6 +54,7 @@ from processrecall.graph.abstract import (
 from processrecall.graph.derive import Derivation
 from processrecall.graph.episodic import SequenceIdentity, open_index
 from processrecall.graph.record import record_event
+from processrecall.graph.schema import CaptureSource
 from processrecall.graph.snapshot import SNAPSHOT_NAME, SnapshotFile
 from processrecall.graph.store import (
     FALLBACK_LOG,
@@ -368,6 +369,12 @@ def _sequence_key(payload: Mapping[str, Any], connection: sqlite3.Connection) ->
 def _open_turn(store: SQLiteEpisodicStore, project_dir: str, key: SequenceKey) -> None:
     """Record *key* as an open sequence in *project_dir*, its process type on it.
 
+    This is the session-to-project binding telemetry attribution reads (R4): no
+    telemetry record carries a working directory, so the hook is the only source
+    of one. It is stamped as the hook's for the same reason the step below it is
+    — the label is what lets a telemetry record for this turn fill and overrule
+    the readings both carry (FR-007).
+
     A store that will not take the write is counted rather than raised, as
     every other write on this path is: a prompt must not fail because the
     memory watching it could not note the turn (FR-014).
@@ -379,6 +386,7 @@ def _open_turn(store: SQLiteEpisodicStore, project_dir: str, key: SequenceKey) -
                 project_dir_key=project_key(project_dir),
                 started_at=datetime.now(UTC),
                 process_type=PROMPT_PROCESS_TYPE,
+                source=CaptureSource.HOOK,
             )
         )
     except sqlite3.Error:
