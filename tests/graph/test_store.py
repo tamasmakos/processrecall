@@ -25,6 +25,7 @@ from processrecall.graph.store import (
     Sequence,
     SequenceKey,
     SQLiteEpisodicStore,
+    StepTouch,
 )
 
 from .conftest import make_step
@@ -170,6 +171,28 @@ def test_iterating_from_a_high_water_mark_yields_only_what_came_after_it(
     high_water = store.steps(KEY)[0].step_id
 
     assert [step.dedup_key for step in store.iter_steps(since=high_water)] == ["t2"]
+
+
+def test_touch_records_mode_and_resolution(store: SQLiteEpisodicStore) -> None:
+    _open_sequence(store)
+    store.record(_step())
+    step_id = store.steps(KEY)[0].step_id
+    read_file = StepTouch(step_id=step_id, entity_key="processrecall/graph/store.py", mode="read")
+    modified_symbol = StepTouch(
+        step_id=step_id,
+        entity_key="processrecall/graph/store.py#SQLiteEpisodicStore.record_touch",
+        mode="modified",
+        resolution="symbol",
+    )
+
+    store.record_touch(read_file)
+    store.record_touch(modified_symbol)
+
+    touched = store.touches_for(step_id)
+    assert touched == (read_file, modified_symbol)
+    assert [touch.resolution for touch in touched] == ["file", "symbol"]
+    assert store.counters()["touched_file_only"] == 1
+    assert "touched_symbol_resolved" not in store.counters()
 
 
 def test_a_bumped_counter_is_readable_and_counts_every_bump(store: SQLiteEpisodicStore) -> None:

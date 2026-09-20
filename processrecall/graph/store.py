@@ -29,7 +29,7 @@ from dataclasses import dataclass, fields, replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkable
 
 from processrecall.config import RESULT_CEILING, ActivityClass, ProcessType, home_dir
 from processrecall.graph.annotations import Annotation
@@ -278,6 +278,40 @@ class EpisodicStep:
     step_id: int = 0
 
 
+#: What a step did to the entity it touched, in the vocabulary `step_touches.mode`
+#: holds (FR-021): the two are kept apart because a step that only read a file
+#: says nothing about the file having changed.
+TouchMode = Literal["read", "modified"]
+
+#: How far a touch resolved, in the vocabulary `step_touches.resolution` holds
+#: (FR-021). The honesty column of the edge: `file` is what a touch says when no
+#: symbol could be established, rather than naming one it did not find.
+TouchResolution = Literal["symbol", "file"]
+
+
+@dataclass(frozen=True, slots=True)
+class StepTouch:
+    """One `step_touches` row: what one recorded step did to one code entity.
+
+    Attributes:
+        step_id: The recorded step that did the touching, as the store assigned
+            it; a touch is written after the step it hangs off, never with it,
+            because the symbol is resolved off the hot path (FR-019).
+        entity_key: The `code_entities` key touched, as
+            `semantic.entity_key` builds it — a file's path, or the symbol
+            inside it after a ``#``.
+        mode: Whether the step read the entity or modified it.
+        resolution: How far the touch resolved. Defaults to `file`, the honest
+            answer at record time (R16): matching an edit's position against a
+            symbol's line range is derivation-time work, done later.
+    """
+
+    step_id: int
+    entity_key: str
+    mode: TouchMode
+    resolution: TouchResolution = "file"
+
+
 @runtime_checkable
 class EpisodicStore(Protocol):
     """Everything the pipeline asks of persistence, and nothing about a backend.
@@ -341,6 +375,14 @@ class EpisodicStore(Protocol):
         The only deletion this seam offers, and nothing calls it but `prune`
         (FR-057): history is kept indefinitely unless an operator says otherwise.
         """
+        ...
+
+    def record_touch(self, touch: StepTouch) -> None:
+        """Write *touch* against the step it names, and count how far it resolved (FR-021)."""
+        ...
+
+    def touches_for(self, step_id: int) -> tuple[StepTouch, ...]:
+        """Every entity the step *step_id* names touched, oldest touch first."""
         ...
 
     def write_annotation(self, project_key: str, annotation: Annotation) -> None:
@@ -985,6 +1027,48 @@ class SQLiteEpisodicStore:
         with self._connection:
             self._connection.executemany(f"DELETE FROM steps{_SEQUENCE_WHERE}", parameters)  # nosec B608
             self._connection.executemany(f"DELETE FROM sequences{_SEQUENCE_WHERE}", parameters)  # nosec B608
+
+    def record_touch(self, touch: StepTouch) -> None:
+        """Write *touch* against the step it names, and count it if it got no further than the file (FR-021).
+
+        The row keeps its `resolution` as a column of its own rather than
+        leaving a reader to infer it from the key: a touch that got no further
+        than the file is written against the file and counted in
+        `touched_file_only`, so the count says how much of the touched history
+        is precise enough to reason over a symbol with. `touched_symbol_resolved`
+        is not bumped here — that reading is decided at derivation time, against
+        the line ranges the code entities carry (R16).
+        """
+        with self._connection:
+            self._connection.execute(
+                "INSERT INTO step_touches (step_id, entity_key, mode, resolution)"
+                " VALUES (?, ?, ?, ?)",
+                (touch.step_id, touch.entity_key, touch.mode, touch.resolution),
+            )
+        if touch.resolution == "file":
+            self.bump("touched_file_only")
+
+    def touches_for(self, step_id: int) -> tuple[StepTouch, ...]:
+        """Every entity the step *step_id* names touched, oldest touch first.
+
+        The stored `mode` and `resolution` are trusted as the vocabulary they
+        were written in: `record_touch` is the only writer of either column,
+        and it takes a `StepTouch` whose fields are `TouchMode` and
+        `TouchResolution` already.
+        """
+        rows = self._connection.execute(
+            "SELECT entity_key, mode, resolution FROM step_touches WHERE step_id = ? ORDER BY rowid",
+            (step_id,),
+        )
+        return tuple(
+            StepTouch(
+                step_id=step_id,
+                entity_key=str(row[0]),
+                mode=cast("TouchMode", row[1]),
+                resolution=cast("TouchResolution", row[2]),
+            )
+            for row in rows
+        )
 
     def write_annotation(self, project_key: str, annotation: Annotation) -> None:
         """Store *annotation* against *project_key*, in the annotations table of its own (FR-038).
