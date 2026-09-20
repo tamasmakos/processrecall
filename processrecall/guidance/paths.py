@@ -332,10 +332,9 @@ def usually_refused(
     These are candidates to *avoid* rather than to take: a transition earns the
     `PitfallKind.REFUSED` pitfall in the fold once its refusals cross
     the support floor, so what is returned is already evidenced and needs no
-    threshold of its own here (FR-027). Unordered for now: the recency-weighted,
-    lift-scaled order the contract asks each traversal for needs an activation
-    `ProcedureNode` does not yet carry, so the sort lands with whichever task
-    adds that field, not here.
+    threshold of its own here (FR-027). Unordered for now: the procedure carries
+    the recency-weighted activation the contract's lift-scaled order reads
+    (FR-039), but nothing sorts by it yet, here or in any other traversal.
 
     A position with no refused moves answers with nothing, which is the ordinary
     case; the path is counted as having run either way (FR-034).

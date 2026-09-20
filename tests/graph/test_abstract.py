@@ -7,7 +7,7 @@ that rebuilt the tally itself would only prove the tally twice.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -37,6 +37,7 @@ def make_step(
     template: str = "",
     outcome: str = "neutral",
     key: SequenceKey = KEY,
+    at: datetime = AT,
 ) -> EpisodicStep:
     """One recorded row, named by the node key the recorder derived for it."""
     activity_class, program, _ = node_key.split("/")
@@ -48,7 +49,7 @@ def make_step(
         activity_class=ActivityClass(activity_class),
         program=program,
         template=template or f"{program} <File>",
-        occurred_at=AT,
+        occurred_at=at,
         outcome=outcome,
         step_id=step_id,
     )
@@ -185,3 +186,42 @@ def test_mutual_pair_scores_near_zero_and_is_not_phrased_as_usual_next() -> None
     assert one_way.dependency_measure == pytest.approx(1.0)
     assert one_way.lift == pytest.approx(2.0)
     assert "usually" in next_statement(one_way).text
+
+
+def test_activation_ranks_fresh_above_stale_at_equal_support() -> None:
+    """FR-039: at equal support, the procedure still being run outranks the stale one, and
+    the stale one does not close the gap by racking up more support instead."""
+    stale_key = SequenceKey(conversation_id="c1", session_epoch=0, prompt_id="p0")
+    busier_stale_key = SequenceKey(conversation_id="c1", session_epoch=0, prompt_id="p2")
+    long_ago = AT - timedelta(days=90)
+    steps = (
+        *(
+            make_step("Inspection/Read/py", position=n, step_id=n + 1, at=long_ago, key=stale_key)
+            for n in range(3)
+        ),
+        *(
+            make_step(
+                "ChangeImplementation/Write/py",
+                position=n,
+                step_id=n + 10,
+                at=long_ago,
+                key=busier_stale_key,
+            )
+            for n in range(5)
+        ),
+        *(
+            make_step("ArtifactEvaluation/pytest/--", position=n, step_id=n + 20)
+            for n in range(3)
+        ),
+    )
+
+    graph = aggregate(steps, level="class/program")
+
+    fresh = graph.nodes["ArtifactEvaluation/pytest"]
+    stale = graph.nodes["Inspection/Read"]
+    busier_stale = graph.nodes["ChangeImplementation/Write"]
+    assert fresh.support == stale.support
+    assert fresh.activation == pytest.approx(3.0)
+    assert stale.activation < fresh.activation
+    assert busier_stale.support > fresh.support
+    assert busier_stale.activation < fresh.activation

@@ -26,7 +26,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from itertools import pairwise
 from math import sqrt
@@ -85,6 +85,11 @@ _UNVERIFIED_USUALLY = 0.5
 #: the lower bound of (FR-040).
 _CONFIDENCE_Z = 1.96
 
+#: How much older than the fold's newest observation one step has to be to count
+#: for half as much in `ProcedureNode.activation` (FR-039). A working week, so a
+#: procedure nobody has run for a month weighs about a sixteenth of one run now.
+ACTIVATION_HALF_LIFE = timedelta(days=7)
+
 #: The oldest a fold can be: every real observation is later, so the first one
 #: replaces it. Public because `edit.py` gives an authored edge the same value
 #: for the same reason: it too has no observation to be later than.
@@ -135,6 +140,10 @@ class ProcedureNode:
         support: Episodic steps carried by this node.
         outcome_counts: How those steps went.
         last_seen: The most recent of them.
+        activation: Those steps' times as one recency-weighted count: one whole
+            for a step observed at the newest time the fold saw, halving every
+            `ACTIVATION_HALF_LIFE` of age before it (FR-039). Support that
+            stopped recurring decays here, while `support` keeps the raw total.
     """
 
     key: str
@@ -147,6 +156,7 @@ class ProcedureNode:
     support: int
     outcome_counts: Mapping[Outcome, int]
     last_seen: datetime
+    activation: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -448,6 +458,7 @@ class _NodeFold:
     last_seen: datetime = UNSEEN
     templates: Counter[str] = field(default_factory=Counter)
     outcomes: Counter[Outcome] = field(default_factory=Counter)
+    _activation_weight: float = 0.0
 
     def observe(self, at: datetime) -> None:
         """Count one occurrence of this node, at *at*.
@@ -455,9 +466,23 @@ class _NodeFold:
         What a synthetic node gets instead of `record`: `Start` and `End` are
         passed through once per sequence and never performed, so they have a
         support and a recency but no template and no outcome of their own.
+
+        `_activation_weight` is kept as a running sum measured against
+        `last_seen` rather than a list of every `at` this fold has ever seen
+        (FR-039): each new observation is worth `0.5 ** (age / ACTIVATION_HALF_LIFE)`
+        at the current `last_seen`, and when *at* pushes `last_seen` forward the
+        weight already accumulated is rescaled to the new one first, so the
+        running sum always equals what summing over every observation from
+        scratch would (`finish` rescales it once more, to the fold-wide
+        reference).
         """
         self.support += 1
-        self.last_seen = max(self.last_seen, at)
+        if at > self.last_seen:
+            self._activation_weight *= 0.5 ** ((at - self.last_seen) / ACTIVATION_HALF_LIFE)
+            self.last_seen = at
+            self._activation_weight += 1.0
+        else:
+            self._activation_weight += 0.5 ** ((self.last_seen - at) / ACTIVATION_HALF_LIFE)
 
     def record(self, step: EpisodicStep) -> None:
         """Fold one episodic row into this node."""
@@ -465,8 +490,14 @@ class _NodeFold:
         self.templates[step.template] += 1
         self.outcomes[Outcome(step.outcome)] += 1
 
-    def finish(self) -> ProcedureNode:
-        """The node this tally describes."""
+    def finish(self, reference: datetime) -> ProcedureNode:
+        """The node this tally describes, its activation measured from *reference*.
+
+        *reference* is the newest observation the whole fold saw rather than the
+        wall clock: one instant every node's staleness is measured against, and a
+        pure function of the rows, so a from-scratch rebuild lands on the same
+        activation the last one did (SC-004).
+        """
         return ProcedureNode(
             key=self.key,
             level=self.level,
@@ -483,6 +514,8 @@ class _NodeFold:
             support=self.support,
             outcome_counts=dict(self.outcomes),
             last_seen=self.last_seen,
+            activation=self._activation_weight
+            * 0.5 ** ((reference - self.last_seen) / ACTIVATION_HALF_LIFE),
         )
 
 
@@ -809,9 +842,10 @@ def aggregate(
             edges[(key, key)].repetitions += runs
     baseline = _Baseline(_base_failure_rate(edges.values()), tuning)
     dependence = _Dependence.over(edges.values())
+    newest_observation = max((fold.last_seen for fold in nodes.values()), default=UNSEEN)
     return AbstractGraph(
         level=level,
-        nodes={key: nodes[key].finish() for key in sorted(nodes)},
+        nodes={key: nodes[key].finish(newest_observation) for key in sorted(nodes)},
         edges=tuple(edges[pair].finish(baseline, dependence) for pair in sorted(edges)),
         episode_high_water=high_water,
     )
@@ -886,6 +920,7 @@ def _node_body(node: ProcedureNode) -> dict[str, Any]:
         "support": node.support,
         "outcome_counts": _outcome_body(node.outcome_counts),
         "last_seen": node.last_seen.isoformat(),
+        "activation": node.activation,
     }
 
 

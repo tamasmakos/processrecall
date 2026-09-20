@@ -27,6 +27,7 @@ from typing import Any, cast
 
 from processrecall.config import STORE_DIR, Config, home_dir, load_config
 from processrecall.graph.abstract import (
+    ACTIVATION_HALF_LIFE,
     SUPPORTING_STEPS_KEPT,
     TOP_TEMPLATES,
     aggregate,
@@ -204,7 +205,7 @@ def _folded_onto(existing: Snapshot, delta: Snapshot) -> Snapshot:
     return Snapshot(
         level=existing.level,
         episode_high_water=max(existing.episode_high_water, delta.episode_high_water),
-        nodes=_merged_nodes(existing.nodes, delta.nodes),
+        nodes=_merged_nodes(existing.nodes, delta.nodes, existing.generated_at, delta.generated_at),
         edges=_merged_edges(existing.edges, delta.edges),
         generated_at=max(existing.generated_at, delta.generated_at),
         precedes=(*existing.precedes, *delta.precedes),
@@ -229,17 +230,38 @@ def _as_mapping(body: object) -> Mapping[str, Any]:
     return cast("Mapping[str, Any]", body)
 
 
-def _merged_nodes(existing: Mapping[str, object], delta: Mapping[str, object]) -> dict[str, Any]:
+def _merged_nodes(
+    existing: Mapping[str, object],
+    delta: Mapping[str, object],
+    existing_generated_at: datetime,
+    delta_generated_at: datetime,
+) -> dict[str, Any]:
     """Every node of *existing*, counted against what *delta* adds to it, by key."""
     merged = {key: dict(_as_mapping(body)) for key, body in existing.items()}
     for key, body in delta.items():
         incoming = _as_mapping(body)
-        merged[key] = _merge_node(merged[key], incoming) if key in merged else dict(incoming)
+        merged[key] = (
+            _merge_node(merged[key], incoming, existing_generated_at, delta_generated_at)
+            if key in merged
+            else dict(incoming)
+        )
     return merged
 
 
-def _merge_node(existing: Mapping[str, Any], delta: Mapping[str, Any]) -> dict[str, Any]:
-    """One node's body, *delta*'s occurrences counted onto *existing*'s own."""
+def _merge_node(
+    existing: Mapping[str, Any],
+    delta: Mapping[str, Any],
+    existing_generated_at: datetime,
+    delta_generated_at: datetime,
+) -> dict[str, Any]:
+    """One node's body, *delta*'s occurrences counted onto *existing*'s own.
+
+    ``activation`` cannot simply add: *existing*'s was measured against its
+    own fold's newest observation and *delta*'s against a later one, so
+    *existing*'s is decayed across the gap between those two references
+    before *delta*'s is added, landing an incremental fold where a
+    from-scratch rebuild over the same rows would (SC-004, FR-039).
+    """
     return {
         "level": existing["level"],
         "is_a": existing["is_a"],
@@ -247,7 +269,24 @@ def _merge_node(existing: Mapping[str, Any], delta: Mapping[str, Any]) -> dict[s
         "support": int(existing["support"]) + int(delta["support"]),
         "outcome_counts": _merged_counts(existing["outcome_counts"], delta["outcome_counts"]),
         "last_seen": _later(existing["last_seen"], delta["last_seen"]),
+        "activation": _merged_activation(
+            float(existing["activation"]),
+            float(delta["activation"]),
+            existing_generated_at,
+            delta_generated_at,
+        ),
     }
+
+
+def _merged_activation(
+    existing: float,
+    delta: float,
+    existing_generated_at: datetime,
+    delta_generated_at: datetime,
+) -> float:
+    """*existing*'s activation decayed to *delta*'s reference, plus *delta*'s own."""
+    age = delta_generated_at - existing_generated_at
+    return existing * 0.5 ** (age / ACTIVATION_HALF_LIFE) + delta
 
 
 def _merged_edges(existing: Seq[object], delta: Seq[object]) -> list[dict[str, Any]]:
