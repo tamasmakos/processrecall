@@ -102,7 +102,7 @@ observation is silence, not low-confidence advice.
 Every statement shows the number of episodes behind it. Rendering is
 deterministic and no language model takes part in it.
 
-## The five commands
+## The six commands
 
 The package lives in the plugin's environment and on no `PATH`, so call its
 interpreter by path — `~/.claude/plugins/data/processrecall-processrecall/venv/bin/python`,
@@ -119,6 +119,7 @@ or `...\venv\Scripts\python.exe` on Windows:
 | `rebuild` | re-derive both snapshots; `--check` compares instead of writing |
 | `prune` | delete episodic history before `--before`, then re-derive |
 | `show` | print the memory's shape, never a payload |
+| `doctor` | report on the collector file telemetry is read from |
 
 `show` takes one subject: `graph` (nodes, edges, conditions, annotations),
 `counters`, `sequences` (recent prompts and how they ended) or `config` (every

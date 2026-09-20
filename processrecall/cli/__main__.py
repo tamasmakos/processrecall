@@ -16,6 +16,7 @@ from pathlib import Path
 
 from processrecall.cli.backfill import Replay, backfill, parse_since
 from processrecall.cli.bootstrap import prepare
+from processrecall.cli.doctor import readiness
 from processrecall.cli.prune import Removal, episodes_before, prune
 from processrecall.cli.rebuild import check, rebuild
 from processrecall.cli.show import Inspection, show
@@ -28,7 +29,7 @@ from processrecall.graph.store import EpisodicStore, SQLiteEpisodicStore
 SUBJECTS = ("graph", "counters", "sequences", "config")
 
 #: The subcommands this CLI offers, in the order `_parser` registers them.
-COMMANDS = ("bootstrap", "backfill", "show", "rebuild", "prune")
+COMMANDS = ("bootstrap", "backfill", "show", "rebuild", "prune", "doctor")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -93,6 +94,9 @@ def _parser() -> argparse.ArgumentParser:
     prune_command.add_argument(
         "--yes", action="store_true", help="delete without asking for confirmation"
     )
+    commands.add_parser(
+        COMMANDS[5], help="report on the collector file the memory reads telemetry from"
+    )
     return parser
 
 
@@ -101,6 +105,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     if arguments.command == "bootstrap":
         return _bootstrap(arguments)
+    if arguments.command == "doctor":
+        print(readiness(load_config().telemetry_path))
+        return 0
     with closing(open_index()) as connection:
         if arguments.command == "rebuild":
             return _rebuild(arguments, SQLiteEpisodicStore(connection))

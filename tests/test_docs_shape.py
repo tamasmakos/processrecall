@@ -55,12 +55,12 @@ def test_docs_describe_the_plugin_not_the_service() -> None:
     """The README must document every surface a reader can reach (T081).
 
     Read off the code rather than written out here: the four `Trigger`
-    occasions, the five subcommands `processrecall.cli.__main__` registers,
+    occasions, the six subcommands `processrecall.cli.__main__` registers,
     the four `TOOLS` the stdio server exposes, the subjects `show` reports —
     the counters among them — and the two exclusion markers capture is
     suppressed by. A rename that misses the README must fail here.
     """
-    assert len(COMMANDS) == 5, f"expected five subcommands, found {COMMANDS}"
+    assert len(COMMANDS) == 6, f"expected six subcommands, found {COMMANDS}"
 
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     named = (
