@@ -17,7 +17,8 @@ from tests.trajectory.factories import make_event
 
 #: The schema table of ``contracts/trajectory-event.md``, in its order: the nine
 #: OpenTelemetry GenAI names first (``gen_ai.`` dropped, dots to underscores),
-#: then the five local extensions the convention has no term for.
+#: then the five local extensions the convention has no term for, then the
+#: optional telemetry fields (FR-022).
 CONTRACT_FIELDS = [
     "operation_name",
     "conversation_id",
@@ -32,6 +33,14 @@ CONTRACT_FIELDS = [
     "record_ref",
     "occurred_at",
     "source_kind",
+    "decision",
+    "decision_source",
+    "duration_ms",
+    "error_type",
+    "input_size_bytes",
+    "result_size_bytes",
+    "tool_source",
+    "event_sequence",
 ]
 
 
@@ -84,3 +93,28 @@ def test_an_event_is_frozen_and_slotted() -> None:
     with pytest.raises(FrozenInstanceError):
         event.tool_name = "Edit"  # type: ignore[misc]
     assert not hasattr(event, "__dict__")
+
+
+def test_event_carries_telemetry_fields() -> None:
+    """Every telemetry field is carried, and every one of them is optional (FR-022).
+
+    Only a `claude_code.tool_result` or `claude_code.tool_decision` record reports
+    these; a replayed transcript reports none of them, so an absent field is the
+    ordinary case and reads as ``None`` rather than as a zero that would count.
+    The tool-use identity is not among them: it is the event's existing
+    ``tool_call_id``, which is what the store deduplicates a step on.
+    """
+    observed = {
+        "decision": "rejected",
+        "decision_source": "user_reject",
+        "duration_ms": 412,
+        "error_type": "timeout",
+        "input_size_bytes": 128,
+        "result_size_bytes": 4096,
+        "tool_source": "mcp",
+        "event_sequence": 17,
+    }
+    event = make_event(**observed)
+
+    assert {name: getattr(event, name) for name in observed} == observed
+    assert all(getattr(make_event(), name) is None for name in observed)

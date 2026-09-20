@@ -29,13 +29,25 @@ class SourceKind(StrEnum):
 class TrajectoryEvent:
     """One completed agent action, in the single format the pipeline reads.
 
+    The fields from ``decision`` down are the ones only the collector's telemetry
+    records carry (FR-022), and every one of them is optional: ``None`` means the
+    source reported none, never a zero that would count. A replayed transcript
+    reports a tool call and none of its telemetry.
+
+    FR-022's other axis — a step's result, ``ok`` or ``failure`` — has no field
+    here: it is derived downstream, in ``trajectory/telemetry.py``, from
+    ``error_type`` and the tool result's error flag, rather than carried through
+    the event.
+
     Attributes:
         operation_name: ``gen_ai.operation.name`` — ``"execute_tool"`` here.
         conversation_id: ``gen_ai.conversation.id``.
         agent_id: ``gen_ai.agent.id``; ``""`` for the main agent.
         agent_name: ``gen_ai.agent.name``; ``""`` when the harness reports none.
         tool_name: ``gen_ai.tool.name``, as the harness spells it.
-        tool_call_id: ``gen_ai.tool.call.id``.
+        tool_call_id: ``gen_ai.tool.call.id``. Also the telemetry records'
+            ``tool_use_id``: the same value, which is what makes cross-source
+            deduplication exact rather than heuristic (FR-008).
         tool_call_arguments: ``gen_ai.tool.call.arguments``; read for the
             template and the file list, never persisted whole.
         tool_call_result: ``gen_ai.tool.call.result``, already truncated by the
@@ -49,6 +61,20 @@ class TrajectoryEvent:
             never a copy and never re-read by the pipeline.
         occurred_at: When the action completed, timezone-aware.
         source_kind: Live capture or backfill.
+        decision: Whether the call was allowed to run, in
+            :class:`~processrecall.graph.schema.StepDecision`'s spelling. FR-022's
+            policy axis, and independent of whether the call then worked.
+        decision_source: Who decided *decision*, in
+            :class:`~processrecall.graph.schema.DecisionSource`'s spelling.
+        duration_ms: How long the call took, as the harness measured it.
+        error_type: The harness's class of failure, absent on a call that worked.
+        input_size_bytes: Size of the arguments the harness passed.
+        result_size_bytes: Size of the result as the harness produced it, so a
+            truncated ``tool_call_result`` does not make the call look small.
+        tool_source: Where the tool came from: built in, an MCP server, a plugin.
+        event_sequence: ``event.sequence``, the harness's own counter. A tie-break
+            on ``occurred_at`` and nothing else — it restarts per process and can
+            go backwards inside one session.
     """
 
     operation_name: str
@@ -64,6 +90,14 @@ class TrajectoryEvent:
     record_ref: str
     occurred_at: datetime
     source_kind: SourceKind
+    decision: str | None = None
+    decision_source: str | None = None
+    duration_ms: int | None = None
+    error_type: str | None = None
+    input_size_bytes: int | None = None
+    result_size_bytes: int | None = None
+    tool_source: str | None = None
+    event_sequence: int | None = None
 
     def __post_init__(self) -> None:
         """Refuse a naive ``occurred_at``.
