@@ -445,6 +445,10 @@ class EpisodicStore(Protocol):
         """Record the rules' verdict *outcome* on *key* (FR-034, FR-036)."""
         ...
 
+    def record_head(self, key: SequenceKey, record: TelemetryRecord) -> None:
+        """Record the commit and branch *record* observed *key*'s turn on (FR-023)."""
+        ...
+
     def record(self, step: EpisodicStep) -> bool:
         """Write *step*, reporting whether it landed.
 
@@ -1199,6 +1203,28 @@ class SQLiteEpisodicStore:
             self._connection.execute(
                 f"UPDATE sequences SET derived_outcome = ?{_SEQUENCE_WHERE}",  # nosec B608
                 (outcome, *_key_params(key)),
+            )
+
+    def record_head(self, key: SequenceKey, record: TelemetryRecord) -> None:
+        """Record on *key* the commit and branch *record* observed the turn on (FR-023).
+
+        Each of `vcs.ref.head.revision` and `vcs.ref.head.name` is written only
+        where the record carries it, so an observation naming no branch — the
+        harness once the branch has been deleted, or one below the pair's
+        version floor — leaves the name the turn ran on standing rather than
+        writing the absence over it (R14). Neither value is resolved against the
+        repository again: the row says where the work happened, not what still
+        exists.
+        """
+        with self._connection:
+            self._connection.execute(
+                "UPDATE sequences SET head_revision = coalesce(?, head_revision),"
+                f" head_branch = coalesce(?, head_branch){_SEQUENCE_WHERE}",  # nosec B608
+                (
+                    optional_text(record, "vcs.ref.head.revision"),
+                    optional_text(record, "vcs.ref.head.name"),
+                    *_key_params(key),
+                ),
             )
 
     def record(self, step: EpisodicStep) -> bool:

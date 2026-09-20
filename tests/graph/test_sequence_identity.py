@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from processrecall.graph.episodic import SequenceIdentity, open_index
-from processrecall.graph.store import SequenceKey
+from processrecall.graph.store import Sequence, SequenceKey, SQLiteEpisodicStore
 from processrecall.trajectory.telemetry import in_record_order
 
 
@@ -167,3 +167,28 @@ def test_epoch_at_resolves_to_the_rotation_in_force_at_a_past_instant(
 
     assert identity.epoch == 2
     assert identity.epoch_at(datetime.fromisoformat(first_rotation)) == 1
+
+
+def test_sequence_records_observed_commit_and_branch(index: sqlite3.Connection) -> None:
+    """A turn keeps the commit and branch it was observed on, name and all (FR-023).
+
+    The second observation is the harness after the branch was deleted: it still
+    reports a revision and no longer names a branch, and the name the turn ran on
+    survives that rather than being written over with the absence.
+    """
+    store = SQLiteEpisodicStore(index)
+    key = SequenceIdentity(index, "c1").key("p1")
+    store.open_sequence(
+        Sequence(
+            key=key,
+            project_dir_key="a-project",
+            started_at=datetime(2026, 9, 20, 12, tzinfo=UTC),
+        )
+    )
+
+    store.record_head(key, {"vcs.ref.head.revision": "9f1c2d3", "vcs.ref.head.name": "feature/x"})
+    store.record_head(key, {"vcs.ref.head.revision": "4a5b6c7"})
+
+    recorded = store.sequence(key)
+    assert recorded is not None
+    assert (recorded.head_revision, recorded.head_branch) == ("4a5b6c7", "feature/x")
