@@ -9,12 +9,12 @@ measured, weighted or switched off on its own (FR-036). The working state is
 is what a traversal is asked *from* and there is one of it; the answer is
 `Candidate`, which carries the transition together with the traversal that found
 it, so a rendered statement can say which path earned it (FR-034). `Position`
-is defined once, in `locate.py`, and imported here rather than redeclared; it
-is still `key` and `previous` there, not yet the fuller working state the
-contract describes, and widening it is `locate`'s task to do, not this one's.
-Which is why the entity-anchored paths take a `code_entities` key in place of a
-position: the entity is the whole of the working state they read, and taking a
-`Position` that cannot yet carry one would be taking it to ignore it.
+is defined once, in `locate.py`, and imported here rather than redeclared; the
+scoping arguments a request narrows itself by — a symbol, a file and a kind of
+work — are carried there (FR-035), so the entity-anchored paths and the opening
+path read them off the position they are asked from rather than taking a
+parameter each. The rest of the working state the contract describes is still
+`locate`'s task to build, not this one's.
 
 In the renderer layer, so the standard library only, and neither the symbol nor
 the code-parsing layer is imported here (FR-037).
@@ -30,7 +30,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from processrecall.config import Counters, ProcessType
+from processrecall.config import Counters
 from processrecall.graph.abstract import START_KEY, AbstractGraph, PitfallKind, TransitionEdge
 from processrecall.guidance.locate import Position
 
@@ -153,9 +153,9 @@ def generalised(
 
 
 def after_change_to_entity(
-    graph: AbstractGraph, entity_key: str, *, counters: Counters
+    position: Position, graph: AbstractGraph, *, counters: Counters
 ) -> tuple[Candidate, ...]:
-    """The moves observed around a change to *entity_key* — what follows it.
+    """The moves observed around a change to *position*'s entities — what follows them.
 
     The first traversal anchored on the code rather than on the procedure, which
     is what lets it answer where `usual_next` cannot: the `precedes_work_on`
@@ -165,10 +165,10 @@ def after_change_to_entity(
     that is the point of a second anchor, and fusion is where the two anchors'
     answers meet (FR-032).
 
-    *entity_key* is the working state's, not the position's: `Position` does not
-    carry the active file or symbol yet, and the `code_entities` spelling of one
-    belongs to the layer FR-037 keeps out of here, so the caller passes the key
-    it already holds rather than this path deriving it.
+    The entities are the position's symbol and file, whichever of them the
+    request named (FR-035): the `code_entities` spelling of one belongs to the
+    layer FR-037 keeps out of here, so the requester carries the keys in and this
+    path only reads them.
 
     An entity the projection names no procedure for answers with nothing, which
     is the ordinary case for a file this project has not recorded working on;
@@ -182,7 +182,7 @@ def after_change_to_entity(
     """
     return _traversal_over_precedes(
         graph,
-        frozenset({entity_key}),
+        _scope_of(position),
         AFTER_CHANGE,
         counters=counters,
         procedure_of=lambda edge: edge.source,
@@ -190,9 +190,9 @@ def after_change_to_entity(
 
 
 def on_entity(
-    graph: AbstractGraph, entity_key: str, *, counters: Counters
+    position: Position, graph: AbstractGraph, *, counters: Counters
 ) -> tuple[Candidate, ...]:
-    """The moves that land on work on *entity_key* — what is done on this file.
+    """The moves that land on work on *position*'s entities — what is done on them.
 
     The same projection as `after_change_to_entity` and the same anchor, read the
     other way round: the procedures the entity is worked on at are the *targets*
@@ -201,13 +201,13 @@ def on_entity(
     they are separately measurable (FR-036) and because a move can be a good
     answer to one question and a poor answer to the other.
 
-    *entity_key* comes from the caller's working state, for the reason it does in
+    The entities are the position's, for the reason they are in
     `after_change_to_entity`. An entity the projection names no procedure for
     answers with nothing; the path is counted as having run either way (FR-034).
     """
     return _traversal_over_precedes(
         graph,
-        frozenset({entity_key}),
+        _scope_of(position),
         ON_ENTITY,
         counters=counters,
         procedure_of=lambda edge: edge.target,
@@ -215,9 +215,9 @@ def on_entity(
 
 
 def after_callers(
-    graph: AbstractGraph, entity_key: str, *, counters: Counters
+    position: Position, graph: AbstractGraph, *, counters: Counters
 ) -> tuple[Candidate, ...]:
-    """The moves that follow work on the callers of *entity_key* — the blast radius.
+    """The moves that follow work on the callers of *position*'s symbol — the blast radius.
 
     `after_change_to_entity` one anchor further out: a symbol is rarely changed
     without the code calling it being looked at next, and this is the path that
@@ -226,15 +226,16 @@ def after_callers(
     hot path never walks a call graph and this layer stays free of the code
     layer FR-037 keeps out of it.
 
-    *entity_key* is the modified symbol, passed by the caller for the reason it
-    is in `after_change_to_entity`. What is anchored on is its callers, so a
-    symbol the projection carries no callers for answers with nothing — the
-    ordinary case for an entity nothing calls, or one the projection's bound cut
-    the callers of. The path is counted as having run either way (FR-034).
+    What is anchored on is the position's symbol alone, not its file: FR-031
+    asks for the callers of a modified *symbol*, and a file is not a symbol the
+    projection carries callers for. A request naming no symbol, or a symbol the
+    projection carries no callers for, answers with nothing — the ordinary case
+    for one nothing calls, or one the projection's bound cut the callers of. The
+    path is counted as having run either way (FR-034).
     """
     return _traversal_over_precedes(
         graph,
-        _callers_of(graph, entity_key),
+        _callers_of(graph, _symbol_of(position)),
         AFTER_CALLERS,
         counters=counters,
         procedure_of=lambda edge: edge.source,
@@ -266,17 +267,36 @@ def _procedures_preceding_work_on(
     return frozenset(row.source for row in graph.precedes if row.entity_key in entity_keys)
 
 
-def _callers_of(graph: AbstractGraph, entity_key: str) -> frozenset[str]:
-    """The callers *graph*'s projection carries pre-computed for *entity_key* (R17)."""
+def _callers_of(graph: AbstractGraph, entity_keys: frozenset[str]) -> frozenset[str]:
+    """The callers *graph*'s projection carries pre-computed for *entity_keys* (R17)."""
     return frozenset(
-        caller for row in graph.precedes if row.entity_key == entity_key for caller in row.callers
+        caller for row in graph.precedes if row.entity_key in entity_keys for caller in row.callers
     )
 
 
+def _scope_of(position: Position) -> frozenset[str]:
+    """The `code_entities` keys *position* scopes the entity-anchored paths to (FR-035).
+
+    A request names a symbol, a file, both or neither, and a path anchored on the
+    code answers from all of what it was given: work on the symbol and work on
+    the file are both work the request is about.
+    """
+    return frozenset(key for key in (position.symbol, position.file) if key is not None)
+
+
+def _symbol_of(position: Position) -> frozenset[str]:
+    """The `code_entities` key of *position*'s symbol alone (FR-031).
+
+    A file is not a symbol and the projection carries no callers for one, so
+    `after_callers` anchors on this rather than on `_scope_of`'s wider set.
+    """
+    return frozenset(key for key in (position.symbol,) if key is not None)
+
+
 def prompt_start_for_process(
-    graph: AbstractGraph, process_type: ProcessType, *, counters: Counters
+    position: Position, graph: AbstractGraph, *, counters: Counters
 ) -> tuple[Candidate, ...]:
-    """The moves out of `START_KEY` made for *process_type* — how this work begins.
+    """The moves out of `START_KEY` made for *position*'s kind of work — how it begins.
 
     The one traversal that answers before the prompt has done anything: there is
     no position to read moves out of yet, so the anchor is the synthetic `Start`
@@ -285,20 +305,22 @@ def prompt_start_for_process(
     fix and an investigation open differently, and an unfiltered `Start` would
     offer both.
 
-    *process_type* is the sequence's, which is the prompt's and not any step's
-    (FR-020), so the caller passes the one it already opened the sequence with.
-    An edge carries the condition its move was commonest in (FR-029), so a move
-    made under two kinds of work answers to the commoner of them here.
+    The kind of work is the position's, carried there by the request that scoped
+    itself by it (FR-035); it is the sequence's and not any step's (FR-020), so
+    what is filtered on is the one the prompt was opened under. An edge carries
+    the condition its move was commonest in (FR-029), so a move made under two
+    kinds of work answers to the commoner of them here.
 
     A kind of work nothing was recorded starting answers with nothing, which is
-    the ordinary case early in a project; the path is counted as having run
-    either way (FR-034).
+    the ordinary case early in a project, and so does a request that named no
+    kind of work: an unfiltered `Start` would offer every kind at once.
+    The path is counted as having run either way (FR-034).
     """
     counters.bump(f"path_{PROMPT_START}")
     return tuple(
         Candidate(transition=edge, traversal=PROMPT_START)
         for edge in graph.edges
-        if edge.source == START_KEY and edge.condition.process_type is process_type
+        if edge.source == START_KEY and edge.condition.process_type is position.kind_of_work
     )
 
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from processrecall.config import ProcessType
 from processrecall.graph.abstract import START_KEY, Level
 from processrecall.graph.keys import key_at
 from processrecall.graph.store import EpisodicStep
@@ -28,15 +29,31 @@ from processrecall.graph.store import EpisodicStep
 class Position:
     """The node guidance is served from, and the step it was derived from.
 
+    The scoping arguments a guidance request may narrow itself by ride here too
+    (FR-035): they are what the requester knows and the steps do not say — the
+    symbol and file being worked on, and the kind of work the prompt is — so the
+    traversals anchored on them read one position rather than a parameter each.
+    Each is ``None`` when the request does not name it, which is the ordinary
+    case for a request that only says where it stands.
+
     Attributes:
         key: The previous step's identity at the serving level, or `START_KEY`
             when the prompt has carried out no step yet.
         previous: The step that identity was read off; ``None`` at the start of
             a prompt, which has no previous step (FR-047).
+        symbol: The `code_entities` key of the symbol the request is about, as
+            ``path#name``; ``None`` when it names none.
+        file: The `code_entities` key of the file the request is about, which is
+            its path; ``None`` when it names none.
+        kind_of_work: The process type the prompt is for (FR-020); ``None`` when
+            the request names none.
     """
 
     key: str
     previous: EpisodicStep | None
+    symbol: str | None = None
+    file: str | None = None
+    kind_of_work: ProcessType | None = None
 
 
 def locate(steps: Sequence[EpisodicStep], level: str) -> Position:

@@ -15,7 +15,7 @@ from processrecall.config import ProcessType
 from processrecall.graph.abstract import PrecedesWorkOn, aggregate
 from processrecall.graph.schema import DecisionSource, StepDecision
 from processrecall.graph.store import EpisodicStep
-from processrecall.guidance.locate import locate
+from processrecall.guidance.locate import Position, locate
 from processrecall.guidance.paths import (
     after_callers,
     after_change_to_entity,
@@ -46,6 +46,9 @@ BASH_KEY = "ArtifactEvaluation/Bash"
 #: One code entity, spelled the way `code_entities` keys a symbol.
 ENTITY = "processrecall/guidance/paths.py#after_change_to_entity"
 
+#: The file half of `ENTITY`, which is how `code_entities` keys a file.
+FILE = "processrecall/guidance/paths.py"
+
 #: A caller of `ENTITY`, as the projection's pre-computed caller list names it.
 CALLER = "processrecall/guidance/render.py#statements"
 
@@ -58,6 +61,19 @@ class FakeCounters:
 
     def bump(self, counter: str) -> None:
         self.counted[counter] += 1
+
+
+def scoped_request(
+    *, symbol: str | None = None, file: str | None = None, kind_of_work: ProcessType | None = None
+) -> Position:
+    """A request at `EDIT_KEY`, scoped by whichever arguments it names (FR-035).
+
+    Its key is unread by the paths anchored on the code or on the kind of work,
+    which are the paths a scoped request is built for here.
+    """
+    return Position(
+        key=EDIT_KEY, previous=None, symbol=symbol, file=file, kind_of_work=kind_of_work
+    )
 
 
 def edit_then_refused_command(prompt: str) -> tuple[EpisodicStep, ...]:
@@ -153,7 +169,7 @@ def test_after_change_to_entity_returns_candidates() -> None:
     )
     counters = FakeCounters()
 
-    candidates = after_change_to_entity(graph, ENTITY, counters=counters)
+    candidates = after_change_to_entity(scoped_request(symbol=ENTITY), graph, counters=counters)
 
     assert [candidate.transition.edge_key for candidate in candidates] == [
         "ChangeImplementation/Edit -> ArtifactEvaluation/pytest"
@@ -166,7 +182,7 @@ def test_after_change_to_entity_answers_nothing_for_an_unprojected_entity() -> N
     graph = aggregate(walk(EDIT, TEST), level=LEVEL)
     counters = FakeCounters()
 
-    candidates = after_change_to_entity(graph, ENTITY, counters=counters)
+    candidates = after_change_to_entity(scoped_request(symbol=ENTITY), graph, counters=counters)
 
     assert candidates == ()
     assert counters.counted["path_after_change"] == 1
@@ -181,7 +197,7 @@ def test_on_entity_returns_the_moves_usually_done_on_it() -> None:
     )
     counters = FakeCounters()
 
-    candidates = on_entity(graph, ENTITY, counters=counters)
+    candidates = on_entity(scoped_request(symbol=ENTITY), graph, counters=counters)
 
     assert [candidate.transition.edge_key for candidate in candidates] == [
         "ArtifactEvaluation/pytest -> ChangeImplementation/Edit"
@@ -194,7 +210,7 @@ def test_on_entity_answers_nothing_for_an_unprojected_entity() -> None:
     graph = aggregate(walk(TEST, EDIT), level=LEVEL)
     counters = FakeCounters()
 
-    candidates = on_entity(graph, ENTITY, counters=counters)
+    candidates = on_entity(scoped_request(symbol=ENTITY), graph, counters=counters)
 
     assert candidates == ()
     assert counters.counted["path_on_entity"] == 1
@@ -213,7 +229,9 @@ def test_prompt_start_filters_by_kind_of_work() -> None:
     graph = aggregate(bug_fix + investigation, level=LEVEL, sequences=sequences)
     counters = FakeCounters()
 
-    candidates = prompt_start_for_process(graph, ProcessType.BUG_FIX, counters=counters)
+    candidates = prompt_start_for_process(
+        scoped_request(kind_of_work=ProcessType.BUG_FIX), graph, counters=counters
+    )
 
     assert [candidate.transition.edge_key for candidate in candidates] == [
         "Start -> ChangeImplementation/Edit"
@@ -233,7 +251,7 @@ def test_after_callers_uses_precomputed_callers() -> None:
     )
     counters = FakeCounters()
 
-    candidates = after_callers(graph, ENTITY, counters=counters)
+    candidates = after_callers(scoped_request(symbol=ENTITY), graph, counters=counters)
 
     assert [candidate.transition.edge_key for candidate in candidates] == [
         "ArtifactEvaluation/Bash -> ChangeImplementation/Write"
@@ -249,7 +267,39 @@ def test_after_callers_answers_nothing_for_an_entity_with_no_callers() -> None:
     )
     counters = FakeCounters()
 
-    candidates = after_callers(graph, ENTITY, counters=counters)
+    candidates = after_callers(scoped_request(symbol=ENTITY), graph, counters=counters)
 
     assert candidates == ()
     assert counters.counted["path_after_callers"] == 1
+
+
+def test_request_scopes_by_symbol_file_and_kind_of_work() -> None:
+    """FR-035: the request's symbol, file and kind of work reach the paths as one position."""
+    bug_fix = walk(EDIT, TEST)
+    investigation = walk(BASH, WRITE, prompt="p2")
+    sequences = {
+        bug_fix[0].sequence_key: make_sequence(bug_fix, process_type=ProcessType.BUG_FIX),
+        investigation[0].sequence_key: make_sequence(
+            investigation, process_type=ProcessType.INVESTIGATION
+        ),
+    }
+    graph = replace(
+        aggregate(bug_fix + investigation, level=LEVEL, sequences=sequences),
+        precedes=(
+            PrecedesWorkOn(source=EDIT_KEY, entity_key=ENTITY, support=2),
+            PrecedesWorkOn(source=BASH_KEY, entity_key=FILE, support=2),
+        ),
+    )
+    position = scoped_request(symbol=ENTITY, file=FILE, kind_of_work=ProcessType.BUG_FIX)
+    counters = FakeCounters()
+
+    changed = after_change_to_entity(position, graph, counters=counters)
+    opening = prompt_start_for_process(position, graph, counters=counters)
+
+    assert [candidate.transition.edge_key for candidate in changed] == [
+        "ArtifactEvaluation/Bash -> ChangeImplementation/Write",
+        "ChangeImplementation/Edit -> ArtifactEvaluation/pytest",
+    ]
+    assert [candidate.transition.edge_key for candidate in opening] == [
+        "Start -> ChangeImplementation/Edit"
+    ]
