@@ -236,3 +236,46 @@ def test_recorded_at_is_stored_and_never_projected(tmp_path: Path) -> None:
     assert not fields[names.index("recorded_at")].projected
     with closing(open_index(tmp_path / "episodes.db")) as connection:
         assert "recorded_at" in _stored_columns(connection, "steps")
+
+
+#: The PROV-O terms the declaration may cite, read off the W3C PROV-O recommendation's
+#: own term list and spelled here independently of the declaration, so a guessed or
+#: mistyped term fails the check instead of documenting itself (FR-045).
+_PROV_O_TERMS = frozenset(
+    {
+        "prov:Activity",
+        "prov:Agent",
+        "prov:Entity",
+        "prov:Plan",
+        "prov:specializationOf",
+        "prov:used",
+        "prov:wasGeneratedBy",
+        "prov:wasInfluencedBy",
+        "prov:wasInformedBy",
+    }
+)
+
+
+def test_every_node_and_edge_declares_a_provenance_term() -> None:
+    """Each declared shape — a node type or an edge type — records the standard
+    provenance term it corresponds to, and records nothing that cannot be verified
+    against that vocabulary's live documentation (FR-045).
+    """
+    for name, table in _declared_tables().items():
+        assert table.provenance in _PROV_O_TERMS, (name, table.provenance)
+
+
+def test_inference_fields_declare_the_generative_ai_attribute_they_correspond_to() -> None:
+    """A model-call field records the OpenTelemetry generative-AI attribute it came
+    from, and only where that convention defines one: a field whose attribute could not
+    be verified against the convention's live documentation declares none (FR-045).
+    """
+    inferences = _declared_tables()["inferences"]
+    assert {
+        field.name: field.genai_attribute for field in inferences.fields if field.genai_attribute
+    } == {
+        "model": "gen_ai.response.model",
+        "input_tokens": "gen_ai.usage.input_tokens",
+        "output_tokens": "gen_ai.usage.output_tokens",
+        "stop_reason": "gen_ai.response.finish_reasons",
+    }

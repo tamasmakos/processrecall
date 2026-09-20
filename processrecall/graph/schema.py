@@ -94,6 +94,24 @@ class DecisionSource(StrEnum):
     USER_REJECT = "user_reject"
 
 
+class ProvenanceTerm(StrEnum):
+    """The closed set of W3C PROV-O terms the declaration may cite (FR-045).
+
+    Every member is one PROV-O itself defines; a term that cannot be verified against
+    the vocabulary's live documentation is dropped rather than guessed.
+    """
+
+    ACTIVITY = "prov:Activity"
+    AGENT = "prov:Agent"
+    ENTITY = "prov:Entity"
+    PLAN = "prov:Plan"
+    SPECIALIZATION_OF = "prov:specializationOf"
+    USED = "prov:used"
+    WAS_GENERATED_BY = "prov:wasGeneratedBy"
+    WAS_INFLUENCED_BY = "prov:wasInfluencedBy"
+    WAS_INFORMED_BY = "prov:wasInformedBy"
+
+
 @dataclass(frozen=True, slots=True)
 class Field:
     """One declared field, and where the routing rule sends it.
@@ -117,6 +135,11 @@ class Field:
             field is held in the store and read from it alone: projected into the
             snapshot it would make a from-scratch rebuild differ from an
             incremental derivation (FR-044, FR-028).
+        genai_attribute: The OpenTelemetry generative-AI attribute this field
+            corresponds to, empty when that convention defines none for it
+            (FR-045). Documentary, like `Table.provenance`: an attribute name that
+            cannot be verified against the convention's live documentation is
+            dropped rather than guessed.
     """
 
     name: str
@@ -125,14 +148,26 @@ class Field:
     primary_key: bool = False
     vocabulary: tuple[str, ...] = ()
     projected: bool = True
+    genai_attribute: str = ""
 
 
 @dataclass(frozen=True, slots=True)
 class Table:
-    """One named set of fields: a SQLite table, or one shape of snapshot body."""
+    """One named set of fields: a SQLite table, or one shape of snapshot body.
+
+    Attributes:
+        name: The table name in SQLite, and the shape's name in the contract.
+        fields: The fields the shape declares, in declaration order.
+        provenance: The PROV-O term this node or edge type corresponds to (FR-045).
+            Documentary alignment only: the store stays a property graph and nothing
+            here obliges a triple store. Every term is one PROV-O itself defines —
+            a term that cannot be verified against the vocabulary's live
+            documentation is dropped rather than guessed.
+    """
 
     name: str
     fields: tuple[Field, ...]
+    provenance: ProvenanceTerm
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,9 +187,17 @@ class Layer:
     tables: tuple[Table, ...]
 
 
-def _text(name: str, reference: str = "", primary_key: bool = False) -> Field:
+def _text(
+    name: str, reference: str = "", primary_key: bool = False, genai_attribute: str = ""
+) -> Field:
     """A `FieldType.TEXT` field — the common case, spelled once."""
-    return Field(name=name, type=FieldType.TEXT, reference=reference, primary_key=primary_key)
+    return Field(
+        name=name,
+        type=FieldType.TEXT,
+        reference=reference,
+        primary_key=primary_key,
+        genai_attribute=genai_attribute,
+    )
 
 
 def _closed(name: str, vocabulary: type[StrEnum]) -> Field:
@@ -169,9 +212,11 @@ def _stored_only(name: str) -> Field:
     return Field(name=name, type=FieldType.TEXT, projected=False)
 
 
-def _integer(name: str, reference: str = "") -> Field:
+def _integer(name: str, reference: str = "", genai_attribute: str = "") -> Field:
     """A `FieldType.INTEGER` field."""
-    return Field(name=name, type=FieldType.INTEGER, reference=reference)
+    return Field(
+        name=name, type=FieldType.INTEGER, reference=reference, genai_attribute=genai_attribute
+    )
 
 
 def _json(name: str, reference: str = "") -> Field:
@@ -195,6 +240,7 @@ def _real(name: str) -> Field:
 _SEMANTIC_TABLES = (
     Table(
         name="code_entities",
+        provenance=ProvenanceTerm.ENTITY,
         fields=(
             _text("entity_key", primary_key=True),
             _text("kind"),
@@ -210,6 +256,7 @@ _SEMANTIC_TABLES = (
     ),
     Table(
         name="code_relations",
+        provenance=ProvenanceTerm.WAS_INFLUENCED_BY,
         fields=(
             _text("source_key", reference="code_entities"),
             _text("relation"),
@@ -227,6 +274,7 @@ _SEMANTIC_TABLES = (
 _EPISODIC_TABLES = (
     Table(
         name="sequences",
+        provenance=ProvenanceTerm.ACTIVITY,
         fields=(
             _text("conversation_id"),
             _integer("session_epoch"),
@@ -253,6 +301,7 @@ _EPISODIC_TABLES = (
     ),
     Table(
         name="steps",
+        provenance=ProvenanceTerm.ACTIVITY,
         fields=(
             _integer("step_id"),
             _text("dedup_key"),
@@ -294,12 +343,15 @@ _EPISODIC_TABLES = (
     ),
     Table(
         name="inferences",
+        provenance=ProvenanceTerm.ACTIVITY,
         fields=(
             _text("inference_id", primary_key=True),
             _text("sequence_key", reference="sequences"),
-            _text("model"),
-            _integer("input_tokens"),
-            _integer("output_tokens"),
+            # The response-side reading: this column is filled once the call has
+            # returned, from the model that actually served it, not the one requested.
+            _text("model", genai_attribute="gen_ai.response.model"),
+            _integer("input_tokens", genai_attribute="gen_ai.usage.input_tokens"),
+            _integer("output_tokens", genai_attribute="gen_ai.usage.output_tokens"),
             _integer("cache_read_tokens"),
             _integer("cache_creation_tokens"),
             _integer("cost_micros"),
@@ -315,12 +367,13 @@ _EPISODIC_TABLES = (
             # for the same reason as `steps` (FR-044).
             _stored_only("recorded_at"),
             _integer("first_content_ms"),
-            _text("stop_reason"),
+            _text("stop_reason", genai_attribute="gen_ai.response.finish_reasons"),
             _text("error_class"),
         ),
     ),
     Table(
         name="agents",
+        provenance=ProvenanceTerm.AGENT,
         fields=(
             _text("agent_id", primary_key=True),
             _text("kind"),
@@ -335,8 +388,11 @@ _EPISODIC_TABLES = (
             _text("last_seen"),
         ),
     ),
+    # A row whose `mode` is `modified` reads as `prov:wasGeneratedBy` instead: the
+    # entity is the step's output there, not its input (see `_provenance_alignment`).
     Table(
         name="step_touches",
+        provenance=ProvenanceTerm.USED,
         fields=(
             _integer("step_id", reference="steps"),
             _text("entity_key", reference="code_entities"),
@@ -346,6 +402,7 @@ _EPISODIC_TABLES = (
     ),
     Table(
         name="step_consumes",
+        provenance=ProvenanceTerm.WAS_INFORMED_BY,
         fields=(
             _integer("step_id", reference="steps"),
             _text("inference_id", reference="inferences"),
@@ -359,6 +416,7 @@ _EPISODIC_TABLES = (
 _PROCEDURAL_TABLES = (
     Table(
         name="procedures",
+        provenance=ProvenanceTerm.PLAN,
         fields=(
             _text("key"),
             _text("level"),
@@ -375,8 +433,11 @@ _PROCEDURAL_TABLES = (
             _real("activation"),
         ),
     ),
+    # Declared parent-to-child; `prov:specializationOf` itself reads child-to-parent
+    # (see `_provenance_alignment`).
     Table(
         name="subsumes",
+        provenance=ProvenanceTerm.SPECIALIZATION_OF,
         fields=(
             _text("parent", reference="procedures"),
             _text("child", reference="procedures"),
@@ -384,6 +445,7 @@ _PROCEDURAL_TABLES = (
     ),
     Table(
         name="transitions",
+        provenance=ProvenanceTerm.WAS_INFLUENCED_BY,
         fields=(
             _text("edge_key"),
             _text("source", reference="procedures"),
@@ -413,6 +475,7 @@ _PROCEDURAL_TABLES = (
         # form keeps `supporting_steps` on the transition edge body itself
         # (`graph/abstract.py`'s `_edge_body`), where the routing rule reads it.
         name="supported_by",
+        provenance=ProvenanceTerm.WAS_GENERATED_BY,
         fields=(
             _text("transition", reference="transitions"),
             _json("supporting_steps", reference="steps"),
@@ -420,6 +483,7 @@ _PROCEDURAL_TABLES = (
     ),
     Table(
         name="precedes_work_on",
+        provenance=ProvenanceTerm.WAS_INFLUENCED_BY,
         fields=(
             _text("source", reference="procedures"),
             _text("entity_key", reference="code_entities"),
@@ -568,6 +632,60 @@ def _closed_vocabularies() -> str:
     )
 
 
+def _provenance_alignment() -> str:
+    """The provenance alignment of `contracts/graph-schema-v2.md` (FR-045).
+
+    Which standard term each declared node or edge type corresponds to. Documentary:
+    the store stays a property graph and nothing here obliges a triple store.
+    """
+    rows = tuple(
+        (layer.name, f"`{table.name}`", f"`{table.provenance}`")
+        for layer in LAYERS
+        for table in layer.tables
+    )
+    return "\n".join(
+        (
+            "## Provenance alignment",
+            "",
+            "Each declared shape and the PROV-O term it corresponds to. Every term is one the",
+            "W3C PROV-O recommendation itself defines; no software-engineering ontology term is",
+            "cited, because none could be verified against live documentation. Two rows read",
+            "with a caveat: a `step_touches` row whose mode is `modified` corresponds to",
+            "`prov:wasGeneratedBy`, the entity being the step's output rather than its input,",
+            "and `subsumes` is declared parent-to-child where `prov:specializationOf` reads",
+            "child-to-parent.",
+            "",
+            _markdown_table(("Layer", "Node or edge type", "PROV-O term"), rows),
+        )
+    )
+
+
+def _genai_attributes() -> str:
+    """The generative-AI attribute alignment of `contracts/graph-schema-v2.md` (FR-045)."""
+    rows = tuple(
+        (f"`{table.name}`", f"`{field.name}`", f"`{field.genai_attribute}`")
+        for layer in LAYERS
+        for table in layer.tables
+        for field in table.fields
+        if field.genai_attribute
+    )
+    return "\n".join(
+        (
+            "## Generative-AI convention attributes",
+            "",
+            "The OpenTelemetry generative-AI attribute each model-call field corresponds to. A",
+            "model-call field absent from this table has no attribute in that convention: the",
+            "cache token counts, the cost and the latencies are Claude Code's own. `error_class`",
+            "maps to the general OpenTelemetry `error.type` attribute rather than a `gen_ai.*`",
+            "one, so it is absent from this table too. `model` is declared against",
+            "`gen_ai.response.model`, not the request-side attribute, because the column holds",
+            "the model that served the call, not merely the one asked for.",
+            "",
+            _markdown_table(("Table", "Field", "Attribute"), rows),
+        )
+    )
+
+
 def _stored_only_fields() -> str:
     """The stored-and-never-projected fields of `contracts/graph-schema-v2.md`.
 
@@ -620,7 +738,15 @@ def render_bodies() -> tuple[GeneratedBody, ...]:
     return (
         _generated(
             "graph-schema-v2.md",
-            f"{_tables_and_edges()}\n\n{_closed_vocabularies()}\n\n{_stored_only_fields()}",
+            "\n\n".join(
+                (
+                    _tables_and_edges(),
+                    _closed_vocabularies(),
+                    _stored_only_fields(),
+                    _provenance_alignment(),
+                    _genai_attributes(),
+                )
+            ),
         ),
         _generated("telemetry-records.md", _records_consumed()),
     )
