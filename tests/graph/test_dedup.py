@@ -17,6 +17,7 @@ import pytest
 
 from processrecall.graph.episodic import open_index
 from processrecall.graph.store import (
+    CaptureSource,
     EpisodicStep,
     Sequence,
     SequenceKey,
@@ -170,3 +171,56 @@ def test_different_arguments_or_tool_name_derive_different_keys() -> None:
     derived = KEY.dedup_key(_event(), ordinal=3)
     assert derived != KEY.dedup_key(different_arguments, ordinal=3)
     assert derived != KEY.dedup_key(different_tool, ordinal=3)
+
+
+def _captures(dedup_key: str, *, position: int) -> tuple[EpisodicStep, EpisodicStep]:
+    """One tool call as telemetry recorded it and as the hook recorded it.
+
+    The two disagree on ``duration_ms`` and ``tool_source``, and only the hook
+    carries a rationale label — the union FR-007 asks the store to leave behind.
+    """
+    seen = _step(dedup_key=dedup_key, position=position)
+    return (
+        replace(seen, source=CaptureSource.TELEMETRY, duration_ms=1204, tool_source="mcp"),
+        replace(
+            seen,
+            source=CaptureSource.HOOK,
+            duration_ms=900,
+            tool_source="builtin",
+            rationale_label="run the suite",
+        ),
+    )
+
+
+def _stored(store: SQLiteEpisodicStore, dedup_key: str) -> EpisodicStep:
+    """The one step *dedup_key* left behind, so a failure names the tool call."""
+    kept = [step for step in store.steps(KEY) if step.dedup_key == dedup_key]
+    assert len(kept) == 1, kept
+    return kept[0]
+
+
+def test_telemetry_value_wins_on_disagreement_in_both_orders(
+    store: SQLiteEpisodicStore,
+) -> None:
+    """FR-007, SC-004: one step per call, whichever source reached the store first.
+
+    Both orders run against one store, keyed apart: the merge may not depend on
+    which capture created the row, and each of the two disputed fields must be
+    counted in its own right rather than once per merge.
+    """
+    early_telemetry, early_hook = _captures("toolu_early", position=0)
+    late_telemetry, late_hook = _captures("toolu_late", position=1)
+
+    store.record(early_telemetry)
+    assert store.record(early_hook) is False
+    store.record(late_hook)
+    assert store.record(late_telemetry) is False
+
+    for dedup_key in ("toolu_early", "toolu_late"):
+        merged = _stored(store, dedup_key)
+        assert merged.duration_ms == 1204
+        assert merged.tool_source == "mcp"
+        assert merged.rationale_label == "run the suite"
+        assert merged.source is CaptureSource.BOTH
+    assert store.counters()["telemetry_hook_disagreement"] == 4
+    assert store.counters()["steps_duplicate"] == 2

@@ -25,7 +25,7 @@ import logging
 import sqlite3
 import uuid
 from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
@@ -297,7 +297,9 @@ class EpisodicStore(Protocol):
     def record(self, step: EpisodicStep) -> bool:
         """Write *step*, reporting whether it landed.
 
-        ``False`` when the dedup key already existed; never raises on one.
+        ``False`` when the dedup key already existed; never raises on one. When
+        the existing row came from the other capture path, it is folded with
+        *step* into the union of both readings rather than left alone (FR-007).
         """
         ...
 
@@ -426,6 +428,95 @@ def _source_counter(source: CaptureSource | None) -> str | None:
     return "steps_from_hook" if source is CaptureSource.HOOK else "steps_from_telemetry"
 
 
+#: The step fields a merge leaves to the store rather than to either capture:
+#: the identity the row was found by, sqlite's own rowid, and the bookkeeping
+#: value that says which paths saw it.
+_UNMERGED_FIELDS = frozenset({"dedup_key", "step_id", "source"})
+
+#: Everything two captures of one tool call are reconciled over, in the order
+#: `EpisodicStep` declares it, so a new field joins the merge by being declared.
+#: Restricted to the fields R14 declares nullable — a ``None`` default is what
+#: "the record did not carry it" means on this dataclass — so identity and
+#: ordering values (`position`, `occurred_at`, `node_key`, `template`,
+#: `sequence_key`) and the defaulted non-Optional fields (`program`, `files`,
+#: `result_snippet`, `outcome`, `record_ref`) are never merged and never
+#: counted as a clash: each path derives them on its own and a fresh default
+#: is not a reading either source carried.
+_MERGED_FIELDS = tuple(
+    field.name
+    for field in fields(EpisodicStep)
+    if field.name not in _UNMERGED_FIELDS and field.default is None
+)
+
+#: The pair of sources a merge resolves: one capture from each path. A replay of
+#: the same path is a plain duplicate and carries nothing new (FR-007).
+_CROSS_SOURCE = frozenset({CaptureSource.TELEMETRY, CaptureSource.HOOK})
+
+
+@dataclass(frozen=True, slots=True)
+class _MergedStep:
+    """The one step two captures of a tool call leave behind, and their quarrel.
+
+    ``disagreement_count`` is what `telemetry_hook_disagreement` counts: one per
+    field both sources carried with different values, so "telemetry wins" never
+    quietly means "the hook's reading was hidden" (R20).
+    """
+
+    step: EpisodicStep
+    disagreement_count: int
+
+
+def _merge_captures(*, telemetry: EpisodicStep, hook: EpisodicStep) -> _MergedStep:
+    """*telemetry* and *hook* as one step, telemetry winning every clash (FR-007).
+
+    Telemetry is the primary source, so the hook fills only the fields telemetry
+    left as ``None`` — which is exactly what "the record did not carry it" means
+    on an `EpisodicStep` (R14).
+    """
+    filled: dict[str, Any] = {}
+    disagreements = 0
+    for name in _MERGED_FIELDS:
+        primary, fallback = getattr(telemetry, name), getattr(hook, name)
+        if primary is None:
+            filled[name] = fallback
+        elif fallback is not None and primary != fallback:
+            disagreements += 1
+    return _MergedStep(replace(telemetry, source=CaptureSource.BOTH, **filled), disagreements)
+
+
+def _step_params(step: EpisodicStep) -> tuple[Any, ...]:
+    """*step*'s values in `_STEP_WRITE_COLUMNS` order, for a write to bind."""
+    return (
+        step.dedup_key,
+        step.sequence_key.conversation_id,
+        step.sequence_key.session_epoch,
+        step.sequence_key.prompt_id,
+        step.sequence_key.agent_id,
+        step.position,
+        step.node_key,
+        step.activity_class,
+        step.template,
+        step.occurred_at.isoformat(),
+        step.program,
+        json.dumps(list(step.files)),
+        step.result_snippet[:RESULT_CEILING],
+        step.outcome,
+        step.record_ref,
+        step.rationale_label,
+        step.symbol_ref,
+        step.result,
+        step.kind,
+        step.decision,
+        step.decision_source,
+        step.duration_ms,
+        step.error_type,
+        step.input_size_bytes,
+        step.result_size_bytes,
+        step.tool_source,
+        step.source,
+    )
+
+
 def _step_from_row(row: tuple[Any, ...]) -> EpisodicStep:
     """Rebuild a step from one `_STEP_COLUMNS` row."""
     return EpisodicStep(
@@ -542,7 +633,9 @@ class SQLiteEpisodicStore:
         harness payload is an expected, countable event rather than an error, so
         the conflict is resolved by the database and reported as a value — and
         counted as ``steps_duplicate`` (R3), because a duplicate nobody counted
-        reads exactly like an action that was never sent.
+        reads exactly like an action that was never sent. When the stored row
+        came from the other capture path, it is not left alone: *step* is folded
+        into it, telemetry winning any disagreement (FR-007).
 
         The result snippet is cut to :data:`RESULT_CEILING` on the way in
         (FR-010): the ceiling is a property of what is stored, not of the
@@ -557,36 +650,7 @@ class SQLiteEpisodicStore:
                 f"INSERT INTO steps ({', '.join(_STEP_WRITE_COLUMNS)}, recorded_at)"
                 f" VALUES ({', '.join('?' * len(_STEP_WRITE_COLUMNS))}, ?)"
                 " ON CONFLICT (dedup_key) DO NOTHING",  # nosec B608
-                (
-                    step.dedup_key,
-                    step.sequence_key.conversation_id,
-                    step.sequence_key.session_epoch,
-                    step.sequence_key.prompt_id,
-                    step.sequence_key.agent_id,
-                    step.position,
-                    step.node_key,
-                    step.activity_class,
-                    step.template,
-                    step.occurred_at.isoformat(),
-                    step.program,
-                    json.dumps(list(step.files)),
-                    step.result_snippet[:RESULT_CEILING],
-                    step.outcome,
-                    step.record_ref,
-                    step.rationale_label,
-                    step.symbol_ref,
-                    step.result,
-                    step.kind,
-                    step.decision,
-                    step.decision_source,
-                    step.duration_ms,
-                    step.error_type,
-                    step.input_size_bytes,
-                    step.result_size_bytes,
-                    step.tool_source,
-                    step.source,
-                    datetime.now(UTC).isoformat(),
-                ),
+                (*_step_params(step), datetime.now(UTC).isoformat()),
             )
         if cursor.rowcount == 1:
             self.bump("steps_recorded")
@@ -594,7 +658,65 @@ class SQLiteEpisodicStore:
                 self.bump(counter)
             return True
         self.bump("steps_duplicate")
+        self._merge_with_stored(step)
         return False
+
+    def _merge_with_stored(self, arriving: EpisodicStep) -> None:
+        """Fold *arriving* into the step already under its dedup key (FR-007).
+
+        Only when the two came from different capture paths, and only once the
+        duplicate itself is counted: the merge is how one tool call seen twice
+        stays one step carrying the union of both readings, in either arrival
+        order (SC-004). The read and the rewrite share one transaction so a
+        concurrent merge of the same key cannot land between them.
+        """
+        with self._connection:
+            stored = self._step_by_key(arriving.dedup_key)
+            if stored is None or {stored.source, arriving.source} != _CROSS_SOURCE:
+                return
+            from_hook = arriving.source is CaptureSource.HOOK
+            merged = _merge_captures(
+                telemetry=stored if from_hook else arriving,
+                hook=arriving if from_hook else stored,
+            )
+            self._rewrite_step(merged.step)
+        for _ in range(merged.disagreement_count):
+            self.bump("telemetry_hook_disagreement")
+        if stored.source is CaptureSource.HOOK:
+            # The initial insert counted this row under steps_from_hook before
+            # telemetry had seen it; now that it has, the count moves with it
+            # (contracts/counters.md), so both arrival orders end alike.
+            self._correct("steps_from_hook")
+            self.bump("steps_from_telemetry")
+
+    def _step_by_key(self, dedup_key: str) -> EpisodicStep | None:
+        """The step stored under *dedup_key*, or ``None`` when none is."""
+        row = self._connection.execute(
+            f"SELECT {_STEP_COLUMNS} FROM steps WHERE dedup_key = ?",  # nosec B608
+            (dedup_key,),
+        ).fetchone()
+        return None if row is None else _step_from_row(row)
+
+    def _rewrite_step(self, step: EpisodicStep) -> None:
+        """Overwrite the row under *step*'s dedup key with *step*.
+
+        Runs inside the caller's transaction (`_merge_with_stored`), not its
+        own: the select that finds the row to overwrite must not be split from
+        this write. ``recorded_at`` is left as first written — FR-044 keeps it
+        beside ``occurred_at`` so a rebuild can reconstruct what the graph
+        believed at a past time, and a merge revising a row's fields is not the
+        graph coming to believe it for the first time.
+
+        ``step_id`` does not move either, so `derive.py`'s incremental fold —
+        which reads `iter_steps(since=episode_high_water)` by that id — will not
+        revisit a row a merge later revised; only a full rebuild will. Left as a
+        follow-up rather than fixed here, since T019 asked only for the merge.
+        """
+        assignments = ", ".join(f"{column} = ?" for column in _STEP_WRITE_COLUMNS)
+        self._connection.execute(
+            f"UPDATE steps SET {assignments} WHERE dedup_key = ?",  # nosec B608
+            (*_step_params(step), step.dedup_key),
+        )
 
     def sequence(self, key: SequenceKey) -> Sequence | None:
         """The sequence *key* names, or ``None`` when no turn opened it.
@@ -727,6 +849,23 @@ class SQLiteEpisodicStore:
                 self._connection.execute(
                     "INSERT INTO counters (name, value) VALUES (?, 1)"
                     " ON CONFLICT (name) DO UPDATE SET value = value + 1",
+                    (counter,),
+                )
+        except sqlite3.Error as exc:
+            self._log_fallback(counter, exc)
+
+    def _correct(self, counter: str) -> None:
+        """Subtract one from *counter*: `bump`'s mirror, for a count later revised.
+
+        Only `_merge_with_stored` calls this, to move a step's count from
+        `steps_from_hook` to `steps_from_telemetry` once telemetry turns out to
+        have seen it too, so the two counters read alike whichever capture path
+        wrote the row first (contracts/counters.md, SC-004).
+        """
+        try:
+            with self._connection:
+                self._connection.execute(
+                    "UPDATE counters SET value = value - 1 WHERE name = ?",
                     (counter,),
                 )
         except sqlite3.Error as exc:
