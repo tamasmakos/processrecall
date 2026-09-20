@@ -9,12 +9,14 @@ from pathlib import Path
 import pytest
 
 from processrecall.graph.episodic import open_index
+from processrecall.graph.record import record_event
 from processrecall.graph.store import (
     SequenceKey,
     SQLiteEpisodicStore,
     agent_from_record,
     inference_from_record,
 )
+from processrecall.guidance.locate import locate
 from processrecall.trajectory.offset import OFFSET_NAME, OffsetFile
 from processrecall.trajectory.telemetry import (
     SESSION_ATTRIBUTE,
@@ -22,6 +24,7 @@ from processrecall.trajectory.telemetry import (
     SessionGaps,
     recognised_records,
     records_in_line,
+    report_tool_detail_gap,
     step_from_verdict,
     step_result,
 )
@@ -384,3 +387,35 @@ def test_gap_counter_bumps_once_per_session(counters: FakeCounters) -> None:
     # name from outside the set is refused where it is passed in.
     with pytest.raises(ValueError):
         gaps.report("session-synthetic-1", "telemetry_records_read")
+
+
+def test_gate_off_still_records_and_serves(tmp_path: Path, counters: FakeCounters) -> None:
+    (verdict,) = _verdicts("gate_off.jsonl")
+    gaps = SessionGaps(counters)
+
+    # `OTEL_LOG_TOOL_DETAILS` is what puts the arguments on a tool record, so a
+    # record naming the tool and nothing it was given is the gate being off.
+    assert "tool_parameters" not in verdict
+    report_tool_detail_gap(verdict, gaps)
+    connection = open_index(tmp_path / "episodes.db")
+    try:
+        (step,) = record_event(step_from_verdict(verdict), connection)
+        store = SQLiteEpisodicStore(connection)
+        recorded = store.steps(step.sequence_key)
+        touches = store.touches_for(step.step_id)
+    finally:
+        connection.close()
+
+    # No command line to abstract, so the tool name stands alone as the whole
+    # template — the step is still recorded, and still matches a second one.
+    assert step.template == "Bash"
+    # Nothing named a path, so nothing was touched: the edges the semantic
+    # layer would resolve are simply not there (SC-003).
+    assert step.files == ()
+    assert touches == ()
+    assert counters.counted["gap_tool_details"] == 1
+    # Guidance still has somewhere to stand: the node survives the gate, the
+    # file it would have narrowed the neighbourhood by does not.
+    position = locate(recorded, "class/program/ext")
+    assert position.key == step.node_key
+    assert position.file is None

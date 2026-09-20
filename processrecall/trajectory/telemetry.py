@@ -388,6 +388,41 @@ class SessionGaps:
         self._counters.bump(counter)
 
 
+#: The two consumed record types `OTEL_LOG_TOOL_DETAILS` has anything to put on
+#: (`contracts/telemetry-records.md`): the gate is about what a tool call was
+#: given, so no other record type says anything about whether it is on.
+_TOOL_RECORD_NAMES = frozenset({"claude_code.tool_result", "claude_code.tool_decision"})
+
+#: What the gate gates: the arguments of the call and the revision it ran
+#: against (`contracts/telemetry-records.md`). With the gate on, every tool
+#: record carries at least the arguments, so a tool record carrying none of
+#: these was written with it off.
+_TOOL_DETAIL_ATTRIBUTES = frozenset(
+    {"tool_parameters", "tool_input", "vcs.ref.head.revision", "vcs.ref.head.name"}
+)
+
+
+def report_tool_detail_gap(record: TelemetryRecord, gaps: SessionGaps) -> None:
+    """Report `gap_tool_details` when *record* was written with the gate off (SC-003).
+
+    A tool record with none of the gated attributes on it is the only sign the
+    reader gets: the harness reports no gate settings, so the gap is read off
+    what the record does not carry. *gaps* is what makes that one bump for the
+    session rather than one per record.
+
+    A record of any other type is left alone, and so is a session whose
+    `session.id` never arrived: the gate is about tool calls, and a gap counted
+    against no session could not be bumped once per session.
+    """
+    if record.get(RECORD_TYPE_ATTRIBUTE) not in _TOOL_RECORD_NAMES:
+        return
+    if not _TOOL_DETAIL_ATTRIBUTES.isdisjoint(record):
+        return
+    session_id = record.get(SESSION_ATTRIBUTE)
+    if isinstance(session_id, str):
+        gaps.report(session_id, "gap_tool_details")
+
+
 def in_record_order(
     records: Iterable[TelemetryRecord], counters: Counters
 ) -> tuple[TelemetryRecord, ...]:

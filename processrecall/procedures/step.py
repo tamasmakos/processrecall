@@ -63,7 +63,7 @@ def steps_from(
         shell_steps = _shell_steps(command)
         # A line of pure plumbing named no activity, but the action still
         # happened: it stays on the chain as unknown rather than vanishing.
-        return shell_steps or (_unknown_shell_step(command),)
+        return shell_steps or (_unknown_shell_step(command, event.tool_name),)
     return (_tool_step(event, tool_activity),)
 
 
@@ -96,13 +96,19 @@ def _tool_step(event: TrajectoryEvent, activity: ActivityClass) -> SubActivity:
     )
 
 
-def _unknown_shell_step(command: str) -> SubActivity:
+def _unknown_shell_step(command: str, tool_name: str) -> SubActivity:
     """The one sub-activity for a command line whose simple commands are all plumbing.
 
     FR-022: the tokens carry the command line itself, not the argument name, so
     the step is reclassifiable later without re-ingesting the transcript.
+
+    With `OTEL_LOG_TOOL_DETAILS` off there is no command line to carry, and
+    *tool_name* stands alone as the step's whole template: a step templated on
+    nothing at all would match every other detail-less shell call of every
+    other tool (SC-003).
     """
-    return SubActivity(0, ActivityClass.UNKNOWN, "Bash", tuple(command.split()), ())
+    tokens = tuple(command.split()) or (tool_name,)
+    return SubActivity(0, ActivityClass.UNKNOWN, "Bash", tokens, ())
 
 
 def _shell_steps(command: str) -> tuple[SubActivity, ...]:
