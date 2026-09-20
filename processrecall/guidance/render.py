@@ -135,6 +135,26 @@ def avoid_statements(edge: TransitionEdge) -> tuple[GuidanceStatement, ...]:
     )
 
 
+def next_statement(edge: TransitionEdge) -> GuidanceStatement:
+    """*edge* as the claim it is served as, and the episodes behind it (FR-044).
+
+    A move whose `TransitionEdge.dependency_measure` is not positive is served
+    as the co-occurrence it is rather than as what usually follows (FR-041): the
+    pair was observed as often the other way round, so naming either one the
+    successor would read an order into a habit of doing both. A self-loop's
+    ``forward`` and ``backward`` counts are the same tally, so it always scores
+    ``0.0`` without being co-occurrence between two procedures at all — it is
+    the one node repeating, and is worded as that instead.
+    """
+    if edge.source == edge.target:
+        text = f"{edge.source} repeats"
+    elif edge.dependency_measure > 0:
+        text = f"after {edge.source} the work usually goes to {edge.target}"
+    else:
+        text = f"{edge.source} and {edge.target} co-occur in both directions"
+    return GuidanceStatement(text=text, support=edge.support)
+
+
 class Renderer(Protocol):
     """The seam FR-044 requires: rendering is substitutable, and pure."""
 

@@ -21,6 +21,7 @@ from processrecall.graph.abstract import (
     aggregate,
 )
 from processrecall.graph.store import EpisodicStep, SequenceKey
+from processrecall.guidance.render import next_statement
 from processrecall.procedures.outcome import Outcome
 
 KEY = SequenceKey(conversation_id="c1", session_epoch=0, prompt_id="p1")
@@ -162,3 +163,25 @@ def test_supporting_steps_are_capped_at_the_most_recent_with_the_true_count_besi
     assert len(moved.supporting_steps) == SUPPORTING_STEPS_KEPT
     assert moved.supporting_steps[0] == 22
     assert moved.supporting_steps[-1] == 120
+
+
+def test_mutual_pair_scores_near_zero_and_is_not_phrased_as_usual_next() -> None:
+    """FR-041: a pair run as often one way as the other is co-occurrence, not sequence."""
+    keys = ("Inspection/Read/py", "ArtifactEvaluation/pytest/--")
+    steps = tuple(
+        make_step(keys[position % 2], position=position, step_id=position + 1)
+        for position in range(5)
+    )
+
+    graph = aggregate(steps, level="class/program")
+
+    mutual = edge(graph, "Inspection/Read -> ArtifactEvaluation/pytest")
+    assert mutual.dependency_measure == pytest.approx(0.0)
+    assert mutual.lift == pytest.approx(2.0)
+    said = next_statement(mutual).text
+    assert "co-occur" in said
+    assert "usually" not in said
+    one_way = edge(graph, f"{START_KEY} -> Inspection/Read")
+    assert one_way.dependency_measure == pytest.approx(1.0)
+    assert one_way.lift == pytest.approx(2.0)
+    assert "usually" in next_statement(one_way).text

@@ -109,8 +109,9 @@ class Derivation:
         Counting is exact for every running total (support, weight, outcome
         counts): addition does not care what order the rows arrive in. What it
         is not exact for is a field that names a single winner rather than a
-        total — an edge's condition, a pitfall's evidence — because judging
-        those again needs the edge's whole history and not just this turn's.
+        total — an edge's condition, a pitfall's evidence, its dependency
+        measure and its lift — because judging those again needs the edge's
+        whole history and not just this turn's.
         A key already on the file keeps its own winner; only a key new to this
         fold takes the one this turn derived. That is a deliberate, bounded
         gap from reproducing a from-scratch rebuild bit for bit, closed by the
@@ -264,12 +265,13 @@ def _merged_edges(existing: Seq[object], delta: Seq[object]) -> list[dict[str, A
 def _merge_edge(existing: Mapping[str, Any], delta: Mapping[str, Any]) -> dict[str, Any]:
     """One edge's body, *delta*'s occurrences counted onto *existing*'s own.
 
-    ``condition``, ``pitfalls`` and ``annotations`` carry forward from
-    *existing* unchanged: each names a single winner — or, for annotations, a
-    table already reattached at the last full fold — that needs the edge's
-    whole history to judge again, not just this turn's. Recomputing them from
-    one turn alone would replace an established fact with a guess; a full
-    `rebuild` re-derives them for real, from every row again.
+    ``condition``, ``pitfalls``, ``annotations``, ``dependency_measure`` and
+    ``lift`` carry forward from *existing* unchanged: each names a single
+    winner — or, for annotations, a table already reattached at the last full
+    fold — that needs the edge's whole history to judge again, not just this
+    turn's. Recomputing them from one turn alone would replace an established
+    fact with a guess; a full `rebuild` re-derives them for real, from every
+    row again.
     """
     return {
         "source": existing["source"],
@@ -278,6 +280,8 @@ def _merge_edge(existing: Mapping[str, Any], delta: Mapping[str, Any]) -> dict[s
         "guidance": existing["guidance"],
         "pitfalls": existing["pitfalls"],
         "annotations": existing["annotations"],
+        "dependency_measure": existing["dependency_measure"],
+        "lift": existing["lift"],
         "support": int(existing["support"]) + int(delta["support"]),
         "weight": float(existing["weight"]) + float(delta["weight"]),
         "last_seen": _later(existing["last_seen"], delta["last_seen"]),

@@ -28,7 +28,7 @@ from processrecall.graph.snapshot import SNAPSHOT_NAME
 from processrecall.graph.store import EpisodicStore, SQLiteEpisodicStore
 from processrecall.guidance.fusion import CandidateList, FusedCandidates, Fusion, Scope
 from processrecall.guidance.locate import locate
-from processrecall.guidance.render import GuidanceStatement
+from processrecall.guidance.render import GuidanceStatement, next_statement
 from processrecall.guidance.successors import successors_from
 from processrecall.server.mcp.arguments import RecallArguments
 from processrecall.trajectory.paths import project_key
@@ -136,18 +136,6 @@ def _successors(path: Path, ask: _Ask) -> tuple[TransitionEdge, ...]:
     return successors_from(path, ask.source, ask.store)
 
 
-def _statement(edge: TransitionEdge) -> GuidanceStatement:
-    """*edge* as the claim it is served as, and the episodes behind it (FR-044).
-
-    Template-derived like every other statement guidance is made of: the moves
-    are counted and ordered here, and nothing writes the sentence but this line.
-    """
-    return GuidanceStatement(
-        text=f"after {edge.source} the work usually goes to {edge.target}",
-        support=edge.support,
-    )
-
-
 def _statements(edge: TransitionEdge) -> tuple[GuidanceStatement, ...]:
     """*edge*'s statistical claim, and any note the `remember` tool attached to it (FR-039).
 
@@ -155,7 +143,7 @@ def _statements(edge: TransitionEdge) -> tuple[GuidanceStatement, ...]:
     no count of its own to render.
     """
     return (
-        _statement(edge),
+        next_statement(edge),
         *(
             GuidanceStatement.from_annotation(annotation, edge.support)
             for annotation in edge.annotations

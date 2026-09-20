@@ -274,6 +274,64 @@ class _Baseline:
 
 
 @dataclass(frozen=True, slots=True)
+class _Dependence:
+    """The corpus's move counts, as an edge's direction and lift are read against them.
+
+    Built once per fold rather than per edge: both statistics FR-041 asks for
+    are about a move's place among every other move — the same pair counted the
+    other way round, and how often the target was reached at all — so they need
+    the whole tally and not the one edge.
+
+    Attributes:
+        pair: Supporting steps behind each ordered pair, which is where the
+            other direction's count is looked up.
+        out_of: Supporting steps behind every move out of a procedure.
+        into: Supporting steps behind every move into one.
+        total: Supporting steps behind every move, the denominator a base rate
+            is a share of.
+    """
+
+    pair: Mapping[tuple[str, str], int]
+    out_of: Mapping[str, int]
+    into: Mapping[str, int]
+    total: int
+
+    @classmethod
+    def over(cls, folds: Iterable[_EdgeFold]) -> _Dependence:
+        """The counts every one of *folds* is judged against."""
+        pair = {(fold.source, fold.target): fold.support for fold in folds}
+        out_of: Counter[str] = Counter()
+        into: Counter[str] = Counter()
+        for (source, target), support in pair.items():
+            out_of[source] += support
+            into[target] += support
+        return cls(pair=pair, out_of=out_of, into=into, total=sum(pair.values()))
+
+    def measure(self, source: str, target: str) -> float:
+        """How directional the pair *source*, *target* is, from its two counts (FR-041).
+
+        ``1.0`` for a pair only ever observed this way round, ``0.0`` for one
+        observed as often the other way — the pair is then co-occurrence, and
+        nothing about it earns the word "usually".
+        """
+        forward = self.pair[(source, target)]
+        backward = self.pair.get((target, source), 0)
+        return (forward - backward) / (forward + backward)
+
+    def lift(self, source: str, target: str) -> float:
+        """How much likelier *target* is after *source* than it is anywhere (FR-041).
+
+        The share of *source*'s moves that went to *target*, over the share of
+        every move that did: ``1.0`` means the move is exactly as likely as the
+        target's own base rate, and so tells a reader nothing the base rate did
+        not.
+        """
+        conditional = self.pair[(source, target)] / self.out_of[source]
+        base = self.into[target] / self.total
+        return conditional / base
+
+
+@dataclass(frozen=True, slots=True)
 class TransitionEdge:
     """One permissible move between two procedures — the predicate index.
 
@@ -296,6 +354,14 @@ class TransitionEdge:
         annotations: The notes an agent attached to it, put back by `reattach`
             after the fold derived the move again (FR-038). Empty out of the
             fold: nothing authored survives an aggregation on its own.
+        dependency_measure: How much of this pair's traffic ran this way rather
+            than back, between ``-1.0`` and ``1.0`` (FR-041). Not positive means
+            the two procedures merely co-occur, and then the move may not be
+            served as what usually follows. ``0.0`` where nothing derived it,
+            which is the reading that claims least.
+        lift: How much likelier *target* is after *source* than it is after
+            anything at all (FR-041) — ``1.0`` where the move is no likelier
+            than the target's own base rate. ``0.0`` where nothing derived it.
     """
 
     edge_key: str
@@ -309,6 +375,8 @@ class TransitionEdge:
     last_seen: datetime
     pitfalls: tuple[Pitfall, ...]
     annotations: tuple[Annotation, ...] = ()
+    dependency_measure: float = 0.0
+    lift: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -637,7 +705,7 @@ class _EdgeFold:
         ranked = sorted(self.conditions.items(), key=lambda item: (-item[1], repr(item[0])))
         return ranked[0][0]
 
-    def finish(self, baseline: _Baseline) -> TransitionEdge:
+    def finish(self, baseline: _Baseline, dependence: _Dependence) -> TransitionEdge:
         """The edge this tally describes, its supporting rows bounded (FR-026)."""
         recent = sorted(self.step_ids)[-SUPPORTING_STEPS_KEPT:]
         return TransitionEdge(
@@ -651,6 +719,8 @@ class _EdgeFold:
             outcome_counts=dict(self.outcomes),
             last_seen=self.last_seen,
             pitfalls=self._pitfalls(baseline),
+            dependency_measure=dependence.measure(self.source, self.target),
+            lift=dependence.lift(self.source, self.target),
         )
 
 
@@ -738,10 +808,11 @@ def aggregate(
         for key, runs in _repetition_runs(chain, lvl, tuning.k).items():
             edges[(key, key)].repetitions += runs
     baseline = _Baseline(_base_failure_rate(edges.values()), tuning)
+    dependence = _Dependence.over(edges.values())
     return AbstractGraph(
         level=level,
         nodes={key: nodes[key].finish() for key in sorted(nodes)},
-        edges=tuple(edges[pair].finish(baseline) for pair in sorted(edges)),
+        edges=tuple(edges[pair].finish(baseline, dependence) for pair in sorted(edges)),
         episode_high_water=high_water,
     )
 
@@ -833,6 +904,8 @@ def _edge_body(edge: TransitionEdge) -> dict[str, Any]:
         "annotations": [_annotation_body(annotation) for annotation in edge.annotations],
         "support": edge.support,
         "weight": edge.weight,
+        "dependency_measure": edge.dependency_measure,
+        "lift": edge.lift,
         "last_seen": edge.last_seen.isoformat(),
         "outcome_counts": _outcome_body(edge.outcome_counts),
         "supporting_steps": list(edge.supporting_steps),
@@ -908,6 +981,11 @@ def _edge_from(body: Mapping[str, Any]) -> TransitionEdge:
     The edge key is derived rather than read: `_edge_body` leaves it out
     because it is the pair of endpoints spelled once, and deriving it again
     keeps the one spelling of it in `edge_key`.
+
+    ``dependency_measure`` and ``lift`` fall back to ``0.0``: a snapshot
+    written before FR-041 carries no direction, and a move read as
+    undirectional is served as co-occurrence rather than as what usually
+    follows, which is the claim the absent counts cannot support.
     """
     source, target = body["source"], body["target"]
     return TransitionEdge(
@@ -922,6 +1000,8 @@ def _edge_from(body: Mapping[str, Any]) -> TransitionEdge:
         last_seen=datetime.fromisoformat(body["last_seen"]),
         pitfalls=tuple(_pitfall_from(pitfall) for pitfall in body["pitfalls"]),
         annotations=tuple(_annotation_from(note) for note in body["annotations"]),
+        dependency_measure=body.get("dependency_measure", 0.0),
+        lift=body.get("lift", 0.0),
     )
 
 
