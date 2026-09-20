@@ -13,6 +13,9 @@ which needs SQLite 3.35+; every platform this ships on bundles that or newer.
 
 `SequenceIdentity` holds the epoch that makes clear and fork start a new
 sequence (R2) while resume and compact continue the one already running.
+`epoch_at` resolves which epoch was in force at a past instant, for a
+telemetry record ingested well after its own rotation happened (R5); ordering
+those records is `trajectory/telemetry.py`'s, beside the record shape it reads.
 
 Example:
     from processrecall.graph.episodic import open_index
@@ -23,6 +26,7 @@ Example:
 from __future__ import annotations
 
 import sqlite3
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from processrecall.config import home_dir
@@ -119,9 +123,13 @@ CREATE TABLE IF NOT EXISTS annotations (
 );
 CREATE INDEX IF NOT EXISTS annotations_by_edge ON annotations (project_key, edge_key);
 
+-- One row per rotation, not per conversation: R5 resolves the epoch in force
+-- at a past instant, which a single cached-current value cannot answer.
 CREATE TABLE IF NOT EXISTS epochs (
-    conversation_id TEXT PRIMARY KEY,
-    session_epoch   INTEGER NOT NULL
+    conversation_id TEXT    NOT NULL,
+    session_epoch   INTEGER NOT NULL,
+    started_at      TEXT    NOT NULL,
+    PRIMARY KEY (conversation_id, session_epoch)
 );
 
 CREATE TABLE IF NOT EXISTS counters (
@@ -229,11 +237,7 @@ class SequenceIdentity:
         one invocation pays one query instead of one per step.
         """
         if self._epoch is None:
-            row = self._connection.execute(
-                "SELECT session_epoch FROM epochs WHERE conversation_id = ?",
-                (self._conversation_id,),
-            ).fetchone()
-            self._epoch = 0 if row is None else int(row[0])
+            self._epoch = self._rotation_as_of(None)
         return self._epoch
 
     def begin(self, source: str) -> int:
@@ -246,13 +250,56 @@ class SequenceIdentity:
             return self.epoch
         with self._connection:
             row = self._connection.execute(
-                "INSERT INTO epochs (conversation_id, session_epoch) VALUES (?, 1)"
-                " ON CONFLICT (conversation_id) DO UPDATE SET session_epoch = session_epoch + 1"
+                "INSERT INTO epochs (conversation_id, session_epoch, started_at)"
+                " SELECT ?, COALESCE(MAX(session_epoch), 0) + 1, ?"
+                " FROM epochs WHERE conversation_id = ?"
                 " RETURNING session_epoch",
-                (self._conversation_id,),
+                (self._conversation_id, self._next_started_at().isoformat(), self._conversation_id),
             ).fetchone()
         self._epoch = int(row[0])
         return self._epoch
+
+    def _next_started_at(self) -> datetime:
+        """Now, or one microsecond past this conversation's latest rotation.
+
+        Two rotations of the same conversation in one clock tick would
+        otherwise share a `started_at` and make `epoch_at` unable to tell
+        which was in force first; strictly increasing it keeps every rotation
+        resolvable on its own.
+        """
+        now = datetime.now(UTC)
+        row = self._connection.execute(
+            "SELECT MAX(started_at) FROM epochs WHERE conversation_id = ?",
+            (self._conversation_id,),
+        ).fetchone()
+        if row[0] is None:
+            return now
+        latest = datetime.fromisoformat(row[0])
+        return now if now > latest else latest + timedelta(microseconds=1)
+
+    def epoch_at(self, timestamp: datetime) -> int:
+        """The epoch in force at *timestamp*, for a telemetry record ingested after the fact (R5).
+
+        A rotation is dated by when `begin` ran, not by the record's own
+        clock: a record older than every rotation this conversation has made
+        lands on epoch ``0``, the chain it started as, and one newer than the
+        latest rotation lands on that rotation. *timestamp* must be
+        timezone-aware, as `trajectory.telemetry._read_position` produces.
+        """
+        return self._rotation_as_of(timestamp)
+
+    def _rotation_as_of(self, timestamp: datetime | None) -> int:
+        """The latest rotation at or before *timestamp*, or the latest of all when it is ``None``."""
+        rows = self._connection.execute(
+            "SELECT session_epoch, started_at FROM epochs WHERE conversation_id = ?",
+            (self._conversation_id,),
+        ).fetchall()
+        epoch = 0
+        for session_epoch, started_at in rows:
+            if timestamp is not None and datetime.fromisoformat(started_at) > timestamp:
+                continue
+            epoch = max(epoch, int(session_epoch))
+        return epoch
 
     def key(self, prompt_id: str, agent_id: str = "") -> SequenceKey:
         """The identity of the turn *prompt_id* names, at the current epoch.

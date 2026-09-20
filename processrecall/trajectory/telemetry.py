@@ -11,6 +11,11 @@ door, and counted. Storing it unattributed and filtering later would leave an
 excluded project's records sitting in the index in between, which is the one
 thing exclusion exists to prevent.
 
+`in_record_order` (FR-006) puts records back in the order the harness wrote
+them in, by `event.timestamp` with `event.sequence` breaking a tie, and drops
+what it cannot place rather than raising. Nothing in this module calls it
+yet — T023 is what drains the collector and will, once it exists.
+
 Off the hot path, but on the store's layer, so the standard library only.
 """
 
@@ -18,6 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Protocol
 
 from processrecall.config import Counters
@@ -26,6 +32,19 @@ from processrecall.config import Counters
 #: by ``OTEL_METRICS_INCLUDE_SESSION_ID``: with the gate off it is absent, and
 #: every record is unattributable rather than wrongly attributed.
 SESSION_ATTRIBUTE = "session.id"
+
+#: The two attributes a record's place in the read order comes from
+#: (`contracts/telemetry-records.md`). `event.sequence` breaks a tie and decides
+#: nothing else: it restarts per process and can go backwards inside one session
+#: after a resume, so ordering by it would reorder the session it came from.
+TIMESTAMP_ATTRIBUTE = "event.timestamp"
+SEQUENCE_ATTRIBUTE = "event.sequence"
+
+#: The shape every telemetry record is read as: a flattened OTel attribute set,
+#: string keys onto the three JSON scalar types the collector ever emits one
+#: as. Named once so the reader, the attribution and the ordering share a
+#: single spelling of it rather than restating the union at each call site.
+TelemetryRecord = Mapping[str, str | int | bool]
 
 
 class SessionBindings(Protocol):
@@ -55,7 +74,7 @@ class AttributedRecord:
     """
 
     project_key: str
-    attributes: Mapping[str, str | int | bool]
+    attributes: TelemetryRecord
 
 
 class ProjectAttribution:
@@ -72,9 +91,7 @@ class ProjectAttribution:
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self._bindings!r})"
 
-    def attributed(
-        self, records: Iterable[Mapping[str, str | int | bool]]
-    ) -> Iterator[AttributedRecord]:
+    def attributed(self, records: Iterable[TelemetryRecord]) -> Iterator[AttributedRecord]:
         """Every record of *records* whose session is bound to a project, in order.
 
         What is not yielded is dropped: an unbound or absent `session.id` bumps
@@ -89,10 +106,50 @@ class ProjectAttribution:
                 self._counters.bump("telemetry_records_read")
                 yield AttributedRecord(project_key=project_key, attributes=attributes)
 
-    def _project_key(self, attributes: Mapping[str, str | int | bool]) -> str | None:
+    def _project_key(self, attributes: TelemetryRecord) -> str | None:
         """The project *attributes* is attributable to, counting the drop if none."""
         session_id = attributes.get(SESSION_ATTRIBUTE)
         bound = self._bindings.project_for_session(session_id) if isinstance(session_id, str) else None
         if bound is None:
             self._counters.bump("telemetry_session_unbound")
         return bound
+
+
+def in_record_order(
+    records: Iterable[TelemetryRecord], counters: Counters
+) -> tuple[TelemetryRecord, ...]:
+    """*records* in the order the steps and sequences they become happened in (FR-006).
+
+    By `event.timestamp`, with `event.sequence` breaking a tie between two
+    records written at the same instant. The timestamp is compared as the instant
+    it names rather than as the text it was written as: two processes reporting
+    one session need not agree on an offset, and sorted as text they would
+    interleave wrongly.
+
+    A record whose timestamp is missing or will not parse cannot be placed in
+    this order; it is dropped and bumps `telemetry_record_partial` (FR-009)
+    rather than raising into the caller (FR-010).
+    """
+    positioned = []
+    for record in records:
+        try:
+            position = _read_position(record)
+        except (KeyError, ValueError):
+            counters.bump("telemetry_record_partial")
+            continue
+        positioned.append((position, record))
+    positioned.sort(key=lambda item: item[0])
+    return tuple(record for _, record in positioned)
+
+
+def _read_position(record: TelemetryRecord) -> tuple[datetime, int]:
+    """*record*'s sort key: when it was written, then the harness's counter.
+
+    `event.timestamp` is parsed and, when it carries no offset, treated as UTC:
+    two harnesses need not agree on whether to emit one, and comparing a naive
+    instant against an aware one raises rather than orders.
+    """
+    written_at = datetime.fromisoformat(str(record[TIMESTAMP_ATTRIBUTE]))
+    if written_at.tzinfo is None:
+        written_at = written_at.replace(tzinfo=UTC)
+    return written_at, int(record[SEQUENCE_ATTRIBUTE])
