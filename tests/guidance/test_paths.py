@@ -15,11 +15,12 @@ from processrecall.graph.abstract import aggregate
 from processrecall.graph.schema import DecisionSource, StepDecision
 from processrecall.graph.store import EpisodicStep
 from processrecall.guidance.locate import locate
-from processrecall.guidance.paths import usually_refused
+from processrecall.guidance.paths import generalised, usual_next, usually_refused
 
 from .conftest import walk
 
 EDIT = "ChangeImplementation/Edit/py"
+WRITE = "ChangeImplementation/Write/py"
 BASH = "ArtifactEvaluation/Bash/py"
 TEST = "ArtifactEvaluation/pytest/py"
 
@@ -74,3 +75,47 @@ def test_a_candidate_names_the_counter_its_use_is_counted_under() -> None:
 
     assert candidate.traversal == "usually_refused"
     assert candidate.used_counter == "path_usually_refused_used"
+
+
+def test_usual_next_returns_the_moves_out_of_the_position() -> None:
+    """The transitions leaving the located procedure, and none leaving any other."""
+    steps = walk(EDIT, TEST) + walk(EDIT, BASH, prompt="p2") + walk(BASH, TEST, prompt="p3")
+    graph = aggregate(steps, level=LEVEL)
+    position = locate(walk(EDIT), level=LEVEL)
+    counters = FakeCounters()
+
+    candidates = usual_next(position, graph, counters=counters)
+
+    assert [candidate.transition.edge_key for candidate in candidates] == [
+        "ChangeImplementation/Edit -> ArtifactEvaluation/Bash",
+        "ChangeImplementation/Edit -> ArtifactEvaluation/pytest",
+    ]
+    assert counters.counted["path_usual_next"] == 1
+
+
+def test_generalised_falls_back_when_support_below_floor() -> None:
+    """FR-031: too little support here, so the parent level's own moves answer instead."""
+    steps = walk(WRITE, TEST) + walk(WRITE, TEST, prompt="p2") + walk(EDIT, BASH, prompt="p3")
+    graph = aggregate(steps, level=LEVEL)
+    parent_graph = aggregate(steps, level="class")
+    position = locate(walk(EDIT), level=LEVEL)
+    counters = FakeCounters()
+
+    candidates = generalised(position, graph, parent_graph, counters=counters, min_support=2)
+
+    assert [candidate.transition.edge_key for candidate in candidates] == [
+        "ChangeImplementation -> ArtifactEvaluation",
+    ]
+    assert counters.counted["path_generalised"] == 1
+
+
+def test_generalised_stays_silent_when_the_position_clears_the_floor() -> None:
+    """A procedure with its own evidence is answered by `usual_next`, not generalised to."""
+    steps = walk(EDIT, BASH) + walk(EDIT, BASH, prompt="p2") + walk(WRITE, TEST, prompt="p3")
+    graph = aggregate(steps, level=LEVEL)
+    parent_graph = aggregate(steps, level="class")
+    position = locate(walk(EDIT), level=LEVEL)
+    counters = FakeCounters()
+
+    assert generalised(position, graph, parent_graph, counters=counters, min_support=2) == ()
+    assert counters.counted["path_generalised"] == 1
