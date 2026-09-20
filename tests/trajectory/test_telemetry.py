@@ -147,10 +147,10 @@ def test_unbound_session_is_dropped_and_counted(counters: FakeCounters) -> None:
     assert counters.counted["telemetry_session_unbound"] == 2
 
 
-def test_batched_line_yields_every_log_record() -> None:
+def test_batched_line_yields_every_log_record(counters: FakeCounters) -> None:
     line = (TELEMETRY_FIXTURES / "batched.jsonl").read_text(encoding="utf-8").strip()
 
-    records = list(records_in_line(line))
+    records = list(records_in_line(line, counters))
 
     # One exported line, one resourceLogs, two scopeLogs, three logRecords:
     # reading the first entry of any of the three levels would silently lose the
@@ -192,13 +192,13 @@ NEVER_BOUND = (
 )
 
 
-def test_only_allow_listed_attributes_are_bound() -> None:
+def test_only_allow_listed_attributes_are_bound(counters: FakeCounters) -> None:
     lines = [
         (TELEMETRY_FIXTURES / name).read_text(encoding="utf-8").strip()
         for name in ("identity_attributes.jsonl", "forbidden_content.jsonl")
     ]
 
-    records = [record for line in lines for record in records_in_line(line)]
+    records = [record for line in lines for record in records_in_line(line, counters)]
 
     bound = {key for record in records for key in record}
     assert bound.isdisjoint(NEVER_BOUND)
@@ -210,6 +210,32 @@ def test_only_allow_listed_attributes_are_bound() -> None:
     assert len(records) == 4
     assert records[0]["request_id"] == "req_synthetic_0041"
     assert records[0]["input_tokens"] == 1200
+
+
+def test_content_gates_on_strips_and_counts(counters: FakeCounters) -> None:
+    """The content gates on: the records still arrive, stripped and counted (FR-012, SC-014)."""
+    lines = [
+        (TELEMETRY_FIXTURES / name).read_text(encoding="utf-8").strip()
+        for name in ("forbidden_content.jsonl", "identity_attributes.jsonl")
+    ]
+
+    records = [record for line in lines for record in recognised_records(line, counters)]
+
+    bound = {key for record in records for key in record}
+    assert bound.isdisjoint(NEVER_BOUND)
+    # `prompt`, `response`, `body` and `body_ref`: the four content attributes the
+    # gates-on line carries, counted whether or not the record they rode in on is
+    # one the memory consumes.
+    assert counters.counted["telemetry_content_stripped"] == 4
+    # `organization.id`, `user.id`, `user.email`, `user.account_uuid`,
+    # `user.account_id`, `user.groups`, `identity.source`.
+    assert counters.counted["telemetry_identity_stripped"] == 7
+    # Stripping is not refusing (FR-012): the turn that carried the prompt text
+    # still arrives with its length, and the call that carried the account UUID
+    # still arrives with its token counts, so the session is recorded (SC-014).
+    by_type = {str(record["event.name"]): record for record in records}
+    assert by_type["claude_code.user_prompt"]["prompt_length"] == 31
+    assert by_type["claude_code.api_request"]["input_tokens"] == 1200
 
 
 def _log_record(event_name: str) -> dict[str, object]:
@@ -269,11 +295,12 @@ def test_unparsable_line_loses_its_records_not_the_pass(counters: FakeCounters) 
 def _records_named(fixture_name: str, event_name: str) -> list[dict[str, str | int | bool]]:
     """Every record of type *event_name* the named fixture carries, flattened."""
     lines = (TELEMETRY_FIXTURES / fixture_name).read_text(encoding="utf-8").splitlines()
+    counters = FakeCounters()
     return [
         dict(record)
         for line in lines
         if line.strip()
-        for record in records_in_line(line)
+        for record in records_in_line(line, counters)
         if record["event.name"] == event_name
     ]
 

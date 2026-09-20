@@ -156,6 +156,30 @@ BOUND_ATTRIBUTES = (
     | _AGENT_ATTRIBUTES
 )
 
+#: The content attributes `contracts/telemetry-records.md`'s "Never read, under
+#: any gate" table names: the prompt and the response themselves, the raw request
+#: and response bodies, the host path a body was spilled to, and the span
+#: attribute carrying the turn's text. None is on :data:`BOUND_ATTRIBUTES`, so
+#: this set decides nothing about what is read — it is what lets a strip be
+#: reported rather than pass silently (FR-012).
+_CONTENT_ATTRIBUTES = frozenset({"prompt", "response", "body", "body_ref", "user_prompt"})
+
+#: The attributes naming the human or the organisation behind a session (R11).
+#: The memory keeps `session.id` and nothing else identifying, so these are
+#: stripped for the same reason the content is, and counted apart from it
+#: because the two conditions are fixed by different settings.
+_IDENTITY_ATTRIBUTES = frozenset(
+    {
+        "organization.id",
+        "user.id",
+        "user.email",
+        "user.account_uuid",
+        "user.account_id",
+        "user.groups",
+        "identity.source",
+    }
+)
+
 #: The OTel `AnyValue` fields a consumed attribute is ever written in, each with
 #: the reader recovering the type the harness meant. `intValue` is a JSON string
 #: in the protobuf JSON mapping, so a token count left as written would neither
@@ -272,12 +296,18 @@ def _last_written(path: Path) -> datetime | None:
         return None
 
 
-def records_in_line(line: str) -> Iterator[TelemetryRecord]:
+def records_in_line(line: str, counters: Counters) -> Iterator[TelemetryRecord]:
     """Every log record the batched OTLP/JSON *line* carries, flattened (FR-001, FR-002).
 
     Each yielded record is the log record's attribute list as a mapping. The
     resource and scope around it are not folded in: they carry the deployment's
     own `OTEL_RESOURCE_ATTRIBUTES`, which name teams and departments (R11).
+
+    A content or identity attribute among a record's own attributes is left
+    unbound like any other name off the allow-list, and bumps its counter as it
+    goes: *counters* is what makes the prompt-content gates being on a condition
+    an operator can read rather than a silent drop, and the record carrying one
+    is yielded rather than refused for it (FR-012).
 
     Raises:
         TypeError: *payload* is not shaped like an OTLP logs document — not a
@@ -291,20 +321,36 @@ def records_in_line(line: str) -> Iterator[TelemetryRecord]:
     for resource_log in payload.get("resourceLogs", ()):
         for scope_log in resource_log.get("scopeLogs", ()):
             for log_record in scope_log.get("logRecords", ()):
-                yield _flattened(log_record.get("attributes", ()))
+                yield _flattened(log_record.get("attributes", ()), counters)
 
 
-def _flattened(attributes: Iterable[Any]) -> TelemetryRecord:
+def _flattened(attributes: Iterable[Any], counters: Counters) -> TelemetryRecord:
     """The allow-listed part of an OTLP key/value list, as a mapping (FR-011)."""
     flat: dict[str, str | int | bool] = {}
     for attribute in attributes:
         key = attribute.get("key")
         if key not in BOUND_ATTRIBUTES:
+            _report_stripped(key, counters)
             continue
         value = _scalar(attribute.get("value", {}))
         if value is not None:
             flat[key] = value
     return flat
+
+
+def _report_stripped(key: Any, counters: Counters) -> None:
+    """Count the unbound *key* as stripped, when it is content or identity (FR-012).
+
+    ``telemetry_content_stripped`` for one of `_CONTENT_ATTRIBUTES`,
+    ``telemetry_identity_stripped`` for one of `_IDENTITY_ATTRIBUTES`, one bump
+    per attribute encountered. Any other unbound name — a resource attribute a
+    deployment invented, a record field no task reads yet — is neither, and is
+    left uncounted so that each counter reports the condition its name claims.
+    """
+    if key in _CONTENT_ATTRIBUTES:
+        counters.bump("telemetry_content_stripped")
+    elif key in _IDENTITY_ATTRIBUTES:
+        counters.bump("telemetry_identity_stripped")
 
 
 def _scalar(value: Mapping[str, Any]) -> str | int | bool | None:
@@ -334,7 +380,7 @@ def recognised_records(line: str, counters: Counters) -> Iterator[TelemetryRecor
     is draining the collector (FR-010).
     """
     try:
-        records = tuple(records_in_line(line))
+        records = tuple(records_in_line(line, counters))
     except (json.JSONDecodeError, TypeError):
         counters.bump("telemetry_record_partial")
         return
