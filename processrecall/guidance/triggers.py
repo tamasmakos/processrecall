@@ -9,6 +9,10 @@ of it is not reason enough to speak; one of exactly four occasions is:
 - the same procedure repeated `k` times;
 - a pitfall on the action about to be taken (FR-046).
 
+Which traversals an occasion may be answered from is decided here too: of the
+traversals `paths` publishes, the hook path runs the three `hot_path` names and
+no fourth (FR-033).
+
 On the hot path, so the standard library only.
 
 Example:
@@ -24,10 +28,17 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from processrecall.config import Config, Counters
-from processrecall.graph.abstract import FAILURE_KINDS, Level, TransitionEdge
+from processrecall.graph.abstract import FAILURE_KINDS, AbstractGraph, Level, TransitionEdge
 from processrecall.graph.keys import ARTIFACT_EVALUATION, CHANGE_IMPLEMENTATION, class_of, key_at
 from processrecall.graph.store import EpisodicStep, SequenceKey
+from processrecall.guidance.locate import Position
 from processrecall.guidance.neighborhood import Neighborhood
+from processrecall.guidance.paths import (
+    Candidate,
+    after_change_to_entity,
+    usual_next,
+    usually_refused,
+)
 
 
 class Trigger(StrEnum):
@@ -166,6 +177,34 @@ class Triggers:
                 self._counters.bump("guidance_below_support")
             return None
         return Firing(trigger=trigger, edges=supported)
+
+
+def hot_path(
+    position: Position, graph: AbstractGraph, *, counters: Counters
+) -> tuple[Candidate, ...]:
+    """The candidates the hook path may traverse *graph* for, from *position* (FR-033).
+
+    Three of the nine traversals FR-031 names run here and no fourth: what usually
+    comes next, what follows a change to the entity in hand, and what is usually
+    turned down.
+    The middle one is asked only where the step just carried out was a write,
+    because a change is what puts that question — after a read it does not run,
+    and so is not counted as having run.
+
+    The candidates are returned whole and unranked: the support floor and the
+    fused order belong to `Fusion`, which is where the lists a request assembles
+    meet (FR-032).
+    """
+    candidates = usual_next(position, graph, counters=counters)
+    if _follows_a_write(position):
+        candidates += after_change_to_entity(position, graph, counters=counters)
+    return candidates + usually_refused(position, graph, counters=counters)
+
+
+def _follows_a_write(position: Position) -> bool:
+    """Whether the step *position* was derived from was a change to an artifact."""
+    previous = position.previous
+    return previous is not None and previous.activity_class == CHANGE_IMPLEMENTATION
 
 
 def _out_of(neighborhood: Neighborhood) -> tuple[TransitionEdge, ...]:

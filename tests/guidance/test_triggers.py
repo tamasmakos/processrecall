@@ -12,11 +12,11 @@ from collections import Counter
 from dataclasses import replace
 
 from processrecall.config import Config
-from processrecall.graph.abstract import START_KEY, AbstractGraph, aggregate
+from processrecall.graph.abstract import START_KEY, AbstractGraph, PrecedesWorkOn, aggregate
 from processrecall.graph.store import EpisodicStep
 from processrecall.guidance.locate import locate
 from processrecall.guidance.neighborhood import extract
-from processrecall.guidance.triggers import Firing, Trigger, Triggers
+from processrecall.guidance.triggers import Firing, Trigger, Triggers, hot_path
 
 from .conftest import walk
 
@@ -125,3 +125,49 @@ def test_a_move_seen_once_is_silence_and_counts_as_a_suppression() -> None:
 
     assert fire(triggers, graph, ()) is None
     assert counters.counted["guidance_below_support"] == 1
+
+
+#: One code entity, spelled the way `code_entities` keys a symbol.
+ENTITY = "processrecall/guidance/triggers.py#hot_path"
+
+#: The `class/program` key of `EDIT`, which is what a projection row names.
+EDIT_KEY = "ChangeImplementation/Edit"
+
+#: The `class/program` key of `READ`, which is what a projection row names.
+READ_KEY = "Inspection/Read"
+
+
+def test_hot_path_runs_only_the_three_declared_traversals() -> None:
+    """FR-033: `usual_next`, `after_change_to_entity`, `usually_refused`, and no fourth."""
+    steps = walk(EDIT, TEST) + walk(EDIT, TEST, prompt="p2")
+    graph = replace(
+        aggregate(steps, level=LEVEL),
+        precedes=(PrecedesWorkOn(source=EDIT_KEY, entity_key=ENTITY, support=2),),
+    )
+    position = replace(locate(steps[:1], level=LEVEL), symbol=ENTITY)
+    counters = FakeCounters()
+
+    candidates = hot_path(position, graph, counters=counters)
+
+    assert {counter for counter in counters.counted if counter.startswith("path_")} == {
+        "path_usual_next",
+        "path_after_change",
+        "path_usually_refused",
+    }
+    assert {candidate.traversal for candidate in candidates} == {"usual_next", "after_change"}
+
+
+def test_after_a_read_the_entity_anchored_traversal_does_not_run() -> None:
+    """FR-033: a change is what puts that question, so after a read it is not asked."""
+    steps = walk(READ, EDIT) + walk(READ, EDIT, prompt="p2")
+    graph = replace(
+        aggregate(steps, level=LEVEL),
+        precedes=(PrecedesWorkOn(source=READ_KEY, entity_key=ENTITY, support=2),),
+    )
+    position = replace(locate(steps[:1], level=LEVEL), symbol=ENTITY)
+    counters = FakeCounters()
+
+    candidates = hot_path(position, graph, counters=counters)
+
+    assert "path_after_change" not in counters.counted
+    assert {candidate.traversal for candidate in candidates} == {"usual_next"}
