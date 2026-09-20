@@ -17,7 +17,9 @@ from pathlib import Path
 import pytest
 
 from processrecall.graph.episodic import open_index
+from processrecall.graph.schema import DecisionSource, StepDecision, StepResult
 from processrecall.graph.store import (
+    CaptureSource,
     EpisodicStep,
     EpisodicStore,
     Sequence,
@@ -79,6 +81,38 @@ def test_recording_a_step_twice_reports_the_duplicate_rather_than_raising(
     assert len(store.steps(KEY)) == 1
 
 
+def test_step_records_telemetry_fields_and_source(store: SQLiteEpisodicStore) -> None:
+    _open_sequence(store)
+    refused = replace(
+        _step(),
+        result=StepResult.FAILURE,
+        decision=StepDecision.REJECTED,
+        decision_source=DecisionSource.USER_REJECT,
+        duration_ms=1204,
+        error_type="PermissionDenied",
+        input_size_bytes=96,
+        result_size_bytes=0,
+        tool_source="mcp",
+        source=CaptureSource.TELEMETRY,
+    )
+
+    store.record(refused)
+
+    recorded = store.steps(KEY)[0]
+    assert recorded == replace(refused, step_id=recorded.step_id)
+    assert store.counters()["steps_from_telemetry"] == 1
+
+
+def test_a_step_only_the_hook_saw_counts_against_the_fallback_path(
+    store: SQLiteEpisodicStore,
+) -> None:
+    _open_sequence(store)
+
+    store.record(replace(_step(), source=CaptureSource.HOOK))
+
+    assert store.counters()["steps_from_hook"] == 1
+
+
 def test_an_opened_sequence_reads_back_open_and_counting_its_steps(
     store: SQLiteEpisodicStore,
 ) -> None:
@@ -91,6 +125,23 @@ def test_an_opened_sequence_reads_back_open_and_counting_its_steps(
         started_at=datetime(2026, 9, 13, 10, 0, tzinfo=UTC),
         step_count=1,
     )
+
+
+def test_a_sequence_records_the_commit_and_branch_the_turn_ran_on(
+    store: SQLiteEpisodicStore,
+) -> None:
+    opened = Sequence(
+        key=KEY,
+        project_dir_key="proj",
+        started_at=datetime(2026, 9, 13, 10, 0, tzinfo=UTC),
+        head_revision="4655668",
+        head_branch="007-otel-graph-schema-v2",
+        source=CaptureSource.TELEMETRY,
+    )
+
+    store.open_sequence(opened)
+
+    assert store.sequence(KEY) == opened
 
 
 def test_a_sequence_that_was_never_opened_is_absent_rather_than_empty(

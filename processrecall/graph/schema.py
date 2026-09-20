@@ -94,6 +94,21 @@ class DecisionSource(StrEnum):
     USER_REJECT = "user_reject"
 
 
+class CaptureSource(StrEnum):
+    """Which capture path wrote a step or a sequence (FR-007).
+
+    An honesty field rather than a declared closed set: it says where the row
+    came from, so a hook-only row is not read as a telemetry observation.
+    ``BOTH`` is what deduplication leaves behind when telemetry and the hook
+    both saw the row, and ``None`` is a row from before telemetry existed,
+    which genuinely does not know (R14).
+    """
+
+    TELEMETRY = "telemetry"
+    HOOK = "hook"
+    BOTH = "both"
+
+
 class ProvenanceTerm(StrEnum):
     """The closed set of W3C PROV-O terms the declaration may cite (FR-045).
 

@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from processrecall.config import RESULT_CEILING, ActivityClass, ProcessType, home_dir
 from processrecall.graph.annotations import Annotation
+from processrecall.graph.schema import CaptureSource, DecisionSource, StepDecision, StepResult
 
 if TYPE_CHECKING:
     from processrecall.trajectory.event import TrajectoryEvent
@@ -206,6 +207,12 @@ class Sequence:
     ``step_count`` is read from the store rather than kept in step with the
     rows — a stored count that drifts from the rows is the kind of quietly wrong
     number Principle V exists to prevent.
+
+    ``head_revision`` and ``head_branch`` are the commit and branch the turn ran
+    on where the harness observed them (FR-023), and ``None`` where it did not.
+    ``prompt_length``, ``command_name``, ``command_source``, ``workflow_run_id``,
+    ``workflow_name`` and ``app_version`` are likewise ``None`` where the record
+    the turn was opened from did not carry them, and nothing backfills one (R14).
     """
 
     key: SequenceKey
@@ -217,6 +224,15 @@ class Sequence:
     step_count: int = 0
     derived_outcome: str = "neutral"
     declared_outcome: str | None = None
+    prompt_length: int | None = None
+    command_name: str | None = None
+    command_source: str | None = None
+    workflow_run_id: str | None = None
+    workflow_name: str | None = None
+    app_version: str | None = None
+    head_revision: str | None = None
+    head_branch: str | None = None
+    source: CaptureSource | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,6 +242,13 @@ class EpisodicStep:
     ``step_id`` is the store's own rowid and the snapshot's high-water mark: it
     is ``0`` on a step that has not been recorded yet, and the store assigns the
     real one.
+
+    ``result`` and ``decision`` are FR-022's two independent axes — whether the
+    call could do the thing, and whether it was allowed to try — and nothing
+    collapses them into one value: a refusal is a policy signal and a failure a
+    capability signal. Each field from ``result`` down is ``None`` when the
+    record the step was captured from did not carry it, and nothing backfills
+    one (R14).
     """
 
     dedup_key: str
@@ -242,6 +265,16 @@ class EpisodicStep:
     record_ref: str = ""
     rationale_label: str | None = None
     symbol_ref: str | None = None
+    result: StepResult | None = None
+    kind: str | None = None
+    decision: StepDecision | None = None
+    decision_source: DecisionSource | None = None
+    duration_ms: int | None = None
+    error_type: str | None = None
+    input_size_bytes: int | None = None
+    result_size_bytes: int | None = None
+    tool_source: str | None = None
+    source: CaptureSource | None = None
     step_id: int = 0
 
 
@@ -349,17 +382,28 @@ def counter_table(store: EpisodicStore) -> dict[str, int]:
 _STEP_COLUMNS = (
     "dedup_key, conversation_id, session_epoch, prompt_id, agent_id, position, node_key,"
     " activity_class, template, occurred_at, program, files, result_snippet, outcome,"
-    " record_ref, rationale_label, symbol_ref, step_id"
+    " record_ref, rationale_label, symbol_ref, step_id, result, kind, decision,"
+    " decision_source, duration_ms, error_type, input_size_bytes, result_size_bytes,"
+    " tool_source, source"
+)
+
+#: `_STEP_COLUMNS` minus `step_id`, in the same order: the columns `record` writes.
+#: `step_id` is sqlite's own rowid and is never inserted, so deriving from the one
+#: list `_step_from_row` already reads keeps the columns, the placeholders and the
+#: values tuple from drifting apart as a fourth place to edit.
+_STEP_WRITE_COLUMNS = tuple(
+    name for name in (column.strip() for column in _STEP_COLUMNS.split(",")) if name != "step_id"
 )
 
 #: The predicate every `SequenceKey` lookup shares — a fifth key field would
 #: otherwise mean editing this in four places.
 #:
-#: This and `_STEP_COLUMNS` are the only things any statement in this module
-#: interpolates, which is why each of their call sites carries `# nosec B608`:
-#: both are module constants of column names and `?` placeholders, fixed at
-#: import and reachable by no caller. Every value a caller supplies is bound
-#: through the parameter tuple, never formatted into the text.
+#: This, `_STEP_COLUMNS` and `_STEP_WRITE_COLUMNS` are the only things any
+#: statement in this module interpolates, which is why each of their call
+#: sites carries `# nosec B608`: all are module constants of column names and
+#: `?` placeholders, fixed at import and reachable by no caller. Every value a
+#: caller supplies is bound through the parameter tuple, never formatted into
+#: the text.
 _SEQUENCE_WHERE = (
     " WHERE conversation_id = ? AND session_epoch = ? AND prompt_id = ? AND agent_id = ?"
 )
@@ -368,6 +412,18 @@ _SEQUENCE_WHERE = (
 def _key_params(key: SequenceKey) -> tuple[str, int, str, str]:
     """The bind parameters for `_SEQUENCE_WHERE`, in its column order."""
     return (key.conversation_id, key.session_epoch, key.prompt_id, key.agent_id)
+
+
+def _source_counter(source: CaptureSource | None) -> str | None:
+    """The counter a row written from *source* bumps, or ``None`` when it did not say.
+
+    ``BOTH`` counts as telemetry: the row was written from a telemetry record and
+    the hook only agreed with it, which keeps `steps_from_hook` the count of
+    steps telemetry never saw (`contracts/counters.md`).
+    """
+    if source is None:
+        return None
+    return "steps_from_hook" if source is CaptureSource.HOOK else "steps_from_telemetry"
 
 
 def _step_from_row(row: tuple[Any, ...]) -> EpisodicStep:
@@ -388,6 +444,16 @@ def _step_from_row(row: tuple[Any, ...]) -> EpisodicStep:
         rationale_label=None if row[15] is None else str(row[15]),
         symbol_ref=None if row[16] is None else str(row[16]),
         step_id=int(row[17]),
+        result=None if row[18] is None else StepResult(row[18]),
+        kind=None if row[19] is None else str(row[19]),
+        decision=None if row[20] is None else StepDecision(row[20]),
+        decision_source=None if row[21] is None else DecisionSource(row[21]),
+        duration_ms=None if row[22] is None else int(row[22]),
+        error_type=None if row[23] is None else str(row[23]),
+        input_size_bytes=None if row[24] is None else int(row[24]),
+        result_size_bytes=None if row[25] is None else int(row[25]),
+        tool_source=None if row[26] is None else str(row[26]),
+        source=None if row[27] is None else CaptureSource(row[27]),
     )
 
 
@@ -416,7 +482,9 @@ class SQLiteEpisodicStore:
             self._connection.execute(
                 "INSERT INTO sequences (conversation_id, session_epoch, prompt_id, agent_id,"
                 " project_dir_key, process_type, status, derived_outcome, declared_outcome,"
-                " started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " started_at, prompt_length, command_name, command_source, workflow_run_id,"
+                " workflow_name, app_version, head_revision, head_branch, source)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT DO NOTHING",
                 (
                     sequence.key.conversation_id,
@@ -429,6 +497,15 @@ class SQLiteEpisodicStore:
                     sequence.derived_outcome,
                     sequence.declared_outcome,
                     sequence.started_at.isoformat(),
+                    sequence.prompt_length,
+                    sequence.command_name,
+                    sequence.command_source,
+                    sequence.workflow_run_id,
+                    sequence.workflow_name,
+                    sequence.app_version,
+                    sequence.head_revision,
+                    sequence.head_branch,
+                    sequence.source,
                 ),
             )
 
@@ -470,14 +547,16 @@ class SQLiteEpisodicStore:
         The result snippet is cut to :data:`RESULT_CEILING` on the way in
         (FR-010): the ceiling is a property of what is stored, not of the
         adapter that happened to produce the step.
+
+        ``recorded_at`` is stamped from the store's own clock, beside
+        ``occurred_at``: the pair is what lets a rebuild reconstruct what the
+        graph believed at a past time (FR-022, FR-044).
         """
         with self._connection:
             cursor = self._connection.execute(
-                "INSERT INTO steps (dedup_key, conversation_id, session_epoch, prompt_id,"
-                " agent_id, position, node_key, activity_class, template, occurred_at,"
-                " program, files, result_snippet, outcome, record_ref, rationale_label,"
-                " symbol_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                " ON CONFLICT (dedup_key) DO NOTHING",
+                f"INSERT INTO steps ({', '.join(_STEP_WRITE_COLUMNS)}, recorded_at)"
+                f" VALUES ({', '.join('?' * len(_STEP_WRITE_COLUMNS))}, ?)"
+                " ON CONFLICT (dedup_key) DO NOTHING",  # nosec B608
                 (
                     step.dedup_key,
                     step.sequence_key.conversation_id,
@@ -496,10 +575,23 @@ class SQLiteEpisodicStore:
                     step.record_ref,
                     step.rationale_label,
                     step.symbol_ref,
+                    step.result,
+                    step.kind,
+                    step.decision,
+                    step.decision_source,
+                    step.duration_ms,
+                    step.error_type,
+                    step.input_size_bytes,
+                    step.result_size_bytes,
+                    step.tool_source,
+                    step.source,
+                    datetime.now(UTC).isoformat(),
                 ),
             )
         if cursor.rowcount == 1:
             self.bump("steps_recorded")
+            if counter := _source_counter(step.source):
+                self.bump(counter)
             return True
         self.bump("steps_duplicate")
         return False
@@ -513,7 +605,9 @@ class SQLiteEpisodicStore:
         """
         row = self._connection.execute(
             "SELECT project_dir_key, process_type, status, started_at, ended_at,"
-            " derived_outcome, declared_outcome,"
+            " derived_outcome, declared_outcome, prompt_length, command_name,"
+            " command_source, workflow_run_id, workflow_name, app_version, head_revision,"
+            " head_branch, source,"
             " (SELECT count(*) FROM steps WHERE steps.conversation_id = sequences.conversation_id"
             "  AND steps.session_epoch = sequences.session_epoch"
             "  AND steps.prompt_id = sequences.prompt_id"
@@ -532,7 +626,16 @@ class SQLiteEpisodicStore:
             ended_at=None if row[4] is None else datetime.fromisoformat(str(row[4])),
             derived_outcome=str(row[5]),
             declared_outcome=None if row[6] is None else str(row[6]),
-            step_count=int(row[7]),
+            prompt_length=None if row[7] is None else int(row[7]),
+            command_name=None if row[8] is None else str(row[8]),
+            command_source=None if row[9] is None else str(row[9]),
+            workflow_run_id=None if row[10] is None else str(row[10]),
+            workflow_name=None if row[11] is None else str(row[11]),
+            app_version=None if row[12] is None else str(row[12]),
+            head_revision=None if row[13] is None else str(row[13]),
+            head_branch=None if row[14] is None else str(row[14]),
+            source=None if row[15] is None else CaptureSource(row[15]),
+            step_count=int(row[16]),
         )
 
     def sequence_for_prompt(self, prompt_id: str) -> Sequence | None:
