@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from processrecall.graph.schema import CALLERS_PER_ENTITY, PRECEDES_ENTITIES
 from processrecall.graph.snapshot import SNAPSHOT_FORMAT, Snapshot, SnapshotFile
 
 
@@ -207,3 +208,76 @@ def test_a_projected_write_time_is_refused(
 
     assert not path.exists()
     assert counters.counted["snapshot_written"] == 0
+
+
+def test_precedes_work_on_projection_is_bounded(
+    tmp_path: Path, counters: FakeCounters, snapshot: Snapshot
+) -> None:
+    """The snapshot's whole knowledge of the call graph is bounded (R17).
+
+    The file is read and parsed whole on every guidance call, so a procedure
+    carries at most `PRECEDES_ENTITIES` entities — the ones with the most
+    support — and each of those at most `CALLERS_PER_ENTITY` callers. The bound
+    is per procedure: a second procedure's few rows all survive.
+    """
+    crowded = [
+        {
+            "source": "ChangeImplementation/Edit",
+            "entity_key": f"processrecall/graph/module_{support}.py",
+            "support": support,
+            "callers": [
+                f"processrecall/caller_{index}.py#call" for index in range(CALLERS_PER_ENTITY + 2)
+            ],
+        }
+        for support in range(PRECEDES_ENTITIES + 4)
+    ]
+    sparse = [
+        {
+            "source": "ArtifactEvaluation/pytest",
+            "entity_key": "tests/graph/test_snapshot.py",
+            "support": 3,
+            "callers": [],
+        }
+    ]
+    file = SnapshotFile(tmp_path / "graph.json", counters)
+
+    file.write(replace(snapshot, precedes=[*crowded, *sparse]))
+
+    served = file.read()
+    assert served is not None
+    kept = [row for row in served.precedes if row["source"] == "ChangeImplementation/Edit"]
+    assert [row["support"] for row in kept] == list(range(PRECEDES_ENTITIES + 3, 3, -1)), (
+        "the top entities by support, highest first"
+    )
+    assert all(len(row["callers"]) == CALLERS_PER_ENTITY for row in kept)
+    assert [
+        row for row in served.precedes if row["source"] == "ArtifactEvaluation/pytest"
+    ] == sparse
+
+
+def test_precedes_work_on_ties_break_on_entity_key(
+    tmp_path: Path, counters: FakeCounters, snapshot: Snapshot
+) -> None:
+    """Equal support keeps the deterministic order `entity_key` gives it (FR-028).
+
+    A from-scratch rebuild and an incremental derivation can hand the bounding
+    step the same rows in a different order; support alone cannot break the tie
+    between them, so the entity key does.
+    """
+    crowded = [
+        {
+            "source": "ChangeImplementation/Edit",
+            "entity_key": f"processrecall/graph/module_{support}.py",
+            "support": PRECEDES_ENTITIES,
+            "callers": [],
+        }
+        for support in range(PRECEDES_ENTITIES + 2)
+    ]
+    file = SnapshotFile(tmp_path / "graph.json", counters)
+
+    file.write(replace(snapshot, precedes=[*reversed(crowded)]))
+
+    served = file.read()
+    assert served is not None
+    kept = [row["entity_key"] for row in served.precedes]
+    assert kept == sorted(row["entity_key"] for row in crowded)[:PRECEDES_ENTITIES]

@@ -33,15 +33,22 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
+from itertools import groupby, islice
+from operator import itemgetter
 from pathlib import Path
 from typing import Any
 
 from processrecall.config import STORE_DIR, Counters
-from processrecall.graph.schema import LAYERS, SNAPSHOT_FORMAT
+from processrecall.graph.schema import (
+    CALLERS_PER_ENTITY,
+    LAYERS,
+    PRECEDES_ENTITIES,
+    SNAPSHOT_FORMAT,
+)
 
 #: The snapshot's filename, under `~/.processrecall` and under
 #: `<project>/.processrecall` (`contracts/storage.md`).
@@ -84,6 +91,11 @@ class Snapshot:
         nodes: Each procedure against its body, keyed by node key.
         edges: The permissible transitions, in the order they were derived.
         generated_at: When the graph behind this file was derived.
+        precedes: The `precedes_work_on` rows: each a procedure and an entity
+            worked on around it, with the entity's callers pre-computed. `write`
+            is what cuts them to the bound the hot path may parse (R17), so a
+            caller hands over everything it derived and the file keeps the top
+            of it. Empty for a graph whose projection nothing derived.
     """
 
     level: str
@@ -91,6 +103,7 @@ class Snapshot:
     nodes: Mapping[str, object]
     edges: Sequence[object]
     generated_at: datetime
+    precedes: Sequence[Mapping[str, Any]] = ()
 
 
 class SnapshotFile:
@@ -235,7 +248,38 @@ def _as_document(snapshot: Snapshot) -> dict[str, Any]:
         "episode_high_water": snapshot.episode_high_water,
         "nodes": dict(snapshot.nodes),
         "edges": list(snapshot.edges),
+        "precedes_work_on": _bounded_precedes(snapshot.precedes),
     }
+
+
+def _bounded_precedes(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """*rows* cut to the projection a snapshot may carry (R17, data-model.md).
+
+    Each procedure keeps its `PRECEDES_ENTITIES` best-supported entities and each
+    of those at most `CALLERS_PER_ENTITY` callers: the file is read and parsed
+    whole on every guidance call, so the size of this projection is the latency
+    budget, and the bound is the hot path's entire knowledge of the call graph.
+
+    Ordered by procedure and then by rank, and ties broken on the entity key, so
+    a from-scratch rebuild and an incremental derivation land on the same rows
+    whatever order they arrived in (FR-028).
+    """
+    ranked = sorted(rows, key=_by_procedure_then_support)
+    return [
+        _bounded_callers(row)
+        for _, of_procedure in groupby(ranked, key=itemgetter("source"))
+        for row in islice(of_procedure, PRECEDES_ENTITIES)
+    ]
+
+
+def _by_procedure_then_support(row: Mapping[str, Any]) -> tuple[str, int, str]:
+    """*row*'s place among its procedure's: most support first, entity key on a tie."""
+    return row["source"], -row["support"], row["entity_key"]
+
+
+def _bounded_callers(row: Mapping[str, Any]) -> dict[str, Any]:
+    """*row* with its pre-computed callers cut to `CALLERS_PER_ENTITY` (R17)."""
+    return {**row, "callers": list(row["callers"])[:CALLERS_PER_ENTITY]}
 
 
 def served_snapshot(project_dir: Path, counters: Counters) -> Snapshot | None:
@@ -250,11 +294,19 @@ def served_snapshot(project_dir: Path, counters: Counters) -> Snapshot | None:
 
 
 def _snapshot_from(document: Mapping[str, Any]) -> Snapshot:
-    """The snapshot *document* describes."""
+    """The snapshot *document* describes.
+
+    A document carrying no `precedes_work_on` key is read as carrying no
+    projection rather than refused: a graph derived where no code entity was
+    resolved has none, which is a servable snapshot and not an unreadable one.
+    The projection comes back as a tuple, so a snapshot with no projection reads
+    back equal to the one that was written.
+    """
     return Snapshot(
         level=document["level"],
         episode_high_water=document["episode_high_water"],
         nodes=document["nodes"],
         edges=document["edges"],
         generated_at=datetime.fromisoformat(document["generated_at"]),
+        precedes=tuple(document.get("precedes_work_on", ())),
     )

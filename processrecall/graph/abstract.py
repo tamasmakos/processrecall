@@ -873,6 +873,7 @@ def served(graph: AbstractGraph, generated_at: datetime) -> Snapshot:
         nodes={key: _node_body(node) for key, node in graph.nodes.items()},
         edges=[_edge_body(edge) for edge in graph.edges],
         generated_at=generated_at,
+        precedes=[_precedes_body(row) for row in graph.precedes],
     )
 
 
@@ -910,6 +911,16 @@ def _edge_body(edge: TransitionEdge) -> dict[str, Any]:
         "outcome_counts": _outcome_body(edge.outcome_counts),
         "supporting_steps": list(edge.supporting_steps),
         "supporting_step_count": edge.support,
+    }
+
+
+def _precedes_body(row: PrecedesWorkOn) -> dict[str, Any]:
+    """One `precedes_work_on` row as the JSON object a snapshot carries it as (R17)."""
+    return {
+        "source": row.source,
+        "entity_key": row.entity_key,
+        "support": row.support,
+        "callers": list(row.callers),
     }
 
 
@@ -1002,6 +1013,33 @@ def _edge_from(body: Mapping[str, Any]) -> TransitionEdge:
         annotations=tuple(_annotation_from(note) for note in body["annotations"]),
         dependency_measure=body.get("dependency_measure", 0.0),
         lift=body.get("lift", 0.0),
+    )
+
+
+def precedes_from(snapshot: Snapshot) -> tuple[PrecedesWorkOn, ...]:
+    """The `precedes_work_on` rows *snapshot* carries, back as `served` wrote them (R17).
+
+    The inverse of `served` on its precedes half, for the same reason
+    `edges_from` exists for the edge half: the projection travels the file as
+    plain JSON and is read back typed wherever a traversal needs `source`,
+    `entity_key` or `callers` off it.
+
+    Raises:
+        KeyError, TypeError, ValueError: A row the format stamp let through but
+            that does not otherwise match `_precedes_body`'s shape — the same
+            footing `edges_from` puts an unreadable edge body on.
+    """
+    bodies = cast("Iterable[Mapping[str, Any]]", snapshot.precedes)
+    return tuple(_precedes_from(body) for body in bodies)
+
+
+def _precedes_from(body: Mapping[str, Any]) -> PrecedesWorkOn:
+    """One `precedes_work_on` row as `_precedes_body` wrote it, back as the row it names."""
+    return PrecedesWorkOn(
+        source=body["source"],
+        entity_key=body["entity_key"],
+        support=body["support"],
+        callers=tuple(body["callers"]),
     )
 
 
