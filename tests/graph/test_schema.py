@@ -63,7 +63,13 @@ def test_declares_the_tables_of_each_layer() -> None:
             "step_touches",
             "step_consumes",
         ),
-        "procedural": ("procedures", "subsumes", "transitions", "precedes_work_on"),
+        "procedural": (
+            "procedures",
+            "subsumes",
+            "transitions",
+            "supported_by",
+            "precedes_work_on",
+        ),
     }
 
 
@@ -187,6 +193,19 @@ _EXPECTED_SQLITE_TYPES: Mapping[FieldType, str] = {
     FieldType.REAL: "REAL",
     FieldType.JSON: "TEXT",
 }
+
+
+def test_no_persisted_table_declares_a_json_reference() -> None:
+    """A JSON reference is only meaningful on the unpersisted procedural layer:
+    `graph/ddl.py` renders `FieldType.JSON` as plain `TEXT`, so a reference on a
+    persisted table would render a column with no edge and no complaint.
+    """
+    for table in PERSISTED_TABLES:
+        for field in table.fields:
+            assert not (field.type == FieldType.JSON and field.reference), (
+                table.name,
+                field.name,
+            )
 
 
 def _stored_columns(connection: sqlite3.Connection, table: str) -> dict[str, str]:

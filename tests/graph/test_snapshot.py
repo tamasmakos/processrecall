@@ -164,3 +164,21 @@ def test_routing_rule_rejects_a_plain_value_written_as_an_edge(
 
     assert not path.exists()
     assert counters.counted["snapshot_written"] == 0
+
+
+def test_supporting_steps_are_an_edge_not_an_attribute(
+    tmp_path: Path, counters: FakeCounters, snapshot: Snapshot
+) -> None:
+    """The steps behind a move name step identities, so they route as an edge (FR-025)."""
+    path = tmp_path / "graph.json"
+    misrouted = replace(
+        snapshot,
+        nodes={"ChangeImplementation/Edit": {"support": 475, "supporting_steps": [12793, 12801]}},
+    )
+
+    with pytest.raises(ValueError, match="supporting_steps"):
+        SnapshotFile(path, counters).write(misrouted)
+
+    evidenced = replace(snapshot, edges=[{"supporting_steps": [12793], "support": 38}])
+    SnapshotFile(path, counters).write(evidenced)
+    assert SnapshotFile(path, counters).read() == evidenced

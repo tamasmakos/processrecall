@@ -162,9 +162,14 @@ def _integer(name: str, reference: str = "") -> Field:
     return Field(name=name, type=FieldType.INTEGER, reference=reference)
 
 
-def _json(name: str) -> Field:
-    """A `FieldType.JSON` body. Never a reference: a body is not an identity."""
-    return Field(name=name, type=FieldType.JSON)
+def _json(name: str, reference: str = "") -> Field:
+    """A `FieldType.JSON` body: a structured value, or the identities it names.
+
+    A reference is only meaningful on the unpersisted procedural layer: SQLite
+    has no column for a JSON body (`graph/ddl.py` renders it as plain `TEXT`),
+    so a persisted table declaring one would silently lose the edge.
+    """
+    return Field(name=name, type=FieldType.JSON, reference=reference)
 
 
 def _real(name: str) -> Field:
@@ -350,10 +355,6 @@ _PROCEDURAL_TABLES = (
             _integer("median_duration_ms"),
             _text("last_seen"),
             _real("activation"),
-            # The routing rule would make this an edge to step identities; data-model.md
-            # calls the JSON-attribute form the one violation of that rule the model
-            # still contains (data-model.md:249-250), matching the transition's spelling.
-            _json("supporting_steps"),
         ),
     ),
     Table(
@@ -375,10 +376,6 @@ _PROCEDURAL_TABLES = (
             _real("dependency_measure"),
             _real("lift"),
             _real("reported_rate_lower"),
-            # The routing rule would make this an edge to step identities; data-model.md
-            # calls the JSON-attribute form the one violation of that rule the model
-            # still contains (data-model.md:249-250).
-            _json("supporting_steps"),
             _json("outcome_counts"),
             _text("last_seen"),
             _json("guidance"),
@@ -388,6 +385,19 @@ _PROCEDURAL_TABLES = (
             _text("schema_version"),
             _text("valid_from"),
             _text("invalidated_at"),
+        ),
+    ),
+    Table(
+        # The steps a transition was derived from: references to step identities,
+        # so the routing rule serves them as an edge rather than as a list
+        # attribute on the transition they evidence (FR-025, FR-016). This is the
+        # contract record of that edge's shape, not a body of its own: the served
+        # form keeps `supporting_steps` on the transition edge body itself
+        # (`graph/abstract.py`'s `_edge_body`), where the routing rule reads it.
+        name="supported_by",
+        fields=(
+            _text("transition", reference="transitions"),
+            _json("supporting_steps", reference="steps"),
         ),
     ),
     Table(
