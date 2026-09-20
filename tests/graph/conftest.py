@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from processrecall.config import ActivityClass, ProcessType
 from processrecall.graph.abstract import AbstractGraph, TransitionEdge
+from processrecall.graph.schema import DecisionSource, StepDecision
 from processrecall.graph.store import EpisodicStep, Sequence, SequenceKey
 
 
@@ -35,6 +36,8 @@ def make_aggregate_step(
     key: SequenceKey,
     outcome: str = "success",
     files: tuple[str, ...] = (),
+    decision: StepDecision | None = None,
+    decision_source: DecisionSource | None = None,
 ) -> EpisodicStep:
     """One recorded row, named by the node key the recorder derived for it."""
     activity_class, program, _ = node_key.split("/")
@@ -50,6 +53,8 @@ def make_aggregate_step(
         files=files,
         outcome=outcome,
         step_id=step_id,
+        decision=decision,
+        decision_source=decision_source,
     )
 
 

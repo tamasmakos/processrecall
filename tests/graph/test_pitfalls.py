@@ -8,6 +8,7 @@ knows the base failure rate to call one over-represented relative to.
 from __future__ import annotations
 
 from processrecall.graph.abstract import PitfallKind, aggregate
+from processrecall.graph.schema import DecisionSource, StepDecision
 from processrecall.graph.store import EpisodicStep
 
 from .conftest import edge, sequence
@@ -98,3 +99,55 @@ def test_two_attempts_at_the_same_procedure_are_a_retry_and_not_a_loop() -> None
 
     looped = edge(graph, "ArtifactEvaluation/Pytest -> ArtifactEvaluation/Pytest")
     assert looped.pitfalls == ()
+
+
+def edit_then_refused_command(
+    prompt_id: str, first_step_id: int, *, outcome: str = "neutral"
+) -> tuple[EpisodicStep, ...]:
+    """One prompt that edited a file, then had its command rejected by the user."""
+    key = sequence(prompt_id)
+    return (
+        make_step("ChangeImplementation/Edit/py", position=0, step_id=first_step_id, key=key),
+        make_step(
+            "ArtifactEvaluation/Bash/py",
+            position=1,
+            step_id=first_step_id + 1,
+            key=key,
+            outcome=outcome,
+            decision=StepDecision.REJECTED,
+            decision_source=DecisionSource.USER_REJECT,
+        ),
+    )
+
+
+def edit_then_accepted_command(prompt_id: str, first_step_id: int) -> tuple[EpisodicStep, ...]:
+    """One prompt that edited a file, then had its command let through."""
+    key = sequence(prompt_id)
+    return (
+        make_step("ChangeImplementation/Edit/py", position=0, step_id=first_step_id, key=key),
+        make_step(
+            "ArtifactEvaluation/Bash/py",
+            position=1,
+            step_id=first_step_id + 1,
+            key=key,
+            decision=StepDecision.ACCEPTED,
+        ),
+    )
+
+
+def test_usually_refused_pitfall_counts_refusals() -> None:
+    """FR-027: a move refused more often than it was allowed, named with how often."""
+    steps = (
+        edit_then_refused_command("p1", 1)
+        + edit_then_refused_command("p2", 3)
+        + edit_then_accepted_command("p3", 5)
+    )
+
+    graph = aggregate(steps, level="class/program")
+
+    moved = edge(graph, "ChangeImplementation/Edit -> ArtifactEvaluation/Bash")
+    (pitfall,) = moved.pitfalls
+    assert pitfall.kind is PitfallKind.USUALLY_REFUSED
+    assert pitfall.evidence == "Bash <File>"
+    assert pitfall.support == 3
+    assert pitfall.refusal_rate == 2 / 3

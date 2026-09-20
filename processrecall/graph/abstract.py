@@ -34,6 +34,7 @@ from typing import Any, cast
 from processrecall.config import LEVELS, ActivityClass, Config, ProcessType
 from processrecall.graph.annotations import Annotation
 from processrecall.graph.keys import group_by_sequence, key_at, keys_of, shares_a_file
+from processrecall.graph.schema import StepDecision
 from processrecall.graph.snapshot import Snapshot
 from processrecall.graph.store import CLOSED, EpisodicStep, Sequence, SequenceKey
 from processrecall.procedures.outcome import Outcome
@@ -61,6 +62,11 @@ END_KEY = "End"
 #: clean side of the ratio is configuration (`Config.clean_prompt_weight`,
 #: R6); this side is the unit it is a multiple of (FR-027).
 _UNCLEAN_WEIGHT = 1.0
+
+#: The share of a move's observations that has to have been refused before
+#: "usually" is the honest word for it (FR-027): rejected more often than let
+#: through, which is a majority and not a comparison against other moves.
+_REFUSED_USUALLY = 0.5
 
 #: The oldest a fold can be: every real observation is later, so the first one
 #: replaces it. Public because `edit.py` gives an authored edge the same value
@@ -157,6 +163,7 @@ class PitfallKind(StrEnum):
 
     FAILURE_PRONE = "failure_prone"
     REPETITION_LOOP = "repetition_loop"
+    USUALLY_REFUSED = "usually_refused"
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,19 +171,25 @@ class Pitfall:
     """One known way a transition goes wrong — derived, never authored.
 
     Attributes:
-        kind: Which of the two shapes FR-031 recognises this is.
-        evidence: The template that failed, or the node key that repeated.
+        kind: Which of the shapes `PitfallKind` names this is.
+        evidence: The template that failed or was refused, or the node key that
+            repeated.
         support: Observations behind it, so nothing is rendered as a warning
             without the count that earned it (FR-044).
-        failure_rate: Share of the move's observations that failed. ``0.0`` for
-            `PitfallKind.REPETITION_LOOP`, which counts repetitions rather than
-            failures and makes no claim about how they went.
+        failure_rate: Share of the move's observations that failed. ``0.0``
+            wherever the kind counts something other than failures and so makes
+            no claim about how its observations went.
+        refusal_rate: Share of the move's observations that were refused. Its
+            own field rather than a second reading of *failure_rate*, because a
+            refusal is a policy signal and a failure a capability one (FR-022),
+            and one number over both is what the two axes exist to prevent.
     """
 
     kind: PitfallKind
     evidence: str
     support: int
     failure_rate: float = 0.0
+    refusal_rate: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -336,6 +349,7 @@ class _EdgeFold:
     outcomes: Counter[Outcome] = field(default_factory=Counter)
     conditions: Counter[Condition] = field(default_factory=Counter)
     failed_templates: Counter[str] = field(default_factory=Counter)
+    refused_templates: Counter[str] = field(default_factory=Counter)
     repetitions: int = 0
 
     def record(self, move: _Move, weight: float) -> None:
@@ -349,32 +363,77 @@ class _EdgeFold:
         self.conditions[move.condition] += 1
         if outcome is Outcome.FAILURE:
             self.failed_templates[step.template] += 1
+        if step.decision is StepDecision.REJECTED:
+            self.refused_templates[step.template] += 1
 
     @property
     def support(self) -> int:
         """Distinct episodic rows behind this move."""
         return len(self.step_ids)
 
+    def _rate_pitfall(
+        self, counted: Counter[str], count_for_floor: int, min_support: int, threshold: float
+    ) -> tuple[str, float] | None:
+        """The evidence template and rate behind a rate-judged pitfall, where it earns one.
+
+        Shared by `_failure_prone` and `_usually_refused`: both rank a counter of
+        templates against `self.outcomes.total()`, gate on a support floor before
+        one unlucky prompt can warn every later one, and break ties on the
+        template's own text so a rebuild names the same one (FR-032). They
+        differ only in which counter is ranked, which count clears the floor,
+        and which rate counts as over-represented.
+        """
+        rate = counted.total() / self.outcomes.total()
+        if count_for_floor < min_support or rate <= threshold:
+            return None
+        ranked = sorted(counted.items(), key=lambda item: (-item[1], item[0]))
+        return ranked[0][0], rate
+
     def _failure_prone(self, baseline: _Baseline) -> Pitfall | None:
         """This move's `PitfallKind.FAILURE_PRONE` pitfall, where it earns one.
 
         Over-representation is relative (FR-031): where a third of everything
         fails, failing a third of the time is the base rate and not a pitfall.
-        The support floor is what stops one unlucky prompt from warning every
-        later one. The template named is the commonest of the ones that failed,
-        ties broken on its own text so a rebuild names the same one (FR-032) —
-        it is evidence for the transition's over-representation, not itself
-        judged over-represented against a template-level base rate.
+        The template named is evidence for the transition's over-representation,
+        not itself judged over-represented against a template-level base rate.
         """
-        rate = self.outcomes[Outcome.FAILURE] / self.outcomes.total()
-        if self.support < baseline.config.min_support or rate <= baseline.failure_rate:
+        found = self._rate_pitfall(
+            self.failed_templates, self.support, baseline.config.min_support, baseline.failure_rate
+        )
+        if found is None:
             return None
-        ranked = sorted(self.failed_templates.items(), key=lambda item: (-item[1], item[0]))
+        evidence, rate = found
         return Pitfall(
             kind=PitfallKind.FAILURE_PRONE,
-            evidence=ranked[0][0],
+            evidence=evidence,
             support=self.support,
             failure_rate=rate,
+        )
+
+    def _usually_refused(self, baseline: _Baseline) -> Pitfall | None:
+        """This move's `PitfallKind.USUALLY_REFUSED` pitfall, where it earns one.
+
+        Judged against `_REFUSED_USUALLY` rather than against the corpus the way
+        `_failure_prone` is: a refusal is a policy signal (FR-022), so what makes
+        a move one to avoid is that it was rejected more often than it was let
+        through, not that it was rejected more often than everything else. The
+        support floor is on the refusals themselves rather than on the move's
+        total observations: it is the refusals that have to cross it before the
+        transition accumulates the pitfall (spec.md US2), not how often the move
+        happens overall.
+        """
+        refusals = self.refused_templates.total()
+        found = self._rate_pitfall(
+            self.refused_templates, refusals, baseline.config.min_support, _REFUSED_USUALLY
+        )
+        if found is None:
+            return None
+        evidence, rate = found
+        return Pitfall(
+            kind=PitfallKind.USUALLY_REFUSED,
+            evidence=evidence,
+            support=self.support,
+            refusal_rate=rate,
         )
 
     def _repetition_loop(self) -> Pitfall | None:
@@ -402,7 +461,11 @@ class _EdgeFold:
         """
         if self.source in (START_KEY, END_KEY) or self.target in (START_KEY, END_KEY):
             return ()
-        derived = (self._failure_prone(baseline), self._repetition_loop())
+        derived = (
+            self._failure_prone(baseline),
+            self._usually_refused(baseline),
+            self._repetition_loop(),
+        )
         return tuple(pitfall for pitfall in derived if pitfall is not None)
 
     @property
@@ -623,6 +686,7 @@ def _pitfall_body(pitfall: Pitfall) -> dict[str, Any]:
         "evidence": pitfall.evidence,
         "support": pitfall.support,
         "failure_rate": pitfall.failure_rate,
+        "refusal_rate": pitfall.refusal_rate,
     }
 
 
@@ -708,6 +772,7 @@ def _pitfall_from(body: Mapping[str, Any]) -> Pitfall:
         evidence=body["evidence"],
         support=body["support"],
         failure_rate=body["failure_rate"],
+        refusal_rate=body.get("refusal_rate", 0.0),
     )
 
 
