@@ -49,6 +49,7 @@ def test_scripts_directory_contains_exactly() -> None:
     entries = {p.name for p in scripts_dir.iterdir() if p.suffix in (".py", ".sh")}
     expected = {
         "bake_models.py",
+        "measure_traversals.py",
         "preflight.py",
         "docker-entrypoint.sh",
         "gate.sh",
@@ -56,8 +57,10 @@ def test_scripts_directory_contains_exactly() -> None:
     }
     assert entries == expected, (
         f"{scripts_dir}: expected exactly {expected}, found {entries} — "
-        "install-hooks.sh and sonar-publish.sh belong to removed workflows, and "
-        "sync_version.py derives every version from pyproject.toml"
+        "install-hooks.sh and sonar-publish.sh belong to removed workflows, "
+        "sync_version.py derives every version from pyproject.toml, and "
+        "measure_traversals.py is the published traversal measurement (FR-036), "
+        "run by hand and deliberately outside the package and the gate"
     )
 
 
