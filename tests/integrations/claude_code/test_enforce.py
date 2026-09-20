@@ -110,7 +110,7 @@ def write_snapshot(path: Path, *edges: TransitionEdge) -> None:
 def fails_often() -> Pitfall:
     """What the graph knows the run of the tests goes wrong as, after a read."""
     return Pitfall(
-        kind=PitfallKind.FAILURE_PRONE, evidence="pytest -q <File>", support=4, failure_rate=0.8
+        kind=PitfallKind.TOOL_ERROR, evidence="pytest -q <File>", support=4, failure_rate=0.8
     )
 
 
@@ -190,7 +190,7 @@ def test_a_move_the_graph_only_knows_as_a_loop_is_not_refused(
     """FR-031: a loop makes no claim about outcome, so it is no ground to refuse."""
     project = tmp_path / "demo"
     looping = Pitfall(
-        kind=PitfallKind.REPETITION_LOOP, evidence="ArtifactEvaluation/pytest", support=5
+        kind=PitfallKind.STEP_REPETITION, evidence="ArtifactEvaluation/pytest", support=5
     )
     write_snapshot(
         project / STORE_DIR / SNAPSHOT_NAME,

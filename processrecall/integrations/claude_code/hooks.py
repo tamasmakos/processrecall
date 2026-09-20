@@ -46,9 +46,9 @@ from processrecall.config import (
 )
 from processrecall.exceptions import PackError
 from processrecall.graph.abstract import (
+    FAILURE_KINDS,
     START_KEY,
     Pitfall,
-    PitfallKind,
     TransitionEdge,
 )
 from processrecall.graph.derive import Derivation
@@ -586,13 +586,13 @@ def _matching_pitfall(move: _Move, counters: Counters) -> Pitfall | None:
 
 
 def _failure_of(edge: TransitionEdge) -> Pitfall | None:
-    """What *edge* is known to fail as, or ``None`` where it is known no such thing.
+    """What *edge* is known to fail as (a failure of any kind), or ``None`` if nothing does.
 
     A repetition loop is not one: it counts repetitions rather than failures
     and makes no claim about how they went (FR-031), so it is something to warn
     about one step early, not something to refuse an action over.
     """
-    failures = (pitfall for pitfall in edge.pitfalls if pitfall.kind is PitfallKind.FAILURE_PRONE)
+    failures = (pitfall for pitfall in edge.pitfalls if pitfall.kind in FAILURE_KINDS)
     return next(failures, None)
 
 

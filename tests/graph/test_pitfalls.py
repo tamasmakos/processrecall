@@ -7,6 +7,8 @@ knows the base failure rate to call one over-represented relative to.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from processrecall.graph.abstract import PitfallKind, aggregate
 from processrecall.graph.schema import DecisionSource, StepDecision
 from processrecall.graph.store import EpisodicStep
@@ -31,7 +33,7 @@ def edit_then_failing_test(prompt_id: str, first_step_id: int) -> tuple[Episodic
     )
 
 
-def test_a_move_failing_more_than_the_base_rate_is_failure_prone() -> None:
+def test_a_move_failing_more_than_the_base_rate_is_a_tool_error() -> None:
     """FR-031: over-represented in failed prompts, and clearing `min_support`."""
     steps = edit_then_failing_test("p1", 1) + edit_then_failing_test("p2", 4)
 
@@ -39,7 +41,7 @@ def test_a_move_failing_more_than_the_base_rate_is_failure_prone() -> None:
 
     moved = edge(graph, "ChangeImplementation/Edit -> ArtifactEvaluation/Pytest")
     (pitfall,) = moved.pitfalls
-    assert pitfall.kind is PitfallKind.FAILURE_PRONE
+    assert pitfall.kind is PitfallKind.TOOL_ERROR
     assert pitfall.failure_rate == 1.0
     assert pitfall.support == 2
     assert pitfall.evidence == "Pytest <File>"
@@ -77,7 +79,7 @@ def repeated(node_key: str, times: int, *, prompt_id: str) -> tuple[EpisodicStep
     )
 
 
-def test_a_node_following_itself_k_times_is_a_repetition_loop() -> None:
+def test_a_node_following_itself_k_times_is_step_repetition() -> None:
     """R7: two attempts at a procedure are retries, `k` of them are a loop."""
     steps = repeated("ArtifactEvaluation/Pytest/py", 3, prompt_id="p1")
 
@@ -85,7 +87,7 @@ def test_a_node_following_itself_k_times_is_a_repetition_loop() -> None:
 
     looped = edge(graph, "ArtifactEvaluation/Pytest -> ArtifactEvaluation/Pytest")
     (pitfall,) = looped.pitfalls
-    assert pitfall.kind is PitfallKind.REPETITION_LOOP
+    assert pitfall.kind is PitfallKind.STEP_REPETITION
     assert pitfall.evidence == "ArtifactEvaluation/Pytest"
     assert pitfall.support == 1
     assert pitfall.failure_rate == 0.0
@@ -135,7 +137,7 @@ def edit_then_accepted_command(prompt_id: str, first_step_id: int) -> tuple[Epis
     )
 
 
-def test_usually_refused_pitfall_counts_refusals() -> None:
+def test_refused_pitfall_counts_refusals() -> None:
     """FR-027: a move refused more often than it was allowed, named with how often."""
     steps = (
         edit_then_refused_command("p1", 1)
@@ -147,7 +149,56 @@ def test_usually_refused_pitfall_counts_refusals() -> None:
 
     moved = edge(graph, "ChangeImplementation/Edit -> ArtifactEvaluation/Bash")
     (pitfall,) = moved.pitfalls
-    assert pitfall.kind is PitfallKind.USUALLY_REFUSED
+    assert pitfall.kind is PitfallKind.REFUSED
     assert pitfall.evidence == "Bash <File>"
     assert pitfall.support == 3
     assert pitfall.refusal_rate == 2 / 3
+
+
+def edit_then_test_erroring(
+    prompt_id: str, first_step_id: int, *, error_type: str
+) -> tuple[EpisodicStep, ...]:
+    """`edit_then_failing_test`, with what the run that failed reported."""
+    *before, failed = edit_then_failing_test(prompt_id, first_step_id)
+    return (*before, replace(failed, error_type=error_type))
+
+
+def edit_then_read_on(prompt_id: str, first_step_id: int) -> tuple[EpisodicStep, ...]:
+    """One prompt that edited a file and read on, never evaluating what it wrote."""
+    key = sequence(prompt_id)
+    return (
+        make_step("ChangeImplementation/Edit/py", position=0, step_id=first_step_id, key=key),
+        make_step("Inspection/Read/py", position=1, step_id=first_step_id + 1, key=key),
+    )
+
+
+def rows_deriving_each_kind() -> dict[PitfallKind, tuple[EpisodicStep, ...]]:
+    """The episodic rows each kind of the closed vocabulary is derived from (FR-027)."""
+    return {
+        PitfallKind.TOOL_ERROR: edit_then_failing_test("p1", 1) + edit_then_failing_test("p2", 4),
+        PitfallKind.TIMEOUT: edit_then_test_erroring("p1", 1, error_type="TimeoutError")
+        + edit_then_test_erroring("p2", 4, error_type="TimeoutError"),
+        PitfallKind.RESOURCE_NOT_FOUND: edit_then_test_erroring(
+            "p1", 1, error_type="FileNotFoundError"
+        )
+        + edit_then_test_erroring("p2", 4, error_type="FileNotFoundError"),
+        PitfallKind.REFUSED: edit_then_refused_command("p1", 1)
+        + edit_then_refused_command("p2", 3),
+        PitfallKind.STEP_REPETITION: repeated("ArtifactEvaluation/Pytest/py", 3, prompt_id="p1"),
+        PitfallKind.NO_VERIFICATION: edit_then_read_on("p1", 1) + edit_then_read_on("p2", 3),
+    }
+
+
+def test_every_declared_pitfall_kind_derives_from_rows() -> None:
+    """FR-027: a closed set, with nothing in it no episodic row produces."""
+    derived = {
+        kind: {
+            pitfall.kind
+            for edge in aggregate(steps, level="class/program").edges
+            for pitfall in edge.pitfalls
+        }
+        for kind, steps in rows_deriving_each_kind().items()
+    }
+
+    assert set(derived) == set(PitfallKind)
+    assert all(kind in kinds for kind, kinds in derived.items())

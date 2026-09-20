@@ -111,7 +111,7 @@ def avoid_statements(edge: TransitionEdge) -> tuple[GuidanceStatement, ...]:
     """*edge* as the one avoid-this warning it has earned, where it has earned one (SC-005).
 
     Empty for a move whose refusals never crossed the support floor:
-    `_EdgeFold._usually_refused` attaches the `USUALLY_REFUSED` pitfall only
+    `_EdgeFold._refused` attaches the `REFUSED` pitfall only
     above `Config.min_support`, so a refused move is served as something to
     steer away from, never as a next step, and below the floor it is not
     served at all.
@@ -119,7 +119,7 @@ def avoid_statements(edge: TransitionEdge) -> tuple[GuidanceStatement, ...]:
     return tuple(
         _avoidance(edge, pitfall)
         for pitfall in edge.pitfalls
-        if pitfall.kind is PitfallKind.USUALLY_REFUSED
+        if pitfall.kind is PitfallKind.REFUSED
     )
 
 

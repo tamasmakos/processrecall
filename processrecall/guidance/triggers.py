@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from processrecall.config import Config, Counters
-from processrecall.graph.abstract import Level, PitfallKind, TransitionEdge
+from processrecall.graph.abstract import FAILURE_KINDS, Level, TransitionEdge
 from processrecall.graph.keys import ARTIFACT_EVALUATION, CHANGE_IMPLEMENTATION, class_of, key_at
 from processrecall.graph.store import EpisodicStep, SequenceKey
 from processrecall.guidance.neighborhood import Neighborhood
@@ -188,5 +188,5 @@ def _verifies(edge: TransitionEdge) -> bool:
 
 
 def _fails_often(edge: TransitionEdge) -> bool:
-    """Whether *edge* is known to go wrong as a failure, rather than as a loop."""
-    return any(pitfall.kind is PitfallKind.FAILURE_PRONE for pitfall in edge.pitfalls)
+    """Whether *edge* is known to go wrong as a failure of any kind, rather than as a loop."""
+    return any(pitfall.kind in FAILURE_KINDS for pitfall in edge.pitfalls)

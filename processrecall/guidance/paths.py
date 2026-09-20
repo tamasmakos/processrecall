@@ -65,7 +65,7 @@ def usually_refused(
     """The moves out of *position* in *graph* that are usually turned down.
 
     These are candidates to *avoid* rather than to take: a transition earns the
-    `PitfallKind.USUALLY_REFUSED` pitfall in the fold once its refusals cross
+    `PitfallKind.REFUSED` pitfall in the fold once its refusals cross
     the support floor, so what is returned is already evidenced and needs no
     threshold of its own here (FR-027). Unordered for now: the recency-weighted,
     lift-scaled order the contract asks each traversal for needs an activation
@@ -85,4 +85,4 @@ def usually_refused(
 
 def _is_usually_refused(edge: TransitionEdge) -> bool:
     """Whether *edge* carries the refusal pitfall the traversal reads."""
-    return any(pitfall.kind is PitfallKind.USUALLY_REFUSED for pitfall in edge.pitfalls)
+    return any(pitfall.kind is PitfallKind.REFUSED for pitfall in edge.pitfalls)

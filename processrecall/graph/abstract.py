@@ -33,7 +33,14 @@ from typing import Any, cast
 
 from processrecall.config import LEVELS, ActivityClass, Config, ProcessType
 from processrecall.graph.annotations import Annotation
-from processrecall.graph.keys import group_by_sequence, key_at, keys_of, shares_a_file
+from processrecall.graph.keys import (
+    ARTIFACT_EVALUATION,
+    CHANGE_IMPLEMENTATION,
+    group_by_sequence,
+    key_at,
+    keys_of,
+    shares_a_file,
+)
 from processrecall.graph.schema import StepDecision
 from processrecall.graph.snapshot import Snapshot
 from processrecall.graph.store import CLOSED, EpisodicStep, Sequence, SequenceKey
@@ -67,6 +74,11 @@ _UNCLEAN_WEIGHT = 1.0
 #: "usually" is the honest word for it (FR-027): rejected more often than let
 #: through, which is a majority and not a comparison against other moves.
 _REFUSED_USUALLY = 0.5
+
+#: The share of a move's observations that has to have left a change nothing
+#: went on to evaluate before the move is named as the one that skips
+#: verification (FR-027): the same majority `_REFUSED_USUALLY` is.
+_UNVERIFIED_USUALLY = 0.5
 
 #: The oldest a fold can be: every real observation is later, so the first one
 #: replaces it. Public because `edit.py` gives an authored edge the same value
@@ -159,11 +171,34 @@ class Condition:
 
 
 class PitfallKind(StrEnum):
-    """What a move is known to go wrong as (FR-031)."""
+    """What a move is known to go wrong as — a closed set (FR-027)."""
 
-    FAILURE_PRONE = "failure_prone"
-    REPETITION_LOOP = "repetition_loop"
-    USUALLY_REFUSED = "usually_refused"
+    REFUSED = "refused"
+    TOOL_ERROR = "tool_error"
+    STEP_REPETITION = "step_repetition"
+    NO_VERIFICATION = "no_verification"
+    RESOURCE_NOT_FOUND = "resource_not_found"
+    TIMEOUT = "timeout"
+
+
+#: What an episodic row's ``error_type`` has to name for its failure to be more
+#: than a generic tool error (FR-027). Matched against that text with its
+#: punctuation dropped, so a Python exception name and an OpenTelemetry
+#: ``error.type`` token read the same way ("FileNotFoundError", "ENOENT").
+_FAILURE_MARKERS: Mapping[PitfallKind, tuple[str, ...]] = {
+    PitfallKind.TIMEOUT: ("timeout", "timedout"),
+    PitfallKind.RESOURCE_NOT_FOUND: ("notfound", "enoent"),
+}
+
+#: Every kind a failed row can be named as: the generic one, and the two
+#: `_FAILURE_MARKERS` tells apart. Each is judged over-represented on its own
+#: count, so a move that times out is warned about as a timeout (FR-027).
+_FAILURE_KINDS = (PitfallKind.TOOL_ERROR, *_FAILURE_MARKERS.keys())
+
+#: The failure family, for a caller outside this module that needs to ask "is
+#: this pitfall a failure of any kind" without naming every `PitfallKind` the
+#: set might grow to (FR-027).
+FAILURE_KINDS: frozenset[PitfallKind] = frozenset(_FAILURE_KINDS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,9 +218,14 @@ class Pitfall:
             own field rather than a second reading of *failure_rate*, because a
             refusal is a policy signal and a failure a capability one (FR-022),
             and one number over both is what the two axes exist to prevent.
-        observations: What *refusal_rate* is a share of. Its own field rather
-            than a second reading of *support*, which counts distinct steps
-            and is not always the rate's denominator.
+        unverified_rate: Share of the move's observations that left the change
+            it followed with nothing evaluating it. Its own field for the
+            reason *refusal_rate* is: skipping verification is neither a
+            capability nor a policy signal, and the kind reading it is the only
+            one making the claim.
+        observations: What *refusal_rate* and *unverified_rate* are a share of.
+            Its own field rather than a second reading of *support*, which
+            counts distinct steps and is not always the rate's denominator.
     """
 
     kind: PitfallKind
@@ -193,6 +233,7 @@ class Pitfall:
     support: int
     failure_rate: float = 0.0
     refusal_rate: float = 0.0
+    unverified_rate: float = 0.0
     observations: int = 0
 
 
@@ -333,12 +374,19 @@ class _Chain:
 
 @dataclass(frozen=True, slots=True)
 class _Move:
-    """One observed transition: where it went, what supports it, when it applied."""
+    """One observed transition: where it went, what supports it, when it applied.
+
+    *unverified_change* is the template of the change this move moved on from
+    where nothing in the rest of the prompt evaluated it, and ``None``
+    otherwise: a property of the whole chain, so the move is where the fold can
+    still see it (FR-027).
+    """
 
     source: str
     target: str
     supporting_step: EpisodicStep
     condition: Condition
+    unverified_change: str | None = None
 
 
 @dataclass(slots=True)
@@ -352,8 +400,11 @@ class _EdgeFold:
     step_ids: set[int] = field(default_factory=set)
     outcomes: Counter[Outcome] = field(default_factory=Counter)
     conditions: Counter[Condition] = field(default_factory=Counter)
-    failed_templates: Counter[str] = field(default_factory=Counter)
+    failed_templates: defaultdict[PitfallKind, Counter[str]] = field(
+        default_factory=lambda: defaultdict(Counter)
+    )
     refused_templates: Counter[str] = field(default_factory=Counter)
+    unverified_changes: Counter[str] = field(default_factory=Counter)
     repetitions: int = 0
 
     def record(self, move: _Move, weight: float) -> None:
@@ -366,9 +417,12 @@ class _EdgeFold:
         self.outcomes[outcome] += 1
         self.conditions[move.condition] += 1
         if outcome is Outcome.FAILURE:
-            self.failed_templates[step.template] += 1
+            kind = _failure_kind(step.error_type)
+            self.failed_templates[kind][step.template] += 1
         if step.decision is StepDecision.REJECTED:
             self.refused_templates[step.template] += 1
+        if move.unverified_change is not None:
+            self.unverified_changes[move.unverified_change] += 1
 
     @property
     def support(self) -> int:
@@ -380,12 +434,12 @@ class _EdgeFold:
     ) -> tuple[str, float] | None:
         """The evidence template and rate behind a rate-judged pitfall, where it earns one.
 
-        Shared by `_failure_prone` and `_usually_refused`: both rank a counter of
-        templates against `self.outcomes.total()`, gate on a support floor before
-        one unlucky prompt can warn every later one, and break ties on the
-        template's own text so a rebuild names the same one (FR-032). They
-        differ only in which counter is ranked, which count clears the floor,
-        and which rate counts as over-represented.
+        Shared by `_failure_pitfall`, `_refused` and `_no_verification`: all
+        rank a counter of templates against `self.outcomes.total()`, gate on a
+        support floor before one unlucky prompt can warn every later one, and
+        break ties on the template's own text so a rebuild names the same one
+        (FR-032). They differ only in which counter is ranked, which count
+        clears the floor, and which rate counts as over-represented.
         """
         rate = counted.total() / self.outcomes.total()
         if count_for_floor < min_support or rate <= threshold:
@@ -393,8 +447,8 @@ class _EdgeFold:
         ranked = sorted(counted.items(), key=lambda item: (-item[1], item[0]))
         return ranked[0][0], rate
 
-    def _failure_prone(self, baseline: _Baseline) -> Pitfall | None:
-        """This move's `PitfallKind.FAILURE_PRONE` pitfall, where it earns one.
+    def _failure_pitfall(self, kind: PitfallKind, baseline: _Baseline) -> Pitfall | None:
+        """This move's pitfall of failure *kind*, where it earns one.
 
         Over-representation is relative (FR-031): where a third of everything
         fails, failing a third of the time is the base rate and not a pitfall.
@@ -402,23 +456,26 @@ class _EdgeFold:
         not itself judged over-represented against a template-level base rate.
         """
         found = self._rate_pitfall(
-            self.failed_templates, self.support, baseline.config.min_support, baseline.failure_rate
+            self.failed_templates[kind],
+            self.support,
+            baseline.config.min_support,
+            baseline.failure_rate,
         )
         if found is None:
             return None
         evidence, rate = found
         return Pitfall(
-            kind=PitfallKind.FAILURE_PRONE,
+            kind=kind,
             evidence=evidence,
             support=self.support,
             failure_rate=rate,
         )
 
-    def _usually_refused(self, baseline: _Baseline) -> Pitfall | None:
-        """This move's `PitfallKind.USUALLY_REFUSED` pitfall, where it earns one.
+    def _refused(self, baseline: _Baseline) -> Pitfall | None:
+        """This move's `PitfallKind.REFUSED` pitfall, where it earns one.
 
         Judged against `_REFUSED_USUALLY` rather than against the corpus the way
-        `_failure_prone` is: a refusal is a policy signal (FR-022), so what makes
+        `_failure_pitfall` is: a refusal is a policy signal (FR-022), so what makes
         a move one to avoid is that it was rejected more often than it was let
         through, not that it was rejected more often than everything else. The
         support floor is on the refusals themselves rather than on the move's
@@ -434,15 +491,43 @@ class _EdgeFold:
             return None
         evidence, rate = found
         return Pitfall(
-            kind=PitfallKind.USUALLY_REFUSED,
+            kind=PitfallKind.REFUSED,
             evidence=evidence,
             support=self.support,
             refusal_rate=rate,
             observations=self.outcomes.total(),
         )
 
-    def _repetition_loop(self) -> Pitfall | None:
-        """This move's `PitfallKind.REPETITION_LOOP` pitfall, where it has one.
+    def _no_verification(self, baseline: _Baseline) -> Pitfall | None:
+        """This move's `PitfallKind.NO_VERIFICATION` pitfall, where it earns one.
+
+        Derived from the rows the prompt turned out not to contain: a change
+        this move moved on from or landed on, and no evaluation of it anywhere
+        after (FR-027). Judged against `_UNVERIFIED_USUALLY` rather than
+        against the corpus, for the reason `_refused` is judged against its
+        own majority:
+        what makes the move one to steer away from is that it usually leaves
+        the change unevaluated, not that it does so oftener than other moves.
+        """
+        found = self._rate_pitfall(
+            self.unverified_changes,
+            self.unverified_changes.total(),
+            baseline.config.min_support,
+            _UNVERIFIED_USUALLY,
+        )
+        if found is None:
+            return None
+        evidence, rate = found
+        return Pitfall(
+            kind=PitfallKind.NO_VERIFICATION,
+            evidence=evidence,
+            support=self.support,
+            unverified_rate=rate,
+            observations=self.outcomes.total(),
+        )
+
+    def _step_repetition(self) -> Pitfall | None:
+        """This move's `PitfallKind.STEP_REPETITION` pitfall, where it has one.
 
         Only a move onto itself can have one, and only where `_repetition_runs`
         counted a run long enough to be a loop rather than a retry (R7). The
@@ -452,7 +537,7 @@ class _EdgeFold:
         if not self.repetitions:
             return None
         return Pitfall(
-            kind=PitfallKind.REPETITION_LOOP,
+            kind=PitfallKind.STEP_REPETITION,
             evidence=self.source,
             support=self.repetitions,
         )
@@ -467,9 +552,10 @@ class _EdgeFold:
         if self.source in (START_KEY, END_KEY) or self.target in (START_KEY, END_KEY):
             return ()
         derived = (
-            self._failure_prone(baseline),
-            self._usually_refused(baseline),
-            self._repetition_loop(),
+            *(self._failure_pitfall(kind, baseline) for kind in _FAILURE_KINDS),
+            self._refused(baseline),
+            self._step_repetition(),
+            self._no_verification(baseline),
         )
         return tuple(pitfall for pitfall in derived if pitfall is not None)
 
@@ -517,6 +603,20 @@ def _base_failure_rate(folds: Iterable[_EdgeFold]) -> float:
         outcomes.update(fold.outcomes)
     total = outcomes.total()
     return outcomes[Outcome.FAILURE] / total if total else 0.0
+
+
+def _failure_kind(error_type: str | None) -> PitfallKind:
+    """Which kind of failure *error_type* names, the generic one where it names none.
+
+    A failed row with nothing recorded against it is a tool error: the two
+    narrower kinds are claims about *why* the call failed, and FR-027 derives
+    them from what the row carries rather than from a guess about it.
+    """
+    text = "".join(char for char in (error_type or "").lower() if char.isalnum())
+    for kind, markers in _FAILURE_MARKERS.items():
+        if any(marker in text for marker in markers):
+            return kind
+    return PitfallKind.TOOL_ERROR
 
 
 def edge_key(source: str, target: str) -> str:
@@ -692,6 +792,7 @@ def _pitfall_body(pitfall: Pitfall) -> dict[str, Any]:
         "support": pitfall.support,
         "failure_rate": pitfall.failure_rate,
         "refusal_rate": pitfall.refusal_rate,
+        "unverified_rate": pitfall.unverified_rate,
     }
 
 
@@ -778,6 +879,7 @@ def _pitfall_from(body: Mapping[str, Any]) -> Pitfall:
         support=body["support"],
         failure_rate=body["failure_rate"],
         refusal_rate=body.get("refusal_rate", 0.0),
+        unverified_rate=body.get("unverified_rate", 0.0),
     )
 
 
@@ -801,6 +903,10 @@ def _transitions(chain: _Chain, level: Level) -> Iterator[_Move]:
 
     A bookend joins no two rows, so it has no file and no previous step to
     compare against; the move out of `START_KEY` has no previous outcome either.
+    A change that is the last row of the prompt has no later row to be checked
+    against *as* a `before`, so it is checked as the `after` of the move that
+    reached it instead — the move `X -> ChangeImplementation/...` rather than
+    the one out of `END_KEY` that cannot carry a pitfall at all.
     """
     steps = chain.steps
     first, last = steps[0], steps[-1]
@@ -810,7 +916,10 @@ def _transitions(chain: _Chain, level: Level) -> Iterator[_Move]:
         supporting_step=first,
         condition=Condition(chain.process_type, None, None, _intended_activity(first)),
     )
-    for before, after in pairwise(steps):
+    for after_index, (before, after) in enumerate(pairwise(steps), start=1):
+        unverified = _unverified_change(before, steps[after_index:])
+        if unverified is None and after_index == len(steps) - 1:
+            unverified = _unverified_change(after, ())
         yield _Move(
             source=key_at(before, level),
             target=key_at(after, level),
@@ -821,6 +930,7 @@ def _transitions(chain: _Chain, level: Level) -> Iterator[_Move]:
                 Outcome(before.outcome),
                 _intended_activity(after),
             ),
+            unverified_change=unverified,
         )
     yield _Move(
         source=key_at(last, level),
@@ -846,6 +956,19 @@ def _intended_activity(step: EpisodicStep) -> ActivityClass | None:
     the label to surface, not because a task named this fold.
     """
     return None if step.rationale_label is None else ActivityClass(step.rationale_label)
+
+
+def _unverified_change(before: EpisodicStep, onward: tuple[EpisodicStep, ...]) -> str | None:
+    """*before*'s template where nothing in *onward* evaluated what it changed.
+
+    ``None`` wherever there is nothing to warn about: the move followed no
+    change, or the prompt did go on to evaluate it (FR-027).
+    """
+    if before.activity_class != CHANGE_IMPLEMENTATION:
+        return None
+    if any(step.activity_class == ARTIFACT_EVALUATION for step in onward):
+        return None
+    return before.template
 
 
 def _repetition_runs(chain: _Chain, level: Level, k: int) -> Counter[str]:
