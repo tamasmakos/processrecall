@@ -22,6 +22,7 @@ from processrecall.guidance.paths import (
     generalised,
     on_entity,
     prompt_start_for_process,
+    used_counter,
     usual_next,
     usually_refused,
 )
@@ -96,7 +97,7 @@ def test_a_candidate_names_the_counter_its_use_is_counted_under() -> None:
     (candidate,) = usually_refused(position, graph, counters=FakeCounters())
 
     assert candidate.traversal == "usually_refused"
-    assert candidate.used_counter == "path_usually_refused_used"
+    assert used_counter(candidate.traversal) == "path_usually_refused_used"
 
 
 def test_usual_next_returns_the_moves_out_of_the_position() -> None:

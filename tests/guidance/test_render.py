@@ -10,10 +10,13 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import replace
+from datetime import UTC, datetime
 
 from processrecall.graph.abstract import TransitionEdge, aggregate
+from processrecall.graph.annotations import Annotation
 from processrecall.graph.schema import DecisionSource, StepDecision
 from processrecall.graph.store import EpisodicStep
+from processrecall.guidance.paths import GENERALISED, USUAL_NEXT
 from processrecall.guidance.render import (
     BulletRenderer,
     Deadline,
@@ -117,4 +120,42 @@ def test_refused_move_rendered_as_avoid_with_lower_bound_rate() -> None:
     assert rendered == (
         "- avoid ArtifactEvaluation/Bash after ChangeImplementation/Edit:"
         " refused at least 34% of the time (2 episodes)"
+    )
+
+
+def note(text: str) -> Annotation:
+    """One stored note about the edit-then-verify move, as an agent wrote it."""
+    return Annotation(
+        edge_key=f"{EDIT} -> {BASH}",
+        text=text,
+        author="claude",
+        written_at=datetime(2026, 9, 13, 10, 0, tzinfo=UTC),
+    )
+
+
+def test_every_statement_attributes_to_one_path_counter() -> None:
+    """FR-034: one counter per served statement, naming the traversal that produced it.
+
+    An authored note is attributed too, to the same counter as the folded
+    statement beside it: `GuidanceStatement.origin` marks how the line reads
+    (FR-039), not which path it is credited to. This asserts attribution by
+    `traversal` alone; the transition's own `origin` — plan.md's fold-vs-
+    annotated reader — has no writer yet, so this test leaves that reading
+    undecided rather than settling it here.
+    """
+    statements = (
+        GuidanceStatement(text="pytest usually follows an edit", support=7, traversal=USUAL_NEXT),
+        GuidanceStatement.from_annotation(
+            note("rebuild first here, the snapshot goes stale"), support=7, traversal=USUAL_NEXT
+        ),
+        GuidanceStatement(text="ruff usually follows pytest", support=3, traversal=GENERALISED),
+    )
+
+    counters = FakeCounters()
+
+    rendered = BulletRenderer(counters, Deadline()).render(statements)
+
+    assert counters.counted == Counter({"path_usual_next_used": 2, "path_generalised_used": 1})
+    assert rendered.splitlines()[1] == (
+        "- note: rebuild first here, the snapshot goes stale (7 episodes)"
     )

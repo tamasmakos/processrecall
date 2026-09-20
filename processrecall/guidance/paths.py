@@ -77,15 +77,15 @@ class Candidate:
     transition: TransitionEdge
     traversal: str
 
-    @property
-    def used_counter(self) -> str:
-        """The counter bumped when this candidate reaches the rendered output.
 
-        A path's pair of counters is how it earns its place: one says it ran,
-        this one says it contributed, and the gap between them is the continuous
-        form of FR-036's measurement.
-        """
-        return f"path_{self.traversal}_used"
+def used_counter(traversal: str) -> str:
+    """The counter *traversal* is credited under once its candidate is served.
+
+    Named here rather than at the renderer, where the attribution is made
+    (FR-034): the traversal names this module publishes are what the counter
+    name is built out of, so both sides spell it the same way.
+    """
+    return f"path_{traversal}_used"
 
 
 def usual_next(

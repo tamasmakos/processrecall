@@ -25,6 +25,7 @@ from typing import Protocol
 from processrecall.config import Counters
 from processrecall.graph.abstract import Pitfall, PitfallKind, TransitionEdge
 from processrecall.graph.annotations import Annotation
+from processrecall.guidance.paths import used_counter
 
 #: The ceiling FR-042's ~300 tokens becomes without a tokeniser on the hot
 #: path, at the conventional four characters per token (R8).
@@ -85,21 +86,37 @@ class GuidanceStatement:
         origin: What kind of claim it is, and so how it is marked (FR-039).
             Statistical by default: every statement this phase derives is
             counted, and a note has to say so.
+        traversal: The name of the path that produced the move behind the
+            claim, which is the attribution it is served under (FR-034).
+            ``None`` where the statement was not made from a traversal's
+            candidate, and then nothing is credited rather than something
+            credited wrongly.
     """
 
     text: str
     support: int
     origin: Origin = Origin.STATISTICAL
+    traversal: str | None = None
 
     @classmethod
-    def from_annotation(cls, annotation: Annotation, support: int) -> GuidanceStatement:
+    def from_annotation(
+        cls, annotation: Annotation, support: int, *, traversal: str | None = None
+    ) -> GuidanceStatement:
         """*annotation* as the statement it is served as, marked as authored.
 
         *support* is the move's, not the note's: a note is not evidence of
         itself, and FR-044 wants every line to carry the episodes behind the
-        transition the reader is being told about.
+        transition the reader is being told about. *traversal* is the move's
+        too: a note reaches the reader because a path reached the transition it
+        hangs on, so it is credited there while staying the other claim of the
+        two on the page (FR-034).
         """
-        return cls(text=annotation.text, support=support, origin=Origin.ANNOTATION)
+        return cls(
+            text=annotation.text,
+            support=support,
+            origin=Origin.ANNOTATION,
+            traversal=traversal,
+        )
 
 
 def avoid_statements(edge: TransitionEdge) -> tuple[GuidanceStatement, ...]:
@@ -149,7 +166,19 @@ class BulletRenderer:
         kept = _within_budget(statements)
         if len(kept) != len(statements):
             self._counters.bump("guidance_over_budget")
+        self._attribute(kept)
         return _assemble(kept)
+
+    def _attribute(self, statements: Sequence[GuidanceStatement]) -> None:
+        """Credit each of *statements* to the one path that produced it (FR-034).
+
+        The statements served, not the ones ranked: a path whose candidate the
+        budget dropped fired without contributing, and the gap between the two
+        counters is the whole of what the attribution measures.
+        """
+        for statement in statements:
+            if statement.traversal is not None:
+                self._counters.bump(used_counter(statement.traversal))
 
 
 def _within_budget(statements: Sequence[GuidanceStatement]) -> tuple[GuidanceStatement, ...]:
