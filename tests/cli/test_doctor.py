@@ -22,6 +22,16 @@ def _name_telemetry_file(home: Path, telemetry_path: Path) -> None:
     )
 
 
+def _directives(config: str) -> list[str]:
+    """The configuration lines of *config*: what the collector reads, comments aside."""
+    return [line.strip() for line in config.splitlines() if line.strip()[:1] not in ("", "#")]
+
+
+def _comments(config: str) -> list[str]:
+    """The comment lines of *config*, which is where its reasons live."""
+    return [line.strip() for line in config.splitlines() if line.strip().startswith("#")]
+
+
 def test_doctor_is_one_of_the_commands_the_cli_registers() -> None:
     """The verb is registered, so `--help` and the docs name it (FR-004)."""
     assert "doctor" in COMMANDS
@@ -43,3 +53,32 @@ def test_doctor_reports_the_configured_collector_file_or_no_source(tmp_path: Pat
     assert configured.returncode == 0, configured.stderr
     assert str(telemetry) in configured.stdout
     assert "exists=True" in configured.stdout
+
+
+def test_doctor_prints_the_shipped_example_collector_config(tmp_path: Path) -> None:
+    """`--collector-config` prints the example the developer runs their collector on.
+
+    The memory starts no collector (FR-004), so this text is the whole of the help
+    it offers, and what it declares is asserted here: a loopback receiver, a batch
+    processor, `format: json` with no rotation, the two metrics settings the memory
+    needs, and the tool-details gate with its privacy consequence spelled out.
+    """
+    printed = run_cli(tmp_path / "unconfigured", "doctor", "--collector-config")
+
+    assert printed.returncode == 0, printed.stderr
+    directives = _directives(printed.stdout)
+    assert "endpoint: 127.0.0.1:4317" in directives
+    assert not [line for line in directives if "0.0.0.0" in line], (
+        "a collector reachable from the network is a telemetry source for whoever finds it"
+    )
+    assert "batch:" in directives
+    assert "format: json" in directives
+    assert not [line for line in directives if line.startswith("rotation:")], (
+        "with rotation on, a byte offset into the file stops meaning the same thing"
+    )
+    assert "OTEL_METRICS_INCLUDE_VERSION" in printed.stdout
+    assert "OTEL_METRICS_INCLUDE_SESSION_ID" in printed.stdout
+    assert "OTEL_LOG_TOOL_DETAILS" in printed.stdout
+    assert any("Privacy" in line for line in _comments(printed.stdout)), (
+        "the tool-details gate ships without its privacy consequence in a comment"
+    )

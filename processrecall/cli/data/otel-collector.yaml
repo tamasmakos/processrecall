@@ -1,0 +1,65 @@
+# Example OpenTelemetry Collector configuration for processrecall (FR-004).
+#
+# processrecall reads telemetry from a file a collector you run writes. It never
+# installs, starts or supervises that collector, and it never writes this file
+# into your collector directory: print it, review it, put it where you keep your
+# own configuration.
+#
+#   processrecall doctor --collector-config > otel-collector.yaml
+#   otelcol --config otel-collector.yaml
+#
+# Then name the same output path as `telemetry_path` in ~/.processrecall/config.json
+# and check it with `processrecall doctor`.
+#
+# On the Claude Code side:
+#
+#   export CLAUDE_CODE_ENABLE_TELEMETRY=1
+#   export OTEL_LOGS_EXPORTER=otlp
+#   export OTEL_METRICS_INCLUDE_VERSION=true    # off by default; without `app.version`
+#                                               # no version floor can be checked
+#   export OTEL_METRICS_INCLUDE_SESSION_ID=true # on by default; with it off every record
+#                                               # is session-unbound and attaches to nothing
+#   export OTEL_LOG_TOOL_DETAILS=1              # the tool-details gate
+#
+# Privacy consequence of that last gate: with OTEL_LOG_TOOL_DETAILS on, tool
+# parameters and tool input — file paths, command lines, search patterns, the
+# text of an edit — leave Claude Code and land in the file below in the clear.
+# Anyone who can read that file reads them. processrecall strips prompts,
+# responses and identity before storing, but stripping happens after the
+# collector has already written the line. With the gate off nothing is leaked and
+# the memory records the gap instead: touched entities fall back to the hook's
+# own capture and `gap_tool_details` is bumped. Turning it on is your decision.
+
+receivers:
+  # Loopback only. A collector reachable from the network is a telemetry source
+  # for whoever finds it.
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 127.0.0.1:4317
+      http:
+        endpoint: 127.0.0.1:4318
+
+processors:
+  # Batching is yours to tune: the reader iterates resourceLogs -> scopeLogs ->
+  # logRecords, so a line may carry one record or a hundred.
+  batch:
+    timeout: 5s
+    send_batch_size: 200
+
+exporters:
+  # fileexporter (collector-contrib), `format: json`: one JSON object per line.
+  # No `rotation:` key, and no `append: true` — the two are mutually exclusive,
+  # and with neither the file only grows, so a byte offset into it keeps meaning
+  # the same thing between passes. Enabling rotation is not broken; processrecall
+  # detects it by fingerprint, resets the offset and re-reads.
+  file:
+    path: /tmp/processrecall/claude-code-telemetry.jsonl
+    format: json
+
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file]

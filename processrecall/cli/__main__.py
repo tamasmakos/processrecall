@@ -16,7 +16,7 @@ from pathlib import Path
 
 from processrecall.cli.backfill import Replay, backfill, parse_since
 from processrecall.cli.bootstrap import prepare
-from processrecall.cli.doctor import readiness
+from processrecall.cli.doctor import collector_config, readiness
 from processrecall.cli.prune import Removal, episodes_before, prune
 from processrecall.cli.rebuild import check, rebuild
 from processrecall.cli.show import Inspection, show
@@ -94,8 +94,13 @@ def _parser() -> argparse.ArgumentParser:
     prune_command.add_argument(
         "--yes", action="store_true", help="delete without asking for confirmation"
     )
-    commands.add_parser(
+    doctor_command = commands.add_parser(
         COMMANDS[5], help="report on the collector file the memory reads telemetry from"
+    )
+    doctor_command.add_argument(
+        "--collector-config",
+        action="store_true",
+        help="print the example collector configuration instead of the report",
     )
     return parser
 
@@ -106,8 +111,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "bootstrap":
         return _bootstrap(arguments)
     if arguments.command == "doctor":
-        print(readiness(load_config().telemetry_path))
-        return 0
+        return _doctor(arguments)
     with closing(open_index()) as connection:
         if arguments.command == "rebuild":
             return _rebuild(arguments, SQLiteEpisodicStore(connection))
@@ -127,6 +131,15 @@ def _bootstrap(arguments: argparse.Namespace) -> int:
         return 0
     print(failure)
     return 1
+
+
+def _doctor(arguments: argparse.Namespace) -> int:
+    """Print the example collector configuration, or the readiness report (FR-004)."""
+    if arguments.collector_config:
+        print(collector_config())
+        return 0
+    print(readiness(load_config().telemetry_path))
+    return 0
 
 
 def _backfill(arguments: argparse.Namespace, connection: sqlite3.Connection) -> int:

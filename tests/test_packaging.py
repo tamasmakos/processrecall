@@ -49,6 +49,11 @@ PACK_GLOBS = (
 #: The directories those globs live under, as the archive spells them.
 PACK_DIRS = tuple(glob.split("**")[0] for glob in PACK_GLOBS)
 
+#: FR-004: the one non-code file the CLI prints, as the archive spells it. The
+#: memory never starts a collector, so the example configuration is all the help
+#: it can offer, and a stranger who installed the wheel has no checkout to read it in.
+COLLECTOR_CONFIG = "processrecall/cli/data/otel-collector.yaml"
+
 #: The file extension each `uv build --<kind>` produces. The built archive is
 #: found by suffix rather than by listing the directory, because uv also writes
 #: a `.gitignore` beside it.
@@ -293,6 +298,23 @@ def test_wheel_under_ceiling_and_ships_both_packs(tmp_path: Path) -> None:
         shipped = archive.namelist()
     missing = [d for d in PACK_DIRS if not any(name.startswith(d) for name in shipped)]
     assert not missing, f"{wheel.name} ships no pack data under: {missing}"
+
+
+def test_wheel_ships_collector_config(tmp_path: Path) -> None:
+    """FR-004: the example collector configuration ships inside the package.
+
+    It is package data rather than documentation because `doctor
+    --collector-config` prints it out of the installed package: the developer
+    who runs the collector installed a wheel, and a checkout is not part of that.
+    """
+    wheel = _build_archive(tmp_path, "wheel")
+
+    with zipfile.ZipFile(wheel) as archive:
+        shipped = archive.namelist()
+    assert COLLECTOR_CONFIG in shipped, (
+        f"{wheel.name} ships no {COLLECTOR_CONFIG}, so `doctor --collector-config` "
+        "has nothing to print after a plain install"
+    )
 
 
 def test_the_sdist_carries_the_source_and_not_the_workspace(tmp_path: Path) -> None:
