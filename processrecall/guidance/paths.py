@@ -12,6 +12,9 @@ it, so a rendered statement can say which path earned it (FR-034). `Position`
 is defined once, in `locate.py`, and imported here rather than redeclared; it
 is still `key` and `previous` there, not yet the fuller working state the
 contract describes, and widening it is `locate`'s task to do, not this one's.
+Which is why the entity-anchored paths take a `code_entities` key in place of a
+position: the entity is the whole of the working state they read, and taking a
+`Position` that cannot yet carry one would be taking it to ignore it.
 
 In the renderer layer, so the standard library only, and neither the symbol nor
 the code-parsing layer is imported here (FR-037).
@@ -24,6 +27,7 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from processrecall.config import Counters
@@ -35,6 +39,14 @@ USUAL_NEXT = "usual_next"
 
 #: The traversal backing off to the parent level, as its candidates name it (FR-034).
 GENERALISED = "generalised"
+
+#: The traversal anchored on the entity just changed, as its candidates name it
+#: (FR-034). Shorter than the function it names, because the counter the name
+#: builds is the one the contract publishes: `path_after_change`.
+AFTER_CHANGE = "after_change"
+
+#: The traversal anchored on the entity in hand, as its candidates name it (FR-034).
+ON_ENTITY = "on_entity"
 
 #: The traversal reading the refusal pitfall, as its candidates name it (FR-034).
 USUALLY_REFUSED = "usually_refused"
@@ -129,6 +141,83 @@ def generalised(
         for edge in parent_graph.edges
         if edge.source == parent_key
     )
+
+
+def after_change_to_entity(
+    graph: AbstractGraph, entity_key: str, *, counters: Counters
+) -> tuple[Candidate, ...]:
+    """The moves observed around a change to *entity_key* — what follows it.
+
+    The first traversal anchored on the code rather than on the procedure, which
+    is what lets it answer where `usual_next` cannot: the `precedes_work_on`
+    projection is read reversed, from the entity to the procedures it is worked
+    on around, and the transitions out of those procedures are the candidates.
+    A move reached this way need not leave the position the agent stands at —
+    that is the point of a second anchor, and fusion is where the two anchors'
+    answers meet (FR-032).
+
+    *entity_key* is the working state's, not the position's: `Position` does not
+    carry the active file or symbol yet, and the `code_entities` spelling of one
+    belongs to the layer FR-037 keeps out of here, so the caller passes the key
+    it already holds rather than this path deriving it.
+
+    An entity the projection names no procedure for answers with nothing, which
+    is the ordinary case for a file this project has not recorded working on;
+    the path is counted as having run either way (FR-034).
+
+    The contract calls this reading of the projection "reversed": the lookup by
+    *entity_key* is the only one the projection supports either way, so what
+    reverses is which side of the transition the procedure lands on — its own
+    out-edges are read here, as if the procedure preceding the entity were still
+    the position, rather than the in-edges `on_entity` reads instead.
+    """
+    return _traversal_over_precedes(
+        graph, entity_key, AFTER_CHANGE, counters=counters, procedure_of=lambda edge: edge.source
+    )
+
+
+def on_entity(
+    graph: AbstractGraph, entity_key: str, *, counters: Counters
+) -> tuple[Candidate, ...]:
+    """The moves that land on work on *entity_key* — what is done on this file.
+
+    The same projection as `after_change_to_entity` and the same anchor, read the
+    other way round: the procedures the entity is worked on at are the *targets*
+    here, so a candidate is a move by which work on this file or symbol usually
+    begins rather than one that follows it. The two are separate paths because
+    they are separately measurable (FR-036) and because a move can be a good
+    answer to one question and a poor answer to the other.
+
+    *entity_key* comes from the caller's working state, for the reason it does in
+    `after_change_to_entity`. An entity the projection names no procedure for
+    answers with nothing; the path is counted as having run either way (FR-034).
+    """
+    return _traversal_over_precedes(
+        graph, entity_key, ON_ENTITY, counters=counters, procedure_of=lambda edge: edge.target
+    )
+
+
+def _traversal_over_precedes(
+    graph: AbstractGraph,
+    entity_key: str,
+    traversal: str,
+    *,
+    counters: Counters,
+    procedure_of: Callable[[TransitionEdge], str],
+) -> tuple[Candidate, ...]:
+    """The edges of *graph* whose *procedure_of* side precedes work on *entity_key*."""
+    counters.bump(f"path_{traversal}")
+    procedures = _procedures_preceding_work_on(graph, entity_key)
+    return tuple(
+        Candidate(transition=edge, traversal=traversal)
+        for edge in graph.edges
+        if procedure_of(edge) in procedures
+    )
+
+
+def _procedures_preceding_work_on(graph: AbstractGraph, entity_key: str) -> frozenset[str]:
+    """The procedures *graph*'s projection says precede work on *entity_key*."""
+    return frozenset(row.source for row in graph.precedes if row.entity_key == entity_key)
 
 
 def usually_refused(

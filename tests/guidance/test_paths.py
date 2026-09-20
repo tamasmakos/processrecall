@@ -11,11 +11,17 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import replace
 
-from processrecall.graph.abstract import aggregate
+from processrecall.graph.abstract import PrecedesWorkOn, aggregate
 from processrecall.graph.schema import DecisionSource, StepDecision
 from processrecall.graph.store import EpisodicStep
 from processrecall.guidance.locate import locate
-from processrecall.guidance.paths import generalised, usual_next, usually_refused
+from processrecall.guidance.paths import (
+    after_change_to_entity,
+    generalised,
+    on_entity,
+    usual_next,
+    usually_refused,
+)
 
 from .conftest import walk
 
@@ -25,6 +31,12 @@ BASH = "ArtifactEvaluation/Bash/py"
 TEST = "ArtifactEvaluation/pytest/py"
 
 LEVEL = "class/program"
+
+#: The `class/program` key of `EDIT`, which is what a projection row names.
+EDIT_KEY = "ChangeImplementation/Edit"
+
+#: One code entity, spelled the way `code_entities` keys a symbol.
+ENTITY = "processrecall/guidance/paths.py#after_change_to_entity"
 
 
 class FakeCounters:
@@ -119,3 +131,59 @@ def test_generalised_stays_silent_when_the_position_clears_the_floor() -> None:
 
     assert generalised(position, graph, parent_graph, counters=counters, min_support=2) == ()
     assert counters.counted["path_generalised"] == 1
+
+
+def test_after_change_to_entity_returns_candidates() -> None:
+    """FR-031: the entity just changed is the anchor, so moves `usual_next` misses answer."""
+    steps = walk(EDIT, TEST) + walk(BASH, WRITE, prompt="p2")
+    graph = replace(
+        aggregate(steps, level=LEVEL),
+        precedes=(PrecedesWorkOn(source=EDIT_KEY, entity_key=ENTITY, support=2),),
+    )
+    counters = FakeCounters()
+
+    candidates = after_change_to_entity(graph, ENTITY, counters=counters)
+
+    assert [candidate.transition.edge_key for candidate in candidates] == [
+        "ChangeImplementation/Edit -> ArtifactEvaluation/pytest"
+    ]
+    assert counters.counted["path_after_change"] == 1
+
+
+def test_after_change_to_entity_answers_nothing_for_an_unprojected_entity() -> None:
+    """FR-034: the projection naming no procedure still counts the path as run."""
+    graph = aggregate(walk(EDIT, TEST), level=LEVEL)
+    counters = FakeCounters()
+
+    candidates = after_change_to_entity(graph, ENTITY, counters=counters)
+
+    assert candidates == ()
+    assert counters.counted["path_after_change"] == 1
+
+
+def test_on_entity_returns_the_moves_usually_done_on_it() -> None:
+    """FR-031: the moves that land on a procedure this entity is worked on at."""
+    steps = walk(TEST, EDIT) + walk(BASH, WRITE, prompt="p2")
+    graph = replace(
+        aggregate(steps, level=LEVEL),
+        precedes=(PrecedesWorkOn(source=EDIT_KEY, entity_key=ENTITY, support=2),),
+    )
+    counters = FakeCounters()
+
+    candidates = on_entity(graph, ENTITY, counters=counters)
+
+    assert [candidate.transition.edge_key for candidate in candidates] == [
+        "ArtifactEvaluation/pytest -> ChangeImplementation/Edit"
+    ]
+    assert counters.counted["path_on_entity"] == 1
+
+
+def test_on_entity_answers_nothing_for_an_unprojected_entity() -> None:
+    """FR-034: the projection naming no procedure still counts the path as run."""
+    graph = aggregate(walk(TEST, EDIT), level=LEVEL)
+    counters = FakeCounters()
+
+    candidates = on_entity(graph, ENTITY, counters=counters)
+
+    assert candidates == ()
+    assert counters.counted["path_on_entity"] == 1

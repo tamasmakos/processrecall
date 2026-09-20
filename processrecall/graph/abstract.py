@@ -312,6 +312,30 @@ class TransitionEdge:
 
 
 @dataclass(frozen=True, slots=True)
+class PrecedesWorkOn:
+    """One `precedes_work_on` row: a procedure, and an entity worked on after it.
+
+    The projection is what the hot path knows of the call graph, resolved at
+    derivation time and read back as a lookup, so no traversal walks the code
+    structure at serve time (R17).
+
+    Attributes:
+        source: The procedure key the projection hangs off, at the graph's own
+            level.
+        entity_key: The `code_entities` key worked on after *source* — a file's
+            path, or the symbol inside it after a ``#``.
+        support: Episodic steps behind the pairing, which is what the projection
+            keeps its bounded top of. Unread by the traversals in `paths.py`,
+            which only need `source` and `entity_key`; T043 is what ranks and
+            bounds rows by it when it derives the projection into the snapshot.
+    """
+
+    source: str
+    entity_key: str
+    support: int
+
+
+@dataclass(frozen=True, slots=True)
 class AbstractGraph:
     """The abstract layer as one aggregation, at one level of generality.
 
@@ -321,12 +345,17 @@ class AbstractGraph:
         edges: The permissible transitions, in edge-key order.
         episode_high_water: The largest episodic ``step_id`` folded in — the
             provenance a snapshot reports staleness from (FR-041).
+        precedes: The `precedes_work_on` projection the entity traversals read.
+            Empty out of `aggregate`, which folds the episodic rows alone: the
+            projection is derived where the code entities are, and travels on
+            the served graph rather than being looked up from a traversal.
     """
 
     level: str
     nodes: Mapping[str, ProcedureNode]
     edges: tuple[TransitionEdge, ...]
     episode_high_water: int
+    precedes: tuple[PrecedesWorkOn, ...] = ()
 
 
 @dataclass(slots=True)
