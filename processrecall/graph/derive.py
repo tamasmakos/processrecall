@@ -209,6 +209,7 @@ def _folded_onto(existing: Snapshot, delta: Snapshot) -> Snapshot:
         edges=_merged_edges(existing.edges, delta.edges),
         generated_at=max(existing.generated_at, delta.generated_at),
         precedes=(*existing.precedes, *delta.precedes),
+        episodes=(*existing.episodes, *delta.episodes),
     )
 
 

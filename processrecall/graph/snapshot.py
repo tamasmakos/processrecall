@@ -96,6 +96,11 @@ class Snapshot:
             is what cuts them to the bound the hot path may parse (R17), so a
             caller hands over everything it derived and the file keeps the top
             of it. Empty for a graph whose projection nothing derived.
+        episodes: The recurring step subsequences `graph.abstract._recurring_episodes`
+            mined at derive time (FR-031), carried across the file the way
+            `precedes` is: a reader of `frequent_episode` gets them off the
+            served graph rather than off a fold it never ran. Empty for a graph
+            whose fold mined none.
     """
 
     level: str
@@ -104,6 +109,7 @@ class Snapshot:
     edges: Sequence[object]
     generated_at: datetime
     precedes: Sequence[Mapping[str, Any]] = ()
+    episodes: Sequence[Mapping[str, Any]] = ()
 
 
 class SnapshotFile:
@@ -249,6 +255,7 @@ def _as_document(snapshot: Snapshot) -> dict[str, Any]:
         "nodes": dict(snapshot.nodes),
         "edges": list(snapshot.edges),
         "precedes_work_on": _bounded_precedes(snapshot.precedes),
+        "frequent_episodes": list(snapshot.episodes),
     }
 
 
@@ -296,11 +303,12 @@ def served_snapshot(project_dir: Path, counters: Counters) -> Snapshot | None:
 def _snapshot_from(document: Mapping[str, Any]) -> Snapshot:
     """The snapshot *document* describes.
 
-    A document carrying no `precedes_work_on` key is read as carrying no
-    projection rather than refused: a graph derived where no code entity was
-    resolved has none, which is a servable snapshot and not an unreadable one.
-    The projection comes back as a tuple, so a snapshot with no projection reads
-    back equal to the one that was written.
+    A document carrying no `precedes_work_on` or `frequent_episodes` key is
+    read as carrying no projection rather than refused: a graph derived where
+    no code entity was resolved, or where no run recurred often enough to be
+    mined, has none, which is a servable snapshot and not an unreadable one.
+    Both come back as a tuple, so a snapshot with no projection reads back
+    equal to the one that was written.
     """
     return Snapshot(
         level=document["level"],
@@ -309,4 +317,5 @@ def _snapshot_from(document: Mapping[str, Any]) -> Snapshot:
         edges=document["edges"],
         generated_at=datetime.fromisoformat(document["generated_at"]),
         precedes=tuple(document.get("precedes_work_on", ())),
+        episodes=tuple(document.get("frequent_episodes", ())),
     )

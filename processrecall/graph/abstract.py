@@ -59,6 +59,16 @@ TOP_TEMPLATES = 5
 #: an edge with fifty observations however many it really had.
 SUPPORTING_STEPS_KEPT = 50
 
+#: The longest run of procedures the fold mines as a recurring subsequence
+#: (FR-031). A bound and not the whole chain, so the mine stays proportional to
+#: the chain rather than quadratic in it: what a run is matched against is the
+#: tail of a working state's window, and a longer run is the same cue seen less
+#: often. One more than `guidance.locate.LAST_K_STEPS` (5), so the fullest
+#: window still leaves a step to complete against — a shorter bound would cap
+#: the cue below the last-k window FR-038 promises (a value this module
+#: cannot import without inverting the layering, so it is kept in step here).
+MINED_EPISODE_LENGTH = 6
+
 #: The two synthetic nodes (FR-020). They exist per sequence rather than per
 #: action: every prompt's chain begins at `START_KEY` and ends at `END_KEY`, so
 #: structural validation has a single source to check reachability from and a
@@ -422,6 +432,26 @@ class PrecedesWorkOn:
 
 
 @dataclass(frozen=True, slots=True)
+class FrequentEpisode:
+    """One run of procedures that recurred across prompts, in its order.
+
+    Attributes:
+        steps: The procedure keys the run is made of, at the graph's level, in
+            the order they were carried out. Two of them at least, and
+            `MINED_EPISODE_LENGTH` at most.
+        support: How many prompts carried the run out — counted once per prompt,
+            so a prompt that ran the same run twice supports it once. The floor
+            a run has to clear to be mined at all is applied once, here, at mine
+            time; a reader still carries the count onward because it is what
+            `guidance.paths._completions_of` orders competing continuations by,
+            so the better-attested run is read before the merely eligible one.
+    """
+
+    steps: tuple[str, ...]
+    support: int
+
+
+@dataclass(frozen=True, slots=True)
 class AbstractGraph:
     """The abstract layer as one aggregation, at one level of generality.
 
@@ -435,6 +465,9 @@ class AbstractGraph:
             Empty out of `aggregate`, which folds the episodic rows alone: the
             projection is derived where the code entities are, and travels on
             the served graph rather than being looked up from a traversal.
+        episodes: The recurring step subsequences, mined here at derivation time
+            so the window-completing traversal is a lookup rather than a walk
+            over the chains (FR-031). Longest first.
     """
 
     level: str
@@ -442,6 +475,7 @@ class AbstractGraph:
     edges: tuple[TransitionEdge, ...]
     episode_high_water: int
     precedes: tuple[PrecedesWorkOn, ...] = ()
+    episodes: tuple[FrequentEpisode, ...] = ()
 
 
 @dataclass(slots=True)
@@ -824,7 +858,8 @@ def aggregate(
     nodes: dict[str, _NodeFold] = {}
     edges: dict[tuple[str, str], _EdgeFold] = {}
     high_water = 0
-    for chain in _chains(steps, sequences or {}).values():
+    chains = _chains(steps, sequences or {})
+    for chain in chains.values():
         for step in chain.steps:
             high_water = max(high_water, step.step_id)
             key = key_at(step, lvl)
@@ -848,7 +883,39 @@ def aggregate(
         nodes={key: nodes[key].finish(newest_observation) for key in sorted(nodes)},
         edges=tuple(edges[pair].finish(baseline, dependence) for pair in sorted(edges)),
         episode_high_water=high_water,
+        episodes=_recurring_episodes(chains.values(), lvl, tuning.min_support),
     )
+
+
+def _recurring_episodes(
+    chains: Iterable[_Chain], level: Level, min_support: int
+) -> tuple[FrequentEpisode, ...]:
+    """The runs of procedures at least *min_support* prompts of *chains* carried out.
+
+    Contiguous runs, counted once per prompt, so what is mined is a subsequence
+    prompts have in common and not one long prompt's repetitions. *min_support*
+    is the floor the fold reads for a move (`Config.min_support`): a run one
+    prompt made is that prompt's history rather than a recurring episode.
+
+    Ordered longest first, then by key, so a reader matching a window against
+    them meets the most specific run it matches before any shorter one.
+    """
+    counts: Counter[tuple[str, ...]] = Counter()
+    for chain in chains:
+        keys = tuple(key_at(step, level) for step in chain.steps)
+        counts.update(set(_runs_in(keys)))
+    return tuple(
+        FrequentEpisode(steps=run, support=support)
+        for run, support in sorted(counts.items(), key=lambda item: (-len(item[0]), item[0]))
+        if support >= min_support
+    )
+
+
+def _runs_in(keys: tuple[str, ...]) -> Iterator[tuple[str, ...]]:
+    """Every contiguous run of two to `MINED_EPISODE_LENGTH` procedures in *keys*."""
+    for start in range(len(keys)):
+        for end in range(start + 2, min(start + MINED_EPISODE_LENGTH, len(keys)) + 1):
+            yield keys[start:end]
 
 
 @dataclass(frozen=True, slots=True)
@@ -908,6 +975,7 @@ def served(graph: AbstractGraph, generated_at: datetime) -> Snapshot:
         edges=[_edge_body(edge) for edge in graph.edges],
         generated_at=generated_at,
         precedes=[_precedes_body(row) for row in graph.precedes],
+        episodes=[_episode_body(episode) for episode in graph.episodes],
     )
 
 
@@ -957,6 +1025,11 @@ def _precedes_body(row: PrecedesWorkOn) -> dict[str, Any]:
         "support": row.support,
         "callers": list(row.callers),
     }
+
+
+def _episode_body(episode: FrequentEpisode) -> dict[str, Any]:
+    """One mined run as the JSON object a snapshot carries it as (FR-031)."""
+    return {"steps": list(episode.steps), "support": episode.support}
 
 
 def _condition_body(condition: Condition) -> dict[str, Any]:
@@ -1076,6 +1149,28 @@ def _precedes_from(body: Mapping[str, Any]) -> PrecedesWorkOn:
         support=body["support"],
         callers=tuple(body["callers"]),
     )
+
+
+def episodes_from(snapshot: Snapshot) -> tuple[FrequentEpisode, ...]:
+    """The mined runs *snapshot* carries, back as `served` wrote them (FR-031).
+
+    The inverse of `served` on its episode half, for the same reason
+    `precedes_from` exists for the precedes half: `frequent_episode` reads the
+    served graph, not the fold, so the runs have to survive the file the way
+    `precedes` does or the traversal always answers with nothing.
+
+    Raises:
+        KeyError, TypeError, ValueError: A row the format stamp let through but
+            that does not otherwise match `_episode_body`'s shape — the same
+            footing `precedes_from` puts an unreadable precedes row on.
+    """
+    bodies = cast("Iterable[Mapping[str, Any]]", snapshot.episodes)
+    return tuple(_episode_from(body) for body in bodies)
+
+
+def _episode_from(body: Mapping[str, Any]) -> FrequentEpisode:
+    """One mined run as `_episode_body` wrote it, back as the run it names."""
+    return FrequentEpisode(steps=tuple(body["steps"]), support=body["support"])
 
 
 def _condition_from(body: Mapping[str, Any]) -> Condition:

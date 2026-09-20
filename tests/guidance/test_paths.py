@@ -19,6 +19,7 @@ from processrecall.guidance.locate import Position, locate
 from processrecall.guidance.paths import (
     after_callers,
     after_change_to_entity,
+    frequent_episode,
     generalised,
     on_entity,
     ppr_neighbourhood,
@@ -344,3 +345,25 @@ def test_ppr_neighbourhood_is_bounded_and_reads_only_the_snapshot() -> None:
         "Checkin/commit -> ArtifactEvaluation/pytest",
     ]
     assert counters.counted["path_ppr_neighbourhood"] == 1
+
+
+def test_frequent_episode_completes_the_last_k_window() -> None:
+    """FR-031: what completed a run like the window's, not what follows its last step.
+
+    `BASH` was followed by `TEST` in the prompts that reached it from `EDIT` and
+    by `WRITE` in the prompts that reached it from `READ`, so the moves out of
+    `BASH` alone are both. The window ran `EDIT` then `BASH`, which is the run
+    the mined subsequences answer, so only the completion of that one is offered.
+    """
+    after_an_edit = walk(EDIT, BASH, TEST) + walk(EDIT, BASH, TEST, prompt="p2")
+    after_a_read = walk(READ, BASH, WRITE, prompt="p3") + walk(READ, BASH, WRITE, prompt="p4")
+    graph = aggregate(after_an_edit + after_a_read, level=LEVEL)
+    position = locate(walk(EDIT, BASH, prompt="p5"), level=LEVEL)
+    counters = FakeCounters()
+
+    candidates = frequent_episode(position, graph, counters=counters)
+
+    assert [candidate.transition.edge_key for candidate in candidates] == [
+        "ArtifactEvaluation/Bash -> ArtifactEvaluation/pytest"
+    ]
+    assert counters.counted["path_frequent_episode"] == 1

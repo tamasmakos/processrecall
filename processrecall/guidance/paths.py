@@ -31,7 +31,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from processrecall.config import Counters
-from processrecall.graph.abstract import START_KEY, AbstractGraph, PitfallKind, TransitionEdge
+from processrecall.graph.abstract import (
+    START_KEY,
+    AbstractGraph,
+    Level,
+    PitfallKind,
+    TransitionEdge,
+)
+from processrecall.graph.keys import key_at
 from processrecall.graph.schema import PPR_ITERATIONS
 from processrecall.guidance.locate import Position
 
@@ -64,6 +71,10 @@ USUALLY_REFUSED = "usually_refused"
 #: The traversal walking out over the snapshot's own adjacency, as its candidates
 #: name it (FR-034).
 PPR_NEIGHBOURHOOD = "ppr_neighbourhood"
+
+#: The traversal completing the working state's window against the mined runs,
+#: as its candidates name it (FR-034).
+FREQUENT_EPISODE = "frequent_episode"
 
 
 @dataclass(frozen=True, slots=True)
@@ -413,3 +424,69 @@ def _adjacent_to(graph: AbstractGraph, keys: frozenset[str]) -> frozenset[str]:
     onward = frozenset(edge.target for edge in graph.edges if edge.source in keys)
     entities = frozenset(row.entity_key for row in graph.precedes if row.source in keys)
     return onward | _procedures_preceding_work_on(graph, entities)
+
+
+def frequent_episode(
+    position: Position, graph: AbstractGraph, *, counters: Counters
+) -> tuple[Candidate, ...]:
+    """The moves that completed a run like the one *position*'s window just ran.
+
+    The one traversal that reads more of the working state than the procedure the
+    agent stands at: the last-k window is matched against the recurring step
+    subsequences the fold mined into *graph* (FR-031), longest suffix first, and
+    the moves out of the position that the matched runs went on to make are the
+    candidates. So where `usual_next` answers with everything ever seen after
+    this one procedure, this path answers with what followed the *sequence* of
+    procedures that led here — the same move reached by a longer cue.
+
+    The runs are mined at derivation time, so what happens here is a lookup and
+    a suffix comparison rather than a walk over the episodic chains (R17). A
+    candidate is still an edge of *graph*, so a completion nothing recorded as a
+    move out of the position is offered by neither path.
+
+    A window matching no mined run answers with nothing, which is the ordinary
+    case at the start of a prompt, whose window is empty; the path is counted as
+    having run either way (FR-034).
+
+    Dark until the gate clears it: the path runs and is counted either way
+    (FR-034), but `fusion.ADMITTED` does not name it, so its candidates reach no
+    reader until its measurement against the baseline is published (FR-036).
+    """
+    counters.bump(f"path_{FREQUENT_EPISODE}")
+    completions = _completions_of(graph, _window_of(position, graph.level))
+    matches = (
+        Candidate(transition=edge, traversal=FREQUENT_EPISODE)
+        for edge in graph.edges
+        if edge.source == position.key and edge.target in completions
+    )
+    return tuple(sorted(matches, key=lambda candidate: -completions[candidate.transition.target]))
+
+
+def _window_of(position: Position, level: str) -> tuple[str, ...]:
+    """*position*'s last-k steps as the procedure keys at *level* they were (FR-038)."""
+    lvl = Level.of(level)
+    return tuple(key_at(step, lvl) for step in position.recent)
+
+
+def _completions_of(graph: AbstractGraph, window: tuple[str, ...]) -> dict[str, int]:
+    """What *graph*'s mined runs continue the longest matched suffix of *window* with.
+
+    Longest suffix first, and the first suffix any run begins with is the answer:
+    a shorter suffix matches more runs, so continuing to it would drown the
+    specific cue in the moves `usual_next` already offers.
+
+    Keyed by the run's own `support` — the best-attested run behind a
+    continuation, where more than one matches it — so `frequent_episode` can
+    read the better-supported completion before the merely eligible one
+    instead of treating every match as equally likely.
+    """
+    for length in range(len(window), 0, -1):
+        suffix = window[-length:]
+        continued: dict[str, int] = {}
+        for episode in graph.episodes:
+            if len(episode.steps) > length and episode.steps[:length] == suffix:
+                target = episode.steps[length]
+                continued[target] = max(continued.get(target, 0), episode.support)
+        if continued:
+            return continued
+    return {}
