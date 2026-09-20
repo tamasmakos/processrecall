@@ -183,6 +183,9 @@ class Pitfall:
             own field rather than a second reading of *failure_rate*, because a
             refusal is a policy signal and a failure a capability one (FR-022),
             and one number over both is what the two axes exist to prevent.
+        observations: What *refusal_rate* is a share of. Its own field rather
+            than a second reading of *support*, which counts distinct steps
+            and is not always the rate's denominator.
     """
 
     kind: PitfallKind
@@ -190,6 +193,7 @@ class Pitfall:
     support: int
     failure_rate: float = 0.0
     refusal_rate: float = 0.0
+    observations: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -434,6 +438,7 @@ class _EdgeFold:
             evidence=evidence,
             support=self.support,
             refusal_rate=rate,
+            observations=self.outcomes.total(),
         )
 
     def _repetition_loop(self) -> Pitfall | None:

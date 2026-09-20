@@ -8,8 +8,25 @@ statements lowest-support-first rather than truncating one.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Sequence
+from dataclasses import replace
 
-from processrecall.guidance.render import BulletRenderer, Deadline, GuidanceStatement, Renderer
+from processrecall.graph.abstract import TransitionEdge, aggregate
+from processrecall.graph.schema import DecisionSource, StepDecision
+from processrecall.graph.store import EpisodicStep
+from processrecall.guidance.render import (
+    BulletRenderer,
+    Deadline,
+    GuidanceStatement,
+    Renderer,
+    avoid_statements,
+)
+
+from .conftest import walk
+
+EDIT = "ChangeImplementation/Edit/py"
+BASH = "ArtifactEvaluation/Bash/py"
+LEVEL = "class/program"
 
 
 class FakeCounters:
@@ -71,3 +88,33 @@ def test_a_statement_that_alone_exceeds_the_ceiling_is_silence() -> None:
 
     assert rendered == ""
     assert counters.counted["guidance_over_budget"] == 1
+
+
+def refused_command(prompt: str) -> tuple[EpisodicStep, ...]:
+    """One prompt, named *prompt*, that edited a file then had a command refused."""
+    edited, commanded = walk(EDIT, BASH, prompt=prompt)
+    return edited, replace(
+        commanded, decision=StepDecision.REJECTED, decision_source=DecisionSource.USER_REJECT
+    )
+
+
+def edit_then_command(steps: Sequence[EpisodicStep]) -> TransitionEdge:
+    """The edit-then-command move as the fold over *steps* derived it."""
+    graph = aggregate(tuple(steps), level=LEVEL)
+    source, target = EDIT.rsplit("/", 1)[0], BASH.rsplit("/", 1)[0]
+    return next(edge for edge in graph.edges if edge.source == source and edge.target == target)
+
+
+def test_refused_move_rendered_as_avoid_with_lower_bound_rate() -> None:
+    """SC-005 and FR-040: a warning, not a suggestion, and never at the naive rate."""
+    below_floor = edit_then_command(refused_command("p1"))
+    above_floor = edit_then_command(refused_command("p1") + refused_command("p2"))
+
+    assert avoid_statements(below_floor) == ()
+
+    rendered = BulletRenderer(FakeCounters(), Deadline()).render(avoid_statements(above_floor))
+
+    assert rendered == (
+        "- avoid ArtifactEvaluation/Bash after ChangeImplementation/Edit:"
+        " refused at least 34% of the time (2 episodes)"
+    )
