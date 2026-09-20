@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from processrecall.config import ActivityClass, ProcessType
+from processrecall.config import ActivityClass
 from processrecall.graph.abstract import AbstractGraph, TransitionEdge
 from processrecall.graph.schema import DecisionSource, StepDecision
-from processrecall.graph.store import EpisodicStep, Sequence, SequenceKey
+from processrecall.graph.store import EpisodicStep, SequenceKey
+from tests.conftest import make_sequence  # noqa: F401 - re-exported for `.conftest` importers
 
 
 def sequence(prompt_id: str) -> SequenceKey:
@@ -55,24 +56,6 @@ def make_aggregate_step(
         step_id=step_id,
         decision=decision,
         decision_source=decision_source,
-    )
-
-
-def make_sequence(
-    steps: tuple[EpisodicStep, ...],
-    *,
-    process_type: ProcessType = ProcessType.UNKNOWN,
-    status: str = "closed",
-) -> Sequence:
-    """The sequence *steps* belong to, filling only the fields the fold reads."""
-    return Sequence(
-        key=steps[0].sequence_key,
-        project_dir_key="proj",
-        started_at=steps[0].occurred_at,
-        process_type=process_type,
-        status=status,
-        ended_at=None if status == "open" else steps[-1].occurred_at,
-        step_count=len(steps),
     )
 
 

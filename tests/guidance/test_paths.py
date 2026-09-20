@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import replace
 
+from processrecall.config import ProcessType
 from processrecall.graph.abstract import PrecedesWorkOn, aggregate
 from processrecall.graph.schema import DecisionSource, StepDecision
 from processrecall.graph.store import EpisodicStep
@@ -19,9 +20,11 @@ from processrecall.guidance.paths import (
     after_change_to_entity,
     generalised,
     on_entity,
+    prompt_start_for_process,
     usual_next,
     usually_refused,
 )
+from tests.conftest import make_sequence
 
 from .conftest import walk
 
@@ -187,3 +190,24 @@ def test_on_entity_answers_nothing_for_an_unprojected_entity() -> None:
 
     assert candidates == ()
     assert counters.counted["path_on_entity"] == 1
+
+
+def test_prompt_start_filters_by_kind_of_work() -> None:
+    """FR-031: the moves out of `Start` made for this kind of work, and no others."""
+    bug_fix = walk(EDIT, TEST)
+    investigation = walk(BASH, WRITE, prompt="p2")
+    sequences = {
+        bug_fix[0].sequence_key: make_sequence(bug_fix, process_type=ProcessType.BUG_FIX),
+        investigation[0].sequence_key: make_sequence(
+            investigation, process_type=ProcessType.INVESTIGATION
+        ),
+    }
+    graph = aggregate(bug_fix + investigation, level=LEVEL, sequences=sequences)
+    counters = FakeCounters()
+
+    candidates = prompt_start_for_process(graph, ProcessType.BUG_FIX, counters=counters)
+
+    assert [candidate.transition.edge_key for candidate in candidates] == [
+        "Start -> ChangeImplementation/Edit"
+    ]
+    assert counters.counted["path_prompt_start"] == 1

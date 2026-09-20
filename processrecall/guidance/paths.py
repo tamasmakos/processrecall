@@ -30,8 +30,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from processrecall.config import Counters
-from processrecall.graph.abstract import AbstractGraph, PitfallKind, TransitionEdge
+from processrecall.config import Counters, ProcessType
+from processrecall.graph.abstract import START_KEY, AbstractGraph, PitfallKind, TransitionEdge
 from processrecall.guidance.locate import Position
 
 #: The traversal reading the moves out of the position itself (FR-034).
@@ -47,6 +47,11 @@ AFTER_CHANGE = "after_change"
 
 #: The traversal anchored on the entity in hand, as its candidates name it (FR-034).
 ON_ENTITY = "on_entity"
+
+#: The traversal reading the moves a kind of work opens with, as its candidates
+#: name it (FR-034). Shorter than the function it names, because the counter the
+#: name builds is the one the contract publishes: `path_prompt_start`.
+PROMPT_START = "prompt_start"
 
 #: The traversal reading the refusal pitfall, as its candidates name it (FR-034).
 USUALLY_REFUSED = "usually_refused"
@@ -218,6 +223,35 @@ def _traversal_over_precedes(
 def _procedures_preceding_work_on(graph: AbstractGraph, entity_key: str) -> frozenset[str]:
     """The procedures *graph*'s projection says precede work on *entity_key*."""
     return frozenset(row.source for row in graph.precedes if row.entity_key == entity_key)
+
+
+def prompt_start_for_process(
+    graph: AbstractGraph, process_type: ProcessType, *, counters: Counters
+) -> tuple[Candidate, ...]:
+    """The moves out of `START_KEY` made for *process_type* — how this work begins.
+
+    The one traversal that answers before the prompt has done anything: there is
+    no position to read moves out of yet, so the anchor is the synthetic `Start`
+    node every sequence's chain leaves (FR-020), and what narrows the answer is
+    the kind of work the prompt is for rather than where the agent stands. A bug
+    fix and an investigation open differently, and an unfiltered `Start` would
+    offer both.
+
+    *process_type* is the sequence's, which is the prompt's and not any step's
+    (FR-020), so the caller passes the one it already opened the sequence with.
+    An edge carries the condition its move was commonest in (FR-029), so a move
+    made under two kinds of work answers to the commoner of them here.
+
+    A kind of work nothing was recorded starting answers with nothing, which is
+    the ordinary case early in a project; the path is counted as having run
+    either way (FR-034).
+    """
+    counters.bump(f"path_{PROMPT_START}")
+    return tuple(
+        Candidate(transition=edge, traversal=PROMPT_START)
+        for edge in graph.edges
+        if edge.source == START_KEY and edge.condition.process_type is process_type
+    )
 
 
 def usually_refused(

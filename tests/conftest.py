@@ -14,6 +14,9 @@ from typing import Any
 
 import pytest
 
+from processrecall.config import ProcessType
+from processrecall.graph.store import EpisodicStep, Sequence
+
 # Ensure project root is in sys.path (belt-and-suspenders alongside pytest.ini pythonpath)
 _project_root = str(Path(__file__).parent.parent)
 if _project_root not in sys.path:
@@ -22,6 +25,24 @@ if _project_root not in sys.path:
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = REPO_ROOT / ".claude-plugin" / "plugin.json"
 PAYLOADS = REPO_ROOT / "tests" / "fixtures" / "payloads"
+
+
+def make_sequence(
+    steps: tuple[EpisodicStep, ...],
+    *,
+    process_type: ProcessType = ProcessType.UNKNOWN,
+    status: str = "closed",
+) -> Sequence:
+    """The sequence *steps* belong to, filling only the fields the fold reads."""
+    return Sequence(
+        key=steps[0].sequence_key,
+        project_dir_key="proj",
+        started_at=steps[0].occurred_at,
+        process_type=process_type,
+        status=status,
+        ended_at=None if status == "open" else steps[-1].occurred_at,
+        step_count=len(steps),
+    )
 
 
 def manifest_declared(key: str) -> dict[str, Any]:
