@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import UTC, datetime
-from pathlib import PurePosixPath, PureWindowsPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 
+from processrecall.cli.derive import SemanticPass, derive_semantic
 from processrecall.graph.semantic import (
     CodeEntity,
     CodeRelation,
@@ -14,8 +16,29 @@ from processrecall.graph.semantic import (
     containment,
     entity_key,
 )
+from processrecall.graph.store import EpisodicStep
+
+from .conftest import make_aggregate_step, sequence
 
 SEEN = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
+
+
+class FakeCounters:
+    """A counter sink that keeps what was bumped, so a test can read it back."""
+
+    def __init__(self) -> None:
+        self.counted: Counter[str] = Counter()
+
+    def bump(self, counter: str) -> None:
+        self.counted[counter] += 1
+
+
+def edit_of(*files: str) -> tuple[EpisodicStep, ...]:
+    """One recorded edit of *files*, which is what the episodic layer says was touched."""
+    step = make_aggregate_step(
+        "ChangeImplementation/Edit/py", position=0, step_id=1, key=sequence("p1"), files=files
+    )
+    return (step,)
 
 
 def make_entity(key: str, kind: EntityKind) -> CodeEntity:
@@ -83,3 +106,46 @@ def test_containment_relates_each_file_to_the_symbols_it_holds() -> None:
             target_key="processrecall/graph/semantic.py#CodeEntity",
         ),
     )
+
+
+def test_unchanged_file_is_skipped_on_second_pass(tmp_path: Path) -> None:
+    """Derivation is incremental on content: an unchanged file is not parsed twice (FR-019)."""
+    source = tmp_path / "pkg" / "module.py"
+    source.parent.mkdir()
+    source.write_text("def work() -> None:\n    return None\n", encoding="utf-8")
+    counters = FakeCounters()
+    touched = edit_of("pkg/module.py")
+
+    first = derive_semantic(SemanticPass(project_dir=tmp_path, steps=touched), counters)
+    assert [(row.entity_key, row.kind, row.extension, row.language) for row in first] == [
+        ("pkg/module.py", "file", "py", "python")
+    ]
+    assert first[0].fingerprint.startswith("sha256:")
+    assert first[0].support == 1
+
+    unchanged = {row.entity_key: row.fingerprint for row in first}
+    second = derive_semantic(
+        SemanticPass(project_dir=tmp_path, steps=touched, fingerprints=unchanged), counters
+    )
+    assert second == ()
+    assert counters.counted == Counter({"semantic_files_parsed": 1, "semantic_files_skipped": 1})
+
+    source.write_text("def work() -> None:\n    return 1\n", encoding="utf-8")
+    third = derive_semantic(
+        SemanticPass(project_dir=tmp_path, steps=touched, fingerprints=unchanged), counters
+    )
+    assert len(third) == 1
+    assert third[0].fingerprint != first[0].fingerprint
+    assert counters.counted["semantic_files_parsed"] == 2
+
+
+def test_file_that_cannot_be_read_is_counted_and_passed_over(tmp_path: Path) -> None:
+    """A touched file gone since the step is counted, not raised on (FR-019)."""
+    counters = FakeCounters()
+
+    derived = derive_semantic(
+        SemanticPass(project_dir=tmp_path, steps=edit_of("pkg/deleted.py")), counters
+    )
+
+    assert derived == ()
+    assert counters.counted == Counter({"semantic_parse_failed": 1})
