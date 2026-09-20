@@ -20,6 +20,10 @@ READ = "Inspection/Read/py"
 EDIT = "ChangeImplementation/Edit/py"
 TEST = "ArtifactEvaluation/pytest/py"
 SEARCH = "Search/Grep/py"
+SHELL = "ScriptExecution/Bash/py"
+COMMIT = "Checkin/git/py"
+FETCH = "NetworkRetrieval/WebFetch/py"
+GLOB = "Search/Glob/py"
 
 LEVEL = "class/program"
 
@@ -180,3 +184,73 @@ def test_the_off_by_default_setting_is_the_only_way_to_an_unmeasured_traversal()
     )
 
     assert {edge.edge.target for edge in fused.edges} == {served(TEST), served(SEARCH)}
+
+
+def _descending(*targets: str) -> tuple[TransitionEdge, ...]:
+    """One position's moves to *targets*, their support descending in the order given."""
+    prompts = tuple(
+        (EDIT, target)
+        for support, target in enumerate(reversed(targets), start=2)
+        for _ in range(support)
+    )
+    return out_of(graph_of(*prompts), EDIT)
+
+
+def test_exploration_slot_serves_outside_the_top_of_the_fused_order() -> None:
+    """FR-042: the reserved slot goes to the move the fused order is least confident about.
+
+    Six kinds of work, so the diversity rule drops none of them: what the slot
+    changes is the order alone, lifting the last candidate over the ones the
+    graph is surer about into the fifth place a reader still reaches.
+    """
+    counters = FakeCounters()
+
+    fused = Fusion(Config(), counters).fuse(
+        CandidateList(
+            edges=_descending(TEST, READ, SEARCH, SHELL, COMMIT, FETCH), scope=Scope.PROJECT
+        )
+    )
+
+    assert [edge.edge.target for edge in fused.edges] == [
+        served(TEST),
+        served(READ),
+        served(SEARCH),
+        served(SHELL),
+        served(FETCH),
+        served(COMMIT),
+    ]
+    assert counters.counted == Counter({"guidance_exploration_slot": 1})
+
+
+def test_the_diversity_rule_drops_a_second_candidate_of_the_same_kind_of_work() -> None:
+    """FR-042: two searches are one pattern, so the weaker of them is dropped and counted."""
+    counters = FakeCounters()
+
+    fused = Fusion(Config(), counters).fuse(
+        CandidateList(edges=_descending(SEARCH, READ, GLOB), scope=Scope.PROJECT)
+    )
+
+    assert [edge.edge.target for edge in fused.edges] == [served(SEARCH), served(READ)]
+    assert counters.counted == Counter({"guidance_diversity_dropped": 1})
+
+
+def test_the_diversity_rule_does_not_drop_this_projects_move_for_another_projects() -> None:
+    """FR-042 with FR-048: what this project does and what others do are two patterns.
+
+    Two global traversals agree on a search and outrank this project's own, so a
+    rule reading the kind of work alone would drop ours — and the answer would
+    then report, and count, a fallback for a position this project has recorded.
+    """
+    project = out_of(graph_of((EDIT, SEARCH), (EDIT, SEARCH)), EDIT)
+    agreed = out_of(graph_of((EDIT, GLOB), (EDIT, GLOB)), EDIT)
+    counters = FakeCounters()
+
+    fused = Fusion(Config(), counters).fuse(
+        CandidateList(edges=project, scope=Scope.PROJECT),
+        CandidateList(edges=agreed, scope=Scope.GLOBAL),
+        CandidateList(edges=agreed, scope=Scope.GLOBAL),
+    )
+
+    assert [edge.edge.target for edge in fused.edges] == [served(GLOB), served(SEARCH)]
+    assert fused.scope is Scope.PROJECT
+    assert counters.counted == Counter()

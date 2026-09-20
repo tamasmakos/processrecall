@@ -24,6 +24,13 @@ applied here, before the ranks are read, because a list is where the floor is
 meaningful: an edge below it exists without being evidence enough to rank
 (FR-045a), and a traversal has no business applying it to itself.
 
+The order the lists agree on is not quite the order served. One candidate per
+kind of work survives the fused ranking — a second move into the same activity
+class is the same claim made twice — and the fifth place is kept for the
+candidate the order is least confident about, so the set a reader acts on cannot
+collapse onto the one pattern the graph is surest of, which on this corpus is a
+thrash loop (FR-042).
+
 The measurement gate is applied here for the same reason (FR-036): a traversal
 whose numbers the published measurement does not support runs and counts where
 it runs, and is excluded where its candidates would have been served — so the
@@ -48,6 +55,7 @@ from enum import StrEnum
 
 from processrecall.config import Config, Counters
 from processrecall.graph.abstract import TransitionEdge
+from processrecall.graph.keys import class_of
 from processrecall.guidance.paths import USUAL_NEXT
 from processrecall.ranking.rrf import rrf_score
 
@@ -61,6 +69,15 @@ from processrecall.ranking.rrf import rrf_score
 #: `usually_refused` never joins, because `FUSED` in `measure_traversals.py`
 #: excludes it from the fused ranking it would have to clear.
 ADMITTED: frozenset[str] = frozenset({USUAL_NEXT})
+
+#: Where in the served order the exploration slot sits (FR-042): the fifth
+#: place, so the four candidates the fused order is most confident about keep
+#: theirs and the reserved one still lands inside the top five the published
+#: measurement reports recall over. Filled from the end of the order rather
+#: than by a random draw, because the served answer stays deterministic
+#: (FR-044) — and the least-confident candidate is the furthest thing from the
+#: pattern an order left to itself keeps reinforcing.
+EXPLORATION_SLOT = 4
 
 
 class Scope(StrEnum):
@@ -152,12 +169,17 @@ class Fusion:
         lists alone, so a dark traversal decides neither an answer's scope nor
         whether the occasion was one the floor silenced: it contributed nothing
         to weigh in either reading.
+
+        The diversity rule and the exploration slot shape the order last
+        (FR-042), and the two readings below are still readings of the evidence:
+        the rule keeps the best-ranked candidate of every pattern, so it cannot
+        empty a ranking that had candidates, nor leave an answer holding none of
+        this project's where a list reached one.
         """
         admitted = tuple(candidates for candidates in lists if self._admits(candidates))
         supported = tuple(self._cleared(candidates) for candidates in admitted)
-        fused = FusedCandidates(
-            edges=_fused(supported, _scoped(admitted), self._config.project_weight)
-        )
+        ranked = _fused(supported, _scoped(admitted), self._config.project_weight)
+        fused = FusedCandidates(edges=self._explored(self._diverse(ranked)))
         if not fused.edges and any(candidates.edges for candidates in admitted):
             self._counters.bump("guidance_below_support")
         if fused.scope is Scope.GLOBAL:
@@ -173,6 +195,45 @@ class Fusion:
         makes the setting the only way to those candidates, and it ships off.
         """
         return candidates.traversal in ADMITTED or self._config.unmeasured_traversals
+
+    def _diverse(self, ranked: tuple[FusedEdge, ...]) -> tuple[FusedEdge, ...]:
+        """*ranked* with every candidate repeating a kind of work already kept dropped.
+
+        One candidate per activity class per scope, the best-ranked of them,
+        because a second move into the same kind of work is the same claim made
+        twice and a set of them is the collapse FR-042 forbids. The scope is
+        part of the pattern: what this project does and what other projects do
+        are two claims, and a rule reading the kind of work alone would drop
+        this project's own move for somebody else's and leave the answer
+        reporting a fallback for a position we have recorded (FR-048). Each drop
+        is counted, so how much of an order the rule is taking stays readable.
+        """
+        kept: list[FusedEdge] = []
+        patterns: set[tuple[Scope, str]] = set()
+        for candidate in ranked:
+            pattern = (candidate.scope, class_of(candidate.edge.target))
+            if pattern in patterns:
+                self._counters.bump("guidance_diversity_dropped")
+                continue
+            patterns.add(pattern)
+            kept.append(candidate)
+        return tuple(kept)
+
+    def _explored(self, ranked: tuple[FusedEdge, ...]) -> tuple[FusedEdge, ...]:
+        """*ranked* with :data:`EXPLORATION_SLOT` given to a candidate from outside its top.
+
+        The last of the order — the move the graph is least confident about —
+        is served in the reserved place and the candidates it passed follow it,
+        so an order the graph is very sure about cannot fill every slot a
+        reader reaches (FR-042). Nothing is dropped here: the slot is a
+        position, and what a reader has room for stays the budget's to decide.
+        An order no longer than the top is served as it is, there being no
+        outside for the slot to draw from, and is not counted as reserved.
+        """
+        if len(ranked) <= EXPLORATION_SLOT + 1:
+            return ranked
+        self._counters.bump("guidance_exploration_slot")
+        return (*ranked[:EXPLORATION_SLOT], ranked[-1], *ranked[EXPLORATION_SLOT:-1])
 
     def _cleared(self, candidates: CandidateList) -> CandidateList:
         """*candidates* reduced to the moves clearing the support floor (FR-045a).
