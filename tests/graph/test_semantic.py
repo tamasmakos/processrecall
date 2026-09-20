@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
+from time import perf_counter
 
 import pytest
 
@@ -48,6 +49,46 @@ def make_entity(key: str, kind: EntityKind) -> CodeEntity:
     return CodeEntity(
         entity_key=key, kind=kind, fingerprint="sha256:1", first_seen=SEEN, last_seen=SEEN
     )
+
+
+LINES_PER_FILE = 100
+SYNTHETIC_LINES = 50_000
+SYNTHETIC_FILES = SYNTHETIC_LINES // LINES_PER_FILE
+CALLS_PER_FILE = (LINES_PER_FILE // 4) // 2
+
+
+def synthetic_source(index: int) -> str:
+    """One module of the synthetic tree: helpers, and workers that call them by name.
+
+    Every function is four lines including the blank line after it, and the
+    text ends in a trailing newline, so a module is exactly `LINES_PER_FILE`
+    lines and the tree is exactly `SYNTHETIC_LINES`. The calls resolve inside
+    the module, so relation derivation does the resolution work a real tree
+    asks of it rather than only the parse.
+    """
+    lines: list[str] = []
+    for number in range(LINES_PER_FILE // 4):
+        if number % 2 == 0:
+            lines += [f"def helper_{index}_{number}(step):", "    return step", "", ""]
+        else:
+            lines += [
+                f"def work_{index}_{number}(step):",
+                f"    return helper_{index}_{number - 1}(step)",
+                "",
+                "",
+            ]
+    return "\n".join(lines) + "\n"
+
+
+def write_synthetic_tree(root: Path) -> tuple[str, ...]:
+    """A `SYNTHETIC_LINES`-line tree under *root*, as the keys work touched."""
+    package = root / "pkg"
+    package.mkdir()
+    keys = []
+    for index in range(SYNTHETIC_FILES):
+        (package / f"module_{index}.py").write_text(synthetic_source(index), encoding="utf-8")
+        keys.append(f"pkg/module_{index}.py")
+    return tuple(keys)
 
 
 def test_entity_key_rejects_absolute_path() -> None:
@@ -262,3 +303,32 @@ def test_unresolved_call_keeps_target_name(tmp_path: Path) -> None:
         ),
     )
     assert counters.counted == Counter({"semantic_unresolved_call": 1})
+
+
+@pytest.mark.slow
+def test_fifty_thousand_line_tree_derives_within_sixty_seconds(tmp_path: Path) -> None:
+    """SC-008: a 50,000-line tree derives inside the budget, and re-derives by skipping."""
+    touched = edit_of(*write_synthetic_tree(tmp_path))
+    first_pass = SemanticPass(project_dir=tmp_path, steps=touched)
+    counters = FakeCounters()
+
+    started = perf_counter()
+    entities = derive_semantic(first_pass, counters)
+    relations = derive_relations(first_pass, counters)
+    elapsed = perf_counter() - started
+
+    assert len(entities) == SYNTHETIC_FILES
+    assert counters.counted["semantic_unresolved_call"] == 0
+    assert len(relations) >= CALLS_PER_FILE * SYNTHETIC_FILES
+    assert elapsed < 60.0
+
+    skipping = FakeCounters()
+    second_pass = SemanticPass(
+        project_dir=tmp_path,
+        steps=touched,
+        fingerprints={row.entity_key: row.fingerprint for row in entities},
+    )
+
+    assert derive_semantic(second_pass, skipping) == ()
+    assert skipping.counted["semantic_files_skipped"] == SYNTHETIC_FILES
+    assert skipping.counted["semantic_files_parsed"] == 0
