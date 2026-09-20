@@ -1,9 +1,9 @@
 """Reading the collector's OTLP/JSON lines, and attributing them to a project (FR-001, R4).
 
-`records_in_line` is the door every telemetry record comes through. A collector
-batches, so one exported line is `resourceLogs[] → scopeLogs[] → logRecords[]`
-and each level can hold several: reading the first entry of any of them loses
-whole records with no sign that it did (FR-002).
+`recognised_records` is the door every telemetry record comes through. A
+collector batches, so one exported line is `resourceLogs[] → scopeLogs[] →
+logRecords[]` and each level can hold several: reading the first entry of any
+of them loses whole records with no sign that it did (FR-002).
 
 No telemetry record carries a working directory, so a record cannot say which
 project its work happened in. The one thing that knows is the session→project
@@ -33,6 +33,12 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from processrecall.config import Counters
+from processrecall.trajectory.records import CONSUMED_EVENT_NAMES
+
+#: The flattened attribute naming which of the consumed record types a record
+#: is (`contracts/telemetry-records.md`): the reader selects on it rather than
+#: inferring a format from the attributes a record happens to carry.
+RECORD_TYPE_ATTRIBUTE = "event.name"
 
 #: The flattened attribute carrying the session a record was written under. Gated
 #: by ``OTEL_METRICS_INCLUDE_SESSION_ID``: with the gate off it is absent, and
@@ -57,7 +63,7 @@ TelemetryRecord = Mapping[str, str | int | bool]
 #: ordering keys (`contracts/telemetry-records.md`, "Standard attributes").
 _STANDARD_ATTRIBUTES = frozenset(
     {
-        "event.name",
+        RECORD_TYPE_ATTRIBUTE,
         TIMESTAMP_ATTRIBUTE,
         SEQUENCE_ATTRIBUTE,
         SESSION_ATTRIBUTE,
@@ -162,8 +168,16 @@ def records_in_line(line: str) -> Iterator[TelemetryRecord]:
     Each yielded record is the log record's attribute list as a mapping. The
     resource and scope around it are not folded in: they carry the deployment's
     own `OTEL_RESOURCE_ATTRIBUTES`, which name teams and departments (R11).
+
+    Raises:
+        TypeError: *payload* is not shaped like an OTLP logs document — not a
+            mapping at the top, or `resourceLogs`/`scopeLogs`/`logRecords` not
+            a list where one belongs. :func:`recognised_records` is what turns
+            this into a counted refusal rather than a raise into the caller.
     """
     payload = json.loads(line)
+    if not isinstance(payload, Mapping):
+        raise TypeError(f"not an OTLP logs payload: {payload!r}")
     for resource_log in payload.get("resourceLogs", ()):
         for scope_log in resource_log.get("scopeLogs", ()):
             for log_record in scope_log.get("logRecords", ()):
@@ -189,6 +203,36 @@ def _scalar(value: Mapping[str, Any]) -> str | int | bool | None:
         if field in value:
             return read(value[field])
     return None
+
+
+def recognised_records(line: str, counters: Counters) -> Iterator[TelemetryRecord]:
+    """Every record of *line* the memory consumes, refusing the rest (FR-009).
+
+    This is the door every telemetry record comes through: nothing else in this
+    module drops a record by its `event.name` or a line by its shape. Nothing
+    calls it yet — T023 is what drains the collector and will.
+
+    An `event.name` outside :data:`CONSUMED_EVENT_NAMES` bumps
+    ``telemetry_record_unknown`` and is skipped. Its format is not guessed at from
+    the attributes it shares with a record type that has one: a harness release
+    that adds a record is read once it is declared, not before.
+
+    A complete line that will not parse, or a well-formed JSON document that is
+    not shaped like an OTLP logs payload, bumps ``telemetry_record_partial`` and
+    yields nothing. The batch it carried is lost with it — half an OTLP document
+    names no records — but the pass is not: nothing here raises into the job that
+    is draining the collector (FR-010).
+    """
+    try:
+        records = tuple(records_in_line(line))
+    except (json.JSONDecodeError, TypeError):
+        counters.bump("telemetry_record_partial")
+        return
+    for record in records:
+        if record.get(RECORD_TYPE_ATTRIBUTE) in CONSUMED_EVENT_NAMES:
+            yield record
+        else:
+            counters.bump("telemetry_record_unknown")
 
 
 class SessionBindings(Protocol):

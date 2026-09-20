@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from processrecall.trajectory.offset import OFFSET_NAME, OffsetFile
 from processrecall.trajectory.telemetry import (
     SESSION_ATTRIBUTE,
     ProjectAttribution,
+    recognised_records,
     records_in_line,
 )
 
@@ -159,3 +161,57 @@ def test_only_allow_listed_attributes_are_bound() -> None:
     assert len(records) == 4
     assert records[0]["request_id"] == "req_synthetic_0041"
     assert records[0]["input_tokens"] == 1200
+
+
+def _log_record(event_name: str) -> dict[str, object]:
+    """A minimal OTLP log record carrying only the attribute the reader keys on."""
+    return {"attributes": [{"key": "event.name", "value": {"stringValue": event_name}}]}
+
+
+def test_unknown_record_is_refused_and_counted(counters: FakeCounters) -> None:
+    # Built here rather than read off a fixture: a line whose only job is to
+    # carry one recognised record type among two unrecognised ones, so the
+    # expected count of 2 is a property of this test, not of a fixture some
+    # other test's edit could retarget.
+    line = json.dumps(
+        {
+            "resourceLogs": [
+                {
+                    "scopeLogs": [
+                        {
+                            "logRecords": [
+                                _log_record("claude_code.user_prompt"),
+                                _log_record("claude_code.assistant_response"),
+                                _log_record("claude_code.api_request_body"),
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    )
+
+    records = list(recognised_records(line, counters))
+
+    # Three log records, and only `user_prompt` is one of the seven the memory
+    # consumes. `assistant_response` and `api_request_body` have no episodic
+    # shape to become, so they are skipped rather than read for whatever
+    # attributes they happen to share with a record type that has one (FR-009).
+    assert [record["event.name"] for record in records] == ["claude_code.user_prompt"]
+    assert counters.counted["telemetry_record_unknown"] == 2
+
+
+def test_unparsable_line_loses_its_records_not_the_pass(counters: FakeCounters) -> None:
+    # A collector killed mid-write leaves a complete line that is half a JSON
+    # document; a hand-edited or wrongly-configured exporter leaves a whole one
+    # that is not an OTLP logs payload, or one whose shape is malformed one
+    # level down. None of the three may reach the draining job as an exception
+    # (FR-010).
+    half_written = '{"resourceLogs": [{"scopeLogs": [{"logRecords": [{"attribu'
+    wrong_shape = '["not an OTLP logs payload"]'
+    wrong_nested_shape = '{"resourceLogs": 5}'
+
+    assert list(recognised_records(half_written, counters)) == []
+    assert list(recognised_records(wrong_shape, counters)) == []
+    assert list(recognised_records(wrong_nested_shape, counters)) == []
+    assert counters.counted["telemetry_record_partial"] == 3

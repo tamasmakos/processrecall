@@ -28,6 +28,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
+from processrecall.trajectory.records import CONSUMED_EVENT_NAMES
+
 #: Stamped into the episodic index's `meta` table and checked on every open. A
 #: store at `1` migrates forward once; any other value stays a refusal.
 STORE_SCHEMA_VERSION = "2"
@@ -556,30 +558,41 @@ class TelemetryRecord:
 
 
 #: The records consumed, in the order the generated contract lists them. Nothing
-#: else is read: an unlisted record has no row to become.
+#: else is read: an unlisted record has no row to become. The names themselves
+#: are `trajectory.records.CONSUMED_EVENT_NAMES`'s to declare (R17 puts
+#: `trajectory` below `graph`); this pairs each with the episodic shape it
+#: becomes.
+(
+    _USER_PROMPT,
+    _API_REQUEST,
+    _API_ERROR,
+    _API_REFUSAL,
+    _TOOL_RESULT,
+    _TOOL_DECISION,
+    _SUBAGENT_COMPLETED,
+) = CONSUMED_EVENT_NAMES
+
 CONSUMED_RECORDS = (
-    TelemetryRecord("claude_code.user_prompt", "a sequence", "opens the turn, carries `prompt.id`"),
-    TelemetryRecord("claude_code.api_request", "an inference"),
+    TelemetryRecord(_USER_PROMPT, "a sequence", "opens the turn, carries `prompt.id`"),
+    TelemetryRecord(_API_REQUEST, "an inference"),
     TelemetryRecord(
-        "claude_code.api_error",
+        _API_ERROR,
         "an inference that failed",
         "the terminal signal; retries are not separate events",
     ),
     TelemetryRecord(
-        "claude_code.api_refusal",
+        _API_REFUSAL,
         "an inference that was refused",
         "refusals arrive on a successful stream and never fire `api_error`",
     ),
+    TelemetryRecord(_TOOL_RESULT, "a step that ran", "not emitted for a rejected call"),
     TelemetryRecord(
-        "claude_code.tool_result", "a step that ran", "not emitted for a rejected call"
-    ),
-    TelemetryRecord(
-        "claude_code.tool_decision",
+        _TOOL_DECISION,
         "a step's permission outcome",
         "the **only** record a rejected call produces",
     ),
     TelemetryRecord(
-        "claude_code.subagent_completed",
+        _SUBAGENT_COMPLETED,
         "an agent",
         "the only events-mode record naming an agent type",
     ),
