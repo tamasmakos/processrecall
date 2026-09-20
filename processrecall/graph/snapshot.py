@@ -58,6 +58,19 @@ _REFERENCE_KEYS = frozenset(
     if field.reference
 )
 
+#: Every field name the declaration marks stored and never projected. The
+#: exclusion is enforced off the declaration for the same reason the routing
+#: rule is: the served form is the form that gets traversed, and a write time
+#: found there makes a from-scratch rebuild differ from an incremental
+#: derivation (FR-044, FR-028).
+_UNPROJECTED_KEYS = frozenset(
+    field.name
+    for layer in LAYERS
+    for table in layer.tables
+    for field in table.fields
+    if not field.projected
+)
+
 
 @dataclass(frozen=True, slots=True)
 class Snapshot:
@@ -105,11 +118,13 @@ class SnapshotFile:
 
         Raises:
             ValueError: A body sits on the wrong side of the routing rule
-                (FR-016). Nothing is written: the served form is the form that
-                gets traversed, so a misrouted body is refused here rather than
-                left for every reader of the file to trip over.
+                (FR-016), or carries a field the declaration stores and never
+                projects (FR-044). Nothing is written: the served form is the
+                form that gets traversed, so such a body is refused here rather
+                than left for every reader of the file to trip over.
         """
         _routed_as_declared(snapshot)
+        _nothing_stored_only_is_projected(snapshot)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         handle, temporary = tempfile.mkstemp(dir=self._path.parent, suffix=".tmp")
         try:
@@ -157,6 +172,26 @@ def _routed_as_declared(snapshot: Snapshot) -> None:
     """
     _nodes_carry_no_reference(snapshot.nodes)
     _edges_carry_a_reference(snapshot.edges)
+
+
+def _nothing_stored_only_is_projected(snapshot: Snapshot) -> None:
+    """Refuse *snapshot* where a body carries a field the store keeps to itself.
+
+    One pass over nodes and edges alike: the exclusion is of the field, not of a
+    side, because the projection is what a rebuild is compared against (FR-028).
+    """
+    for key, body in snapshot.nodes.items():
+        if projected := sorted(_UNPROJECTED_KEYS.intersection(_body_keys(body))):
+            raise ValueError(
+                f"node {key!r} carries {', '.join(projected)}: the declaration stores "
+                "these and never projects them, so a rebuild would stop equalling a fold"
+            )
+    for position, body in enumerate(snapshot.edges):
+        if projected := sorted(_UNPROJECTED_KEYS.intersection(_body_keys(body))):
+            raise ValueError(
+                f"edge {position} carries {', '.join(projected)}: the declaration stores "
+                "these and never projects them, so a rebuild would stop equalling a fold"
+            )
 
 
 def _nodes_carry_no_reference(nodes: Mapping[str, object]) -> None:

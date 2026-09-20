@@ -223,3 +223,16 @@ def test_store_columns_match_declaration(tmp_path: Path) -> None:
                 assert stored.get(field.name) == expected, (table.name, field.name)
             undeclared = set(stored) - {field.name for field in table.fields}
             assert not undeclared, (table.name, sorted(undeclared))
+
+
+def test_recorded_at_is_stored_and_never_projected(tmp_path: Path) -> None:
+    """A step carries the time the memory wrote it beside the time the thing happened,
+    and the write time stays in the store: projected into the snapshot it would make a
+    from-scratch rebuild differ from an incremental derivation (FR-044, FR-028).
+    """
+    fields = _declared_tables()["steps"].fields
+    names = tuple(field.name for field in fields)
+    assert names[names.index("occurred_at") + 1] == "recorded_at"
+    assert not fields[names.index("recorded_at")].projected
+    with closing(open_index(tmp_path / "episodes.db")) as connection:
+        assert "recorded_at" in _stored_columns(connection, "steps")

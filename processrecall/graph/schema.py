@@ -113,6 +113,10 @@ class Field:
             closed vocabulary is part of the contract: the generated document
             lists it, so a reader learns the values from the declaration rather
             than from the writer that happens to fill the column.
+        projected: Whether the served snapshot may carry this field. A stored-only
+            field is held in the store and read from it alone: projected into the
+            snapshot it would make a from-scratch rebuild differ from an
+            incremental derivation (FR-044, FR-028).
     """
 
     name: str
@@ -120,6 +124,7 @@ class Field:
     reference: str = ""
     primary_key: bool = False
     vocabulary: tuple[str, ...] = ()
+    projected: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,7 +159,14 @@ def _text(name: str, reference: str = "", primary_key: bool = False) -> Field:
 
 def _closed(name: str, vocabulary: type[StrEnum]) -> Field:
     """A `FieldType.TEXT` field that takes one of an enumerated set of values."""
-    return Field(name=name, type=FieldType.TEXT, vocabulary=tuple(member.value for member in vocabulary))
+    return Field(
+        name=name, type=FieldType.TEXT, vocabulary=tuple(member.value for member in vocabulary)
+    )
+
+
+def _stored_only(name: str) -> Field:
+    """A `FieldType.TEXT` field the store holds and the snapshot never carries."""
+    return Field(name=name, type=FieldType.TEXT, projected=False)
 
 
 def _integer(name: str, reference: str = "") -> Field:
@@ -260,6 +272,10 @@ _EPISODIC_TABLES = (
             _text("outcome"),
             _text("record_ref"),
             _text("occurred_at"),
+            # The time the memory wrote the row, beside the time the thing happened:
+            # the pair is what lets a rebuild reconstruct what the graph believed at a
+            # past time (FR-044).
+            _stored_only("recorded_at"),
             _text("rationale_label"),
             _text("symbol_ref"),
             _text("valid_from"),
@@ -274,7 +290,6 @@ _EPISODIC_TABLES = (
             _integer("result_size_bytes"),
             _text("tool_source"),
             _text("source"),
-            _text("recorded_at"),
         ),
     ),
     Table(
@@ -296,6 +311,9 @@ _EPISODIC_TABLES = (
             _integer("status_code"),
             _integer("attempt"),
             _text("occurred_at"),
+            # The time the memory wrote the row, beside the time the thing happened,
+            # for the same reason as `steps` (FR-044).
+            _stored_only("recorded_at"),
             _integer("first_content_ms"),
             _text("stop_reason"),
             _text("error_class"),
@@ -550,6 +568,32 @@ def _closed_vocabularies() -> str:
     )
 
 
+def _stored_only_fields() -> str:
+    """The stored-and-never-projected fields of `contracts/graph-schema-v2.md`.
+
+    The exclusion is part of the contract: a from-scratch rebuild equals an
+    incremental derivation only while no served body carries one (FR-044, FR-028).
+    """
+    rows = tuple(
+        (f"`{table.name}`", f"`{field.name}`")
+        for layer in LAYERS
+        for table in layer.tables
+        for field in table.fields
+        if not field.projected
+    )
+    return "\n".join(
+        (
+            "## Stored and never projected",
+            "",
+            "A field listed here is held in the store and never appears in a served",
+            "snapshot body: projecting it would make a from-scratch rebuild differ from an",
+            "incremental derivation.",
+            "",
+            _markdown_table(("Table", "Field"), rows),
+        )
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class GeneratedBody:
     """One contract document's generated region, markers included.
@@ -576,7 +620,7 @@ def render_bodies() -> tuple[GeneratedBody, ...]:
     return (
         _generated(
             "graph-schema-v2.md",
-            f"{_tables_and_edges()}\n\n{_closed_vocabularies()}",
+            f"{_tables_and_edges()}\n\n{_closed_vocabularies()}\n\n{_stored_only_fields()}",
         ),
         _generated("telemetry-records.md", _records_consumed()),
     )

@@ -182,3 +182,28 @@ def test_supporting_steps_are_an_edge_not_an_attribute(
     evidenced = replace(snapshot, edges=[{"supporting_steps": [12793], "support": 38}])
     SnapshotFile(path, counters).write(evidenced)
     assert SnapshotFile(path, counters).read() == evidenced
+
+
+def test_a_projected_write_time_is_refused(
+    tmp_path: Path, counters: FakeCounters, snapshot: Snapshot
+) -> None:
+    """`recorded_at` is stored and never projected: a write time in a served body would
+    make a from-scratch rebuild differ from an incremental derivation (FR-044, FR-028).
+    The exclusion is of the field, so it holds on either side of the routing rule.
+    """
+    path = tmp_path / "graph.json"
+    on_a_node = replace(
+        snapshot,
+        nodes={"ChangeImplementation/Edit": {"support": 475, "recorded_at": "2026-09-12T10:04:11"}},
+    )
+    on_an_edge = replace(
+        snapshot,
+        edges=[{"source": "ChangeImplementation/Edit", "recorded_at": "2026-09-12T10:04:11"}],
+    )
+
+    for projected in (on_a_node, on_an_edge):
+        with pytest.raises(ValueError, match="recorded_at"):
+            SnapshotFile(path, counters).write(projected)
+
+    assert not path.exists()
+    assert counters.counted["snapshot_written"] == 0
