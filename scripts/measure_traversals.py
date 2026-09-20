@@ -382,7 +382,7 @@ class Measurement:
             answered.ask.taken,
             self._fusion.fuse(
                 *(
-                    CandidateList(edges=edges, scope=Scope.PROJECT)
+                    CandidateList(edges=edges, scope=Scope.PROJECT, traversal=traversal)
                     for traversal, edges in answered.candidates.items()
                     if traversal in over
                 )
@@ -396,6 +396,11 @@ def measure(corpus: Iterable[Session], config: Config) -> Report:
     The graph is folded from the training half alone, and each held-out step is
     asked for from the position the steps before it left the agent at — so a
     traversal is scored on a move it had not seen made.
+
+    The fusion measured runs with `unmeasured_traversals` on, whatever the
+    shipped setting is: a dark traversal's numbers are what decide whether it
+    stops being dark, and measuring it through the gate it is waiting on would
+    report the gate rather than the path.
     """
     split = temporal_split(corpus)
     trained = Trained.of(split.train, config)
@@ -405,7 +410,7 @@ def measure(corpus: Iterable[Session], config: Config) -> Report:
             for session in split.test
             for ask in _asks(session, config.level)
         ),
-        Fusion(config, _UNCOUNTED),
+        Fusion(replace(config, unmeasured_traversals=True), _UNCOUNTED),
     )
     baseline = measurement.ranking(USUAL_NEXT, {USUAL_NEXT})
     fused = measurement.ranking("fused (every proposing traversal)", frozenset(FUSED))

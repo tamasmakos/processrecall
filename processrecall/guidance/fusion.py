@@ -24,6 +24,11 @@ applied here, before the ranks are read, because a list is where the floor is
 meaningful: an edge below it exists without being evidence enough to rank
 (FR-045a), and a traversal has no business applying it to itself.
 
+The measurement gate is applied here for the same reason (FR-036): a traversal
+whose numbers the published measurement does not support runs and counts where
+it runs, and is excluded where its candidates would have been served — so the
+path a reader never sees is still the path `inspect` can show keeps losing.
+
 On the hot path, so the standard library only.
 
 Example:
@@ -43,7 +48,19 @@ from enum import StrEnum
 
 from processrecall.config import Config, Counters
 from processrecall.graph.abstract import TransitionEdge
+from processrecall.guidance.paths import USUAL_NEXT
 from processrecall.ranking.rrf import rrf_score
+
+#: The traversals admitted to the fused result (FR-036). A traversal this set
+#: does not name contributes no candidates however well it ran: it stays dark
+#: until its measurement is published and it is named here, so declaring a path
+#: can never put it in front of a reader on its own. `usual_next` is in it as
+#: the baseline every other traversal's numbers are judged against, not a
+#: measured entrant itself. Every other name is added by hand, one at a time,
+#: as `docs/measurements/007.md` (T050) publishes it clearing the margin —
+#: `usually_refused` never joins, because `FUSED` in `measure_traversals.py`
+#: excludes it from the fused ranking it would have to clear.
+ADMITTED: frozenset[str] = frozenset({USUAL_NEXT})
 
 
 class Scope(StrEnum):
@@ -65,11 +82,16 @@ class CandidateList:
             top of the scope's own weight. A plain multiplier, not a switch:
             a weight of zero still serves the list's edges, at a fused score
             of zero, rather than excluding them.
+        traversal: Which path found the edges, as `paths` names it (FR-034).
+            The measurement gate is what reads it, and the baseline is the
+            default: a caller that takes a position's moves straight off the
+            graph is answering `usual_next`'s question, and the gate admits it.
     """
 
     edges: tuple[TransitionEdge, ...]
     scope: Scope
     weight: float = 1.0
+    traversal: str = USUAL_NEXT
 
     def fused_weight(self, project_weight: float) -> float:
         """The weight this list's ranks are scored at: its own, times the scope's."""
@@ -119,22 +141,38 @@ class Fusion:
     def fuse(self, *lists: CandidateList) -> FusedCandidates:
         """*lists*' candidates as one ranking, best first.
 
-        Each list is floored, ranked and scored at its own weight; a move
-        several lists reached is served once, carrying the sum. An answer left
-        entirely to the cross-project lists is the fallback FR-048 allows, and
-        it is counted as one. The floor emptying every list is counted once,
+        Each admitted list is floored, ranked and scored at its own weight; a
+        move several lists reached is served once, carrying the sum. An answer
+        left entirely to the cross-project lists is the fallback FR-048 allows,
+        and it is counted as one. The floor emptying every list is counted once,
         the same reading `Triggers._cleared` gives it, rather than once per
         list: an occasion is silent or it is not, whatever it took to floor it.
+
+        The gate runs before the floor and everything after reads the admitted
+        lists alone, so a dark traversal decides neither an answer's scope nor
+        whether the occasion was one the floor silenced: it contributed nothing
+        to weigh in either reading.
         """
-        supported = tuple(self._cleared(candidates) for candidates in lists)
+        admitted = tuple(candidates for candidates in lists if self._admits(candidates))
+        supported = tuple(self._cleared(candidates) for candidates in admitted)
         fused = FusedCandidates(
-            edges=_fused(supported, _scoped(lists), self._config.project_weight)
+            edges=_fused(supported, _scoped(admitted), self._config.project_weight)
         )
-        if not fused.edges and any(candidates.edges for candidates in lists):
+        if not fused.edges and any(candidates.edges for candidates in admitted):
             self._counters.bump("guidance_below_support")
         if fused.scope is Scope.GLOBAL:
             self._counters.bump("guidance_fallback_global")
         return fused
+
+    def _admits(self, candidates: CandidateList) -> bool:
+        """Whether *candidates*' traversal may reach the fused result (FR-036).
+
+        A traversal the measurement has not admitted still runs and is still
+        counted where it ran; what the gate withholds is a reader. Reading
+        `Config.unmeasured_traversals` here rather than at any call site is what
+        makes the setting the only way to those candidates, and it ships off.
+        """
+        return candidates.traversal in ADMITTED or self._config.unmeasured_traversals
 
     def _cleared(self, candidates: CandidateList) -> CandidateList:
         """*candidates* reduced to the moves clearing the support floor (FR-045a).
@@ -147,7 +185,12 @@ class Fusion:
         cleared = tuple(
             edge for edge in candidates.edges if edge.support >= self._config.min_support
         )
-        return CandidateList(edges=cleared, scope=candidates.scope, weight=candidates.weight)
+        return CandidateList(
+            edges=cleared,
+            scope=candidates.scope,
+            weight=candidates.weight,
+            traversal=candidates.traversal,
+        )
 
 
 def _fused(

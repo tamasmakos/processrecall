@@ -12,6 +12,7 @@ from collections import Counter
 from processrecall.config import Config
 from processrecall.graph.abstract import AbstractGraph, TransitionEdge, aggregate
 from processrecall.guidance.fusion import CandidateList, Fusion, Scope
+from processrecall.guidance.paths import USUAL_NEXT
 
 from .conftest import walk
 
@@ -21,6 +22,10 @@ TEST = "ArtifactEvaluation/pytest/py"
 SEARCH = "Search/Grep/py"
 
 LEVEL = "class/program"
+
+#: Path 8 of the retrieval-paths contract: declared, run and counted, and
+#: admitted to the fused result by no published measurement yet (FR-036).
+UNMEASURED = "ppr_neighbourhood"
 
 
 class FakeCounters:
@@ -141,3 +146,37 @@ def test_project_weight_does_not_gate_global_candidates() -> None:
     ]
     assert [edge.scope for edge in fused.edges] == [Scope.GLOBAL, Scope.PROJECT, Scope.PROJECT]
     assert fused.scope is Scope.PROJECT
+
+
+def _measured_and_unmeasured() -> tuple[CandidateList, CandidateList]:
+    """One admitted list and one dark list, over the same position (FR-036)."""
+    measured = out_of(graph_of((EDIT, TEST), (EDIT, TEST)), EDIT)
+    unmeasured = out_of(graph_of((EDIT, SEARCH), (EDIT, SEARCH)), EDIT)
+    return (
+        CandidateList(edges=measured, scope=Scope.PROJECT, traversal=USUAL_NEXT),
+        CandidateList(edges=unmeasured, scope=Scope.PROJECT, traversal=UNMEASURED),
+    )
+
+
+def test_unmeasured_traversal_contributes_no_candidates() -> None:
+    """FR-036: a traversal no published measurement has admitted stays dark.
+
+    Its list is built and handed to the fusion — the path ran, and its own
+    counter says so — and the fused answer holds nothing of it, so the
+    occasion is not read as one the support floor silenced either.
+    """
+    counters = FakeCounters()
+
+    fused = Fusion(Config(), counters).fuse(*_measured_and_unmeasured())
+
+    assert [edge.edge.target for edge in fused.edges] == [served(TEST)]
+    assert counters.counted == Counter()
+
+
+def test_the_off_by_default_setting_is_the_only_way_to_an_unmeasured_traversal() -> None:
+    """FR-036: an operator who asks for the dark candidates gets them, and only so."""
+    fused = Fusion(Config(unmeasured_traversals=True), FakeCounters()).fuse(
+        *_measured_and_unmeasured()
+    )
+
+    assert {edge.edge.target for edge in fused.edges} == {served(TEST), served(SEARCH)}

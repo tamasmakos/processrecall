@@ -67,6 +67,7 @@ from processrecall.graph.store import (
 from processrecall.guidance.fusion import CandidateList, Fusion, Scope
 from processrecall.guidance.locate import locate
 from processrecall.guidance.neighborhood import Neighborhood
+from processrecall.guidance.paths import USUAL_NEXT
 from processrecall.guidance.render import BulletRenderer, Deadline, GuidanceStatement
 from processrecall.guidance.successors import successors_from
 from processrecall.guidance.triggers import Triggers
@@ -417,10 +418,12 @@ def _fused_openings(opening: _Opening) -> tuple[TransitionEdge, ...]:
         CandidateList(
             edges=_moves_from(_project_snapshot(opening.project_dir), START_KEY, opening.counters),
             scope=Scope.PROJECT,
+            traversal=USUAL_NEXT,
         ),
         CandidateList(
             edges=_moves_from(home_dir() / SNAPSHOT_NAME, START_KEY, opening.counters),
             scope=Scope.GLOBAL,
+            traversal=USUAL_NEXT,
         ),
     )
     return tuple(candidate.edge for candidate in fused.edges)
