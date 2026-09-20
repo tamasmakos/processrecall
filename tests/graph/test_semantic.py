@@ -13,8 +13,10 @@ from processrecall.graph.semantic import (
     CodeEntity,
     CodeRelation,
     EntityKind,
+    TouchedEntity,
     containment,
     entity_key,
+    touched_entities,
 )
 from processrecall.graph.store import EpisodicStep
 
@@ -123,6 +125,65 @@ def test_containment_relates_each_file_to_the_symbols_it_holds() -> None:
             target_key="processrecall/graph/semantic.py#CodeEntity",
         ),
     )
+
+
+def test_touched_edges_survive_entity_deletion() -> None:
+    """A deleted symbol leaves its touched edges readable rather than dangling (Edge Cases)."""
+    surviving = make_entity("processrecall/graph/semantic.py", "file")
+
+    read = touched_entities(
+        ["processrecall/graph/semantic.py#deleted", "processrecall/graph/semantic.py"],
+        [surviving],
+    )
+
+    assert read == (
+        TouchedEntity(
+            entity_key="processrecall/graph/semantic.py#deleted", entity=None, file=surviving
+        ),
+        TouchedEntity(
+            entity_key="processrecall/graph/semantic.py", entity=surviving, file=surviving
+        ),
+    )
+
+
+def test_renamed_file_does_not_repoint_a_touched_edge() -> None:
+    """A rename is a new entity, never a re-pointing of the old key (Edge Cases)."""
+    renamed = make_entity("processrecall/graph/renamed.py", "file")
+
+    read = touched_entities(["processrecall/graph/semantic.py"], [renamed])
+
+    assert read == (
+        TouchedEntity(entity_key="processrecall/graph/semantic.py", entity=None, file=None),
+    )
+
+
+def test_renamed_file_stays_unmatched_through_derivation(tmp_path: Path) -> None:
+    """A rename derives a new key even with unchanged content; the old key stays unmatched.
+
+    Exercises the real derivation pipeline (`derive_semantic`, `_touched_files`,
+    `_readable_text`) rather than a hand-built entity list, so the rename Edge
+    Case is pinned on the path it actually runs: the fingerprint alone cannot
+    repoint a touched edge, because matching is by key (Edge Cases).
+    """
+    source = tmp_path / "pkg" / "module.py"
+    source.parent.mkdir()
+    source.write_text("def work() -> None:\n    return None\n", encoding="utf-8")
+    counters = FakeCounters()
+    before = derive_semantic(
+        SemanticPass(project_dir=tmp_path, steps=edit_of("pkg/module.py")), counters
+    )
+
+    source.rename(tmp_path / "pkg" / "renamed.py")
+
+    after = derive_semantic(
+        SemanticPass(project_dir=tmp_path, steps=edit_of("pkg/renamed.py")), counters
+    )
+
+    assert [row.entity_key for row in after] == ["pkg/renamed.py"]
+    assert after[0].fingerprint == before[0].fingerprint
+
+    read = touched_entities(["pkg/module.py"], after)
+    assert read == (TouchedEntity(entity_key="pkg/module.py", entity=None, file=None),)
 
 
 def test_unchanged_file_is_skipped_on_second_pass(tmp_path: Path) -> None:

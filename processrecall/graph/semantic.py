@@ -21,7 +21,7 @@ Example:
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import PurePath
@@ -79,6 +79,11 @@ def entity_key(path: PurePath, qualified_name: str | None = None) -> str:
     return relative if qualified_name is None else f"{relative}#{qualified_name}"
 
 
+def _file_key(key: str) -> str:
+    """The file half of a `code_entities` *key*, which is all of a file's own key."""
+    return key.split("#", 1)[0]
+
+
 @dataclass(frozen=True, slots=True)
 class CodeEntity:
     """One `code_entities` row: a file, or one symbol declared inside one.
@@ -134,7 +139,7 @@ class CodeEntity:
     @property
     def file_key(self) -> str:
         """The key of the file this entity lives in; its own key, for a file."""
-        return self.entity_key.split("#", 1)[0]
+        return _file_key(self.entity_key)
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,3 +216,46 @@ def _contains(symbol: CodeEntity, files: frozenset[str]) -> CodeRelation:
     return CodeRelation(
         source_key=symbol.file_key, relation="contains", target_key=symbol.entity_key
     )
+
+
+@dataclass(frozen=True, slots=True)
+class TouchedEntity:
+    """What one touched edge's stored key still reads as, after the churn since.
+
+    A touched edge outlives the entity it names: the episodic row was true when
+    it was written, and the semantic layer moving on may not unwrite it. So this
+    answers with what survives rather than with the nearest match — a renamed
+    file is a new entity under a new key, and an edge naming the old one stays
+    unresolved instead of silently re-pointing at content that only looks the
+    same (Edge Cases).
+
+    Attributes:
+        entity_key: The key the touched edge stored, kept exactly as written.
+        entity: The entity that key names now; `None` once the symbol was
+            deleted, or the file renamed out from under it.
+        file: The file entity the key lives in, which outlives a deleted symbol
+            and is what keeps the touch readable when `entity` is gone.
+    """
+
+    entity_key: str
+    entity: CodeEntity | None
+    file: CodeEntity | None
+
+
+def touched_entities(
+    touched_keys: Iterable[str], entities: Iterable[CodeEntity]
+) -> tuple[TouchedEntity, ...]:
+    """Each key in *touched_keys* read against the *entities* that exist now.
+
+    Matched by key alone, because the key is the identity: fingerprint, name and
+    kind are all things two entities can share, and a rename shares every one of
+    them, so anything looser would re-point a touched edge at an entity the step
+    never touched.
+    """
+    present = {row.entity_key: row for row in entities}
+    return tuple(_touched(key, present) for key in touched_keys)
+
+
+def _touched(key: str, present: Mapping[str, CodeEntity]) -> TouchedEntity:
+    """*key* read against the entities *present* still holds, symbol then its file."""
+    return TouchedEntity(entity_key=key, entity=present.get(key), file=present.get(_file_key(key)))
