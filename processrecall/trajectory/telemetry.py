@@ -1,4 +1,9 @@
-"""Attributing the collector's telemetry records to the project their session belongs to (R4, FR-004).
+"""Reading the collector's OTLP/JSON lines, and attributing them to a project (FR-001, R4).
+
+`records_in_line` is the door every telemetry record comes through. A collector
+batches, so one exported line is `resourceLogs[] → scopeLogs[] → logRecords[]`
+and each level can hold several: reading the first entry of any of them loses
+whole records with no sign that it did (FR-002).
 
 No telemetry record carries a working directory, so a record cannot say which
 project its work happened in. The one thing that knows is the session→project
@@ -21,10 +26,11 @@ Off the hot path, but on the store's layer, so the standard library only.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping
+import json
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 from processrecall.config import Counters
 
@@ -45,6 +51,144 @@ SEQUENCE_ATTRIBUTE = "event.sequence"
 #: as. Named once so the reader, the attribution and the ordering share a
 #: single spelling of it rather than restating the union at each call site.
 TelemetryRecord = Mapping[str, str | int | bool]
+
+#: The attributes bound from a record whatever record it is: its identity, the
+#: attribution key, the version floor, the turn's correlation key and the two
+#: ordering keys (`contracts/telemetry-records.md`, "Standard attributes").
+_STANDARD_ATTRIBUTES = frozenset(
+    {
+        "event.name",
+        TIMESTAMP_ATTRIBUTE,
+        SEQUENCE_ATTRIBUTE,
+        SESSION_ATTRIBUTE,
+        "app.version",
+        "prompt.id",
+    }
+)
+
+#: What a `user_prompt` contributes to the sequence it opens. `prompt` is absent
+#: on purpose and is the whole reason this is an allow-list.
+_SEQUENCE_ATTRIBUTES = frozenset({"prompt_length", "command_name", "command_source"})
+
+#: What `tool_result` and `tool_decision` contribute to a step. The two records
+#: spell the permission outcome differently — `decision_type`/`decision_source`
+#: on the result, `decision`/`source` on the verdict — so both spellings are
+#: bound here and reconciled where the step is written, not at the door.
+_STEP_ATTRIBUTES = frozenset(
+    {
+        "tool_use_id",
+        "tool_name",
+        "success",
+        "duration_ms",
+        "error_type",
+        "decision_type",
+        "decision_source",
+        "decision",
+        "source",
+        "tool_input_size_bytes",
+        "tool_result_size_bytes",
+        "tool_source",
+        "mcp_server_scope",
+        "tool_parameters",
+        "tool_input",
+        "vcs.ref.head.revision",
+        "vcs.ref.head.name",
+    }
+)
+
+#: What `api_request`, `api_error` and `api_refusal` contribute to an inference.
+#: `cost_usd` is not among them: `cost_usd_micros` is the same quantity as an
+#: integer, and a float would make cost per procedure non-reproducible.
+_INFERENCE_ATTRIBUTES = frozenset(
+    {
+        "model",
+        "input_tokens",
+        "output_tokens",
+        "cache_read_tokens",
+        "cache_creation_tokens",
+        "cost_usd_micros",
+        "speed",
+        "effort",
+        "query_source",
+        "request_id",
+        "client_request_id",
+        "status_code",
+        "attempt",
+        "refusal",
+    }
+)
+
+#: What `subagent_completed` contributes to an agent.
+_AGENT_ATTRIBUTES = frozenset(
+    {
+        "agent_type",
+        "agent.source",
+        "is_built_in",
+        "is_async",
+        "total_tool_uses",
+        "final_model",
+        "model_swapped",
+    }
+)
+
+#: Every attribute the reader will bind, and no other (R11, FR-011). Binding from
+#: a list of names rather than filtering a list of forbidden ones is what makes a
+#: prompt, a response body or an account UUID unreadable by default: a harness
+#: release that adds one, under whatever name and whatever gate, is not on this
+#: list and so never reaches anything that writes.
+BOUND_ATTRIBUTES = (
+    _STANDARD_ATTRIBUTES
+    | _SEQUENCE_ATTRIBUTES
+    | _STEP_ATTRIBUTES
+    | _INFERENCE_ATTRIBUTES
+    | _AGENT_ATTRIBUTES
+)
+
+#: The OTel `AnyValue` fields a consumed attribute is ever written in, each with
+#: the reader recovering the type the harness meant. `intValue` is a JSON string
+#: in the protobuf JSON mapping, so a token count left as written would neither
+#: compare nor sort as the number it is. A value in any other field — a list, a
+#: nested map, bytes — is not one of these and is left unbound.
+_VALUE_READERS: Mapping[str, Callable[[Any], str | int | bool]] = {
+    "stringValue": str,
+    "intValue": int,
+    "boolValue": bool,
+}
+
+
+def records_in_line(line: str) -> Iterator[TelemetryRecord]:
+    """Every log record the batched OTLP/JSON *line* carries, flattened (FR-001, FR-002).
+
+    Each yielded record is the log record's attribute list as a mapping. The
+    resource and scope around it are not folded in: they carry the deployment's
+    own `OTEL_RESOURCE_ATTRIBUTES`, which name teams and departments (R11).
+    """
+    payload = json.loads(line)
+    for resource_log in payload.get("resourceLogs", ()):
+        for scope_log in resource_log.get("scopeLogs", ()):
+            for log_record in scope_log.get("logRecords", ()):
+                yield _flattened(log_record.get("attributes", ()))
+
+
+def _flattened(attributes: Iterable[Any]) -> TelemetryRecord:
+    """The allow-listed part of an OTLP key/value list, as a mapping (FR-011)."""
+    flat: dict[str, str | int | bool] = {}
+    for attribute in attributes:
+        key = attribute.get("key")
+        if key not in BOUND_ATTRIBUTES:
+            continue
+        value = _scalar(attribute.get("value", {}))
+        if value is not None:
+            flat[key] = value
+    return flat
+
+
+def _scalar(value: Mapping[str, Any]) -> str | int | bool | None:
+    """The scalar an OTel `AnyValue` holds, or ``None`` when it holds none of them."""
+    for field, read in _VALUE_READERS.items():
+        if field in value:
+            return read(value[field])
+    return None
 
 
 class SessionBindings(Protocol):

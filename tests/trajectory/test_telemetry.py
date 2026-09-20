@@ -11,7 +11,11 @@ from processrecall.trajectory.offset import OFFSET_NAME, OffsetFile
 from processrecall.trajectory.telemetry import (
     SESSION_ATTRIBUTE,
     ProjectAttribution,
+    records_in_line,
 )
+
+#: The synthetic OTLP corpus T001 built to `contracts/telemetry-records.md`.
+TELEMETRY_FIXTURES = Path(__file__).parents[1] / "fixtures" / "telemetry"
 
 
 class FakeCounters:
@@ -90,3 +94,68 @@ def test_unbound_session_is_dropped_and_counted(counters: FakeCounters) -> None:
         "session-opened-by-a-hook"
     ]
     assert counters.counted["telemetry_session_unbound"] == 2
+
+
+def test_batched_line_yields_every_log_record() -> None:
+    line = (TELEMETRY_FIXTURES / "batched.jsonl").read_text(encoding="utf-8").strip()
+
+    records = list(records_in_line(line))
+
+    # One exported line, one resourceLogs, two scopeLogs, three logRecords:
+    # reading the first entry of any of the three levels would silently lose the
+    # tool_result that the tool_decision above it decided (FR-002).
+    assert [record["event.name"] for record in records] == [
+        "claude_code.api_request",
+        "claude_code.tool_decision",
+        "claude_code.tool_result",
+    ]
+    # Flattened out of OTLP key/value pairs, each value read back as the type the
+    # harness wrote rather than the JSON the protobuf mapping encodes it as:
+    # `intValue` arrives as a string and would not compare or sort as a number.
+    assert records[0]["event.sequence"] == 11
+    assert records[0]["cost_usd_micros"] == 2960
+    assert records[2]["tool_use_id"] == "toolu_synthetic_0011"
+    assert records[2]["success"] is True
+    # Resource-level attributes are not the record's: the custom
+    # OTEL_RESOURCE_ATTRIBUTES a deployment sets carry team and department names,
+    # and folding them in here would attach them to every record (R11).
+    assert not any("service.name" in record for record in records)
+
+
+#: The attributes the contract's "Never read, under any gate" table names, plus the
+#: identity attributes R11 drops at the door. None of them is on the allow-list, so
+#: none of them has a way in — which is the point of binding rather than filtering.
+NEVER_BOUND = (
+    "prompt",
+    "response",
+    "body",
+    "body_ref",
+    "organization.id",
+    "user.id",
+    "user.email",
+    "user.account_uuid",
+    "user.account_id",
+    "user.groups",
+    "identity.source",
+    "user_prompt",
+)
+
+
+def test_only_allow_listed_attributes_are_bound() -> None:
+    lines = [
+        (TELEMETRY_FIXTURES / name).read_text(encoding="utf-8").strip()
+        for name in ("identity_attributes.jsonl", "forbidden_content.jsonl")
+    ]
+
+    records = [record for line in lines for record in records_in_line(line)]
+
+    bound = {key for record in records for key in record}
+    assert bound.isdisjoint(NEVER_BOUND)
+    # Content is dropped at the door rather than made a reason to refuse the
+    # record carrying it (FR-012); this reader does not yet refuse a record by
+    # its `event.name` (T014), so the count below is a pre-filter count of the
+    # four log records the two fixture lines carry, not a claim that
+    # `assistant_response` and `api_request_body` are consumed.
+    assert len(records) == 4
+    assert records[0]["request_id"] == "req_synthetic_0041"
+    assert records[0]["input_tokens"] == 1200
