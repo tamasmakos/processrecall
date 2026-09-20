@@ -360,16 +360,21 @@ def in_record_order(
     return tuple(record for _, record in positioned)
 
 
-def _read_position(record: TelemetryRecord) -> tuple[datetime, int]:
-    """*record*'s sort key: when it was written, then the harness's counter.
+def parse_instant(value: str) -> datetime:
+    """*value* as the instant it names, defaulting a naive reading to UTC.
 
-    `event.timestamp` is parsed and, when it carries no offset, treated as UTC:
-    two harnesses need not agree on whether to emit one, and comparing a naive
-    instant against an aware one raises rather than orders.
+    Two harnesses need not agree on whether `event.timestamp` carries an
+    offset, and comparing a naive instant against an aware one raises rather
+    than orders — so a naive reading is treated as UTC here, once, for every
+    caller that places a record in time.
     """
-    written_at = datetime.fromisoformat(str(record[TIMESTAMP_ATTRIBUTE]))
-    if written_at.tzinfo is None:
-        written_at = written_at.replace(tzinfo=UTC)
+    instant = datetime.fromisoformat(value)
+    return instant if instant.tzinfo else instant.replace(tzinfo=UTC)
+
+
+def _read_position(record: TelemetryRecord) -> tuple[datetime, int]:
+    """*record*'s sort key: when it was written, then the harness's counter."""
+    written_at = parse_instant(str(record[TIMESTAMP_ATTRIBUTE]))
     return written_at, int(record[SEQUENCE_ATTRIBUTE])
 
 
@@ -428,15 +433,21 @@ def step_from_verdict(record: TelemetryRecord) -> TrajectoryEvent:
         source_kind=SourceKind.LIVE,
         decision=_DECISION_VALUES.get(str(record.get("decision", ""))),
         decision_source=_validated_source(record),
-        tool_source=_optional_text(record, "tool_source"),
+        tool_source=optional_text(record, "tool_source"),
         event_sequence=event_sequence,
     )
 
 
-def _optional_text(record: TelemetryRecord, attribute: str) -> str | None:
+def optional_text(record: TelemetryRecord, attribute: str) -> str | None:
     """*attribute* as text, or ``None`` when *record* did not carry it (R14)."""
     value = record.get(attribute)
     return None if value is None else str(value)
+
+
+def optional_integer(record: TelemetryRecord, attribute: str) -> int | None:
+    """*attribute* as a whole number, or ``None`` when *record* did not carry it (R14)."""
+    value = record.get(attribute)
+    return None if value is None else int(value)
 
 
 def _validated_source(record: TelemetryRecord) -> str | None:

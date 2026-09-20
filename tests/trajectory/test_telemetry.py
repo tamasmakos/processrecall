@@ -8,6 +8,12 @@ from pathlib import Path
 
 import pytest
 
+from processrecall.graph.episodic import open_index
+from processrecall.graph.store import (
+    SequenceKey,
+    SQLiteEpisodicStore,
+    inference_from_record,
+)
 from processrecall.trajectory.offset import OFFSET_NAME, OffsetFile
 from processrecall.trajectory.telemetry import (
     SESSION_ATTRIBUTE,
@@ -280,3 +286,49 @@ def test_failed_tool_result_is_failure_and_still_accepted() -> None:
     (succeeded,) = _results("batched.jsonl")
     assert step_result(succeeded) == "ok"
     assert step_result({"event.name": "claude_code.tool_result"}) is None
+
+
+def test_api_records_become_inferences_with_outcome(tmp_path: Path) -> None:
+    (requested,) = _records_named("all_records.jsonl", "claude_code.api_request")
+    (failed,) = _records_named("all_records.jsonl", "claude_code.api_error")
+    (refused,) = _records_named("all_records.jsonl", "claude_code.api_refusal")
+    key = SequenceKey(
+        conversation_id="session-synthetic-1", session_epoch=0, prompt_id="prompt-synthetic-1"
+    )
+
+    connection = open_index(tmp_path / "episodes.db")
+    try:
+        store = SQLiteEpisodicStore(connection)
+        for record in (requested, failed, refused):
+            store.record_inference(inference_from_record(record, key))
+        recorded = store.inferences_for(key)
+        counted = store.counters()["inferences_recorded"]
+    finally:
+        connection.close()
+
+    # Which of the three events fired is the whole source of `outcome`, so the
+    # events-only stream carries the field complete (R9): `stop_reason` and
+    # `error_class` refine an outcome the model already has rather than produce it.
+    assert [inference.outcome for inference in recorded] == ["ok", "error", "refusal"]
+    inference, failure, refusal = recorded
+    assert inference.inference_id == "req_synthetic_0001"
+    assert (inference.model, inference.input_tokens, inference.output_tokens) == (
+        "claude-opus-4-1-20250805",
+        5231,
+        412,
+    )
+    assert (inference.cost_micros, inference.duration_ms) == (4820, 3120)
+    # The error is the terminal signal of a call that returned no body: it names
+    # the status and the attempt, and carries no token counts to read (R14).
+    assert (failure.status_code, failure.attempt) == (529, 2)
+    assert failure.input_tokens is None
+    # A refusal arrives on a stream that succeeded, so it has no status code —
+    # and it is the one `stop_reason` an events-only stream ever observes (R9).
+    assert (refusal.status_code, refusal.duration_ms) == (None, None)
+    assert refusal.stop_reason == "refusal"
+    assert counted == 3
+    # Neither request id: below the `client_request_id` floor, the identity is
+    # derived from the record rather than stored empty
+    # (`contracts/telemetry-records.md`).
+    anonymous = {name: value for name, value in requested.items() if "request_id" not in name}
+    assert inference_from_record(anonymous, key).inference_id.startswith("syn-")

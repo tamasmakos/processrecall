@@ -34,6 +34,18 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkabl
 from processrecall.config import RESULT_CEILING, ActivityClass, ProcessType, home_dir
 from processrecall.graph.annotations import Annotation
 from processrecall.graph.schema import CaptureSource, DecisionSource, StepDecision, StepResult
+from processrecall.trajectory.records import CONSUMED_EVENT_NAMES
+from processrecall.trajectory.telemetry import (
+    PROMPT_ATTRIBUTE,
+    RECORD_TYPE_ATTRIBUTE,
+    SEQUENCE_ATTRIBUTE,
+    SESSION_ATTRIBUTE,
+    TIMESTAMP_ATTRIBUTE,
+    TelemetryRecord,
+    optional_integer,
+    optional_text,
+    parse_instant,
+)
 
 if TYPE_CHECKING:
     from processrecall.trajectory.event import TrajectoryEvent
@@ -278,6 +290,40 @@ class EpisodicStep:
     step_id: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class Inference:
+    """One model call the harness reported — a row of `inferences` (FR-002).
+
+    ``outcome`` is which of the three model-call records the row was built from,
+    so the events-only stream produces it whole and no span attribute is
+    consulted to reach it (R9).
+
+    Each field from ``model`` down is ``None`` when the record did not carry it,
+    and nothing backfills one (R14): an error reports no token counts, and a
+    refusal neither a status code nor a duration. ``first_content_ms`` and
+    ``error_class`` are columns no event fills at all, so they are not fields
+    here — span enrichment is what writes them.
+    """
+
+    inference_id: str
+    sequence_key: SequenceKey
+    outcome: str
+    occurred_at: datetime
+    model: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_creation_tokens: int | None = None
+    cost_micros: int | None = None
+    duration_ms: int | None = None
+    speed: str | None = None
+    effort: str | None = None
+    query_source: str | None = None
+    status_code: int | None = None
+    attempt: int | None = None
+    stop_reason: str | None = None
+
+
 #: What a step did to the entity it touched, in the vocabulary `step_touches.mode`
 #: holds (FR-021): the two are kept apart because a step that only read a file
 #: says nothing about the file having changed.
@@ -375,6 +421,14 @@ class EpisodicStore(Protocol):
         The only deletion this seam offers, and nothing calls it but `prune`
         (FR-057): history is kept indefinitely unless an operator says otherwise.
         """
+        ...
+
+    def record_inference(self, inference: Inference) -> None:
+        """Write *inference* as the model call it is, and count it (FR-002)."""
+        ...
+
+    def inferences_for(self, key: SequenceKey) -> tuple[Inference, ...]:
+        """Every model call recorded under *key*, in the order they were written."""
         ...
 
     def record_touch(self, touch: StepTouch) -> None:
@@ -648,6 +702,177 @@ def _step_from_row(row: tuple[Any, ...]) -> EpisodicStep:
         result_size_bytes=None if row[25] is None else int(row[25]),
         tool_source=None if row[26] is None else str(row[26]),
         source=None if row[27] is None else CaptureSource(row[27]),
+    )
+
+
+#: Every `inferences` column a write fills, in `_inference_params` order.
+#: `recorded_at` is bound after them, from the store's own clock rather than from
+#: the record.
+_INFERENCE_WRITE_COLUMNS = (
+    "inference_id",
+    "sequence_key",
+    "outcome",
+    "occurred_at",
+    "model",
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_creation_tokens",
+    "cost_micros",
+    "duration_ms",
+    "speed",
+    "effort",
+    "query_source",
+    "status_code",
+    "attempt",
+    "stop_reason",
+)
+
+#: What a read selects, in `_inference_from_row` order: the written columns minus
+#: the sequence the reader asked by and so already holds.
+_INFERENCE_READ_COLUMNS = tuple(
+    column for column in _INFERENCE_WRITE_COLUMNS if column != "sequence_key"
+)
+
+#: The three model-call records, unpacked out of `CONSUMED_EVENT_NAMES` the same
+#: way `graph.schema` does: the names are `trajectory.records`'s to declare, and
+#: unpacking the whole tuple — rather than slicing — means a name inserted
+#: ahead of `api_request` fails loudly here instead of silently re-binding the
+#: three outcomes below.
+(
+    _USER_PROMPT,
+    _API_REQUEST,
+    _API_ERROR,
+    _API_REFUSAL,
+    _TOOL_RESULT,
+    _TOOL_DECISION,
+    _SUBAGENT_COMPLETED,
+) = CONSUMED_EVENT_NAMES
+
+#: The `outcome` each of the three leaves on the row. Derived from which event
+#: fired and from nothing else, which is what makes the field events-sourced:
+#: `stop_reason` and `error_class` refine an outcome the row already carries (R9).
+_OUTCOME_BY_RECORD: Mapping[str, str] = {
+    _API_REQUEST: "ok",
+    _API_ERROR: "error",
+    _API_REFUSAL: "refusal",
+}
+
+
+def _sequence_text(key: SequenceKey) -> str:
+    """*key* as the single text column `inferences.sequence_key` holds it in.
+
+    The four parts joined rather than spread over columns of their own, because
+    one text column is the shape the declaration gives the reference. Nothing
+    reads it back apart: every reader of the table asks by a key it already has.
+    """
+    return "|".join((key.conversation_id, str(key.session_epoch), key.prompt_id, key.agent_id))
+
+
+def _inference_id(record: TelemetryRecord) -> str:
+    """The identity *record* gives the model call it reports.
+
+    The harness's own request id where it issued one, `client_request_id` where
+    only that is present, and otherwise a key derived from the record — the
+    `syn-` prefix and the digest are `SequenceKey.dedup_key`'s, so a collector
+    file read twice derives one id rather than two
+    (`contracts/telemetry-records.md`).
+    """
+    for attribute in ("request_id", "client_request_id"):
+        if issued := record.get(attribute):
+            return str(issued)
+    material = "|".join(
+        str(record.get(attribute, ""))
+        for attribute in (
+            RECORD_TYPE_ATTRIBUTE,
+            SESSION_ATTRIBUTE,
+            PROMPT_ATTRIBUTE,
+            TIMESTAMP_ATTRIBUTE,
+            SEQUENCE_ATTRIBUTE,
+        )
+    )
+    return f"syn-{sha256(material.encode()).hexdigest()[:24]}"
+
+
+def inference_from_record(record: TelemetryRecord, key: SequenceKey) -> Inference:
+    """The inference an `api_request`, `api_error` or `api_refusal` *record* is (FR-002).
+
+    ``outcome`` is read off which of the three fired, so a stream carrying no
+    spans still says how every call went (R9). A refusal is the one `stop_reason`
+    those events observe and carries it; every other reading of that field is
+    span enrichment and is left unset here.
+
+    Raises:
+        KeyError: *record* is not one of the three model-call records, or carries
+            no `event.timestamp` to place it at.
+        ValueError: `event.timestamp` will not parse as an instant. Both are the
+            caller's to place, as they are for a step (`in_record_order`).
+    """
+    record_type = str(record[RECORD_TYPE_ATTRIBUTE])
+    return Inference(
+        inference_id=_inference_id(record),
+        sequence_key=key,
+        outcome=_OUTCOME_BY_RECORD[record_type],
+        occurred_at=parse_instant(str(record[TIMESTAMP_ATTRIBUTE])),
+        model=optional_text(record, "model"),
+        input_tokens=optional_integer(record, "input_tokens"),
+        output_tokens=optional_integer(record, "output_tokens"),
+        cache_read_tokens=optional_integer(record, "cache_read_tokens"),
+        cache_creation_tokens=optional_integer(record, "cache_creation_tokens"),
+        cost_micros=optional_integer(record, "cost_usd_micros"),
+        duration_ms=optional_integer(record, "duration_ms"),
+        speed=optional_text(record, "speed"),
+        effort=optional_text(record, "effort"),
+        query_source=optional_text(record, "query_source"),
+        status_code=optional_integer(record, "status_code"),
+        attempt=optional_integer(record, "attempt"),
+        stop_reason="refusal" if record_type == _API_REFUSAL else None,
+    )
+
+
+def _inference_params(inference: Inference) -> tuple[Any, ...]:
+    """*inference*'s values in `_INFERENCE_WRITE_COLUMNS` order, for a write to bind."""
+    return (
+        inference.inference_id,
+        _sequence_text(inference.sequence_key),
+        inference.outcome,
+        inference.occurred_at.isoformat(),
+        inference.model,
+        inference.input_tokens,
+        inference.output_tokens,
+        inference.cache_read_tokens,
+        inference.cache_creation_tokens,
+        inference.cost_micros,
+        inference.duration_ms,
+        inference.speed,
+        inference.effort,
+        inference.query_source,
+        inference.status_code,
+        inference.attempt,
+        inference.stop_reason,
+    )
+
+
+def _inference_from_row(row: tuple[Any, ...], key: SequenceKey) -> Inference:
+    """Rebuild the inference one `_INFERENCE_READ_COLUMNS` row of *key* holds."""
+    return Inference(
+        inference_id=str(row[0]),
+        sequence_key=key,
+        outcome=str(row[1]),
+        occurred_at=datetime.fromisoformat(str(row[2])),
+        model=None if row[3] is None else str(row[3]),
+        input_tokens=None if row[4] is None else int(row[4]),
+        output_tokens=None if row[5] is None else int(row[5]),
+        cache_read_tokens=None if row[6] is None else int(row[6]),
+        cache_creation_tokens=None if row[7] is None else int(row[7]),
+        cost_micros=None if row[8] is None else int(row[8]),
+        duration_ms=None if row[9] is None else int(row[9]),
+        speed=None if row[10] is None else str(row[10]),
+        effort=None if row[11] is None else str(row[11]),
+        query_source=None if row[12] is None else str(row[12]),
+        status_code=None if row[13] is None else int(row[13]),
+        attempt=None if row[14] is None else int(row[14]),
+        stop_reason=None if row[15] is None else str(row[15]),
     )
 
 
@@ -1027,6 +1252,43 @@ class SQLiteEpisodicStore:
         with self._connection:
             self._connection.executemany(f"DELETE FROM steps{_SEQUENCE_WHERE}", parameters)  # nosec B608
             self._connection.executemany(f"DELETE FROM sequences{_SEQUENCE_WHERE}", parameters)  # nosec B608
+
+    def record_inference(self, inference: Inference) -> None:
+        """Write *inference* as a row of `inferences`, and count it (FR-002).
+
+        ``recorded_at`` is stamped from the store's own clock beside
+        ``occurred_at``, for the same reason a step's is (FR-044).
+
+        A collector file read twice derives the same `inference_id` for the
+        repeated record (`_inference_id`), so the conflict is resolved by the
+        database and the second write is a no-op rather than an
+        `IntegrityError`, the same shape `record`'s dedup key gives a step
+        (FR-008). `contracts/counters.md` names no inference-duplicate counter,
+        so unlike `steps_duplicate` this is left uncounted rather than invented.
+        """
+        with self._connection:
+            cursor = self._connection.execute(
+                f"INSERT INTO inferences ({', '.join(_INFERENCE_WRITE_COLUMNS)}, recorded_at)"  # nosec B608
+                f" VALUES ({', '.join('?' * len(_INFERENCE_WRITE_COLUMNS))}, ?)"
+                " ON CONFLICT (inference_id) DO NOTHING",
+                (*_inference_params(inference), datetime.now(UTC).isoformat()),
+            )
+        if cursor.rowcount == 1:
+            self.bump("inferences_recorded")
+
+    def inferences_for(self, key: SequenceKey) -> tuple[Inference, ...]:
+        """Every model call recorded under *key*, in the order they were written.
+
+        By rowid rather than by `occurred_at`: that column holds the instant as
+        the record wrote it, and two processes reporting one session need not
+        agree on an offset, so ordering by the text would interleave them wrongly.
+        """
+        rows = self._connection.execute(
+            f"SELECT {', '.join(_INFERENCE_READ_COLUMNS)} FROM inferences"  # nosec B608
+            " WHERE sequence_key = ? ORDER BY rowid",
+            (_sequence_text(key),),
+        )
+        return tuple(_inference_from_row(row, key) for row in rows)
 
     def record_touch(self, touch: StepTouch) -> None:
         """Write *touch* against the step it names, and count it if it got no further than the file (FR-021).
