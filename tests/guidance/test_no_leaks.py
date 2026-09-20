@@ -11,13 +11,19 @@ paths the detector hunts for are this machine's and not a fixture's spelling of
 one. The two control tests are what keep a detector that finds nothing from
 being a detector that sees nothing: what it reads as clean on both served
 surfaces it must read as dirty when shown the payloads themselves.
+
+The same replay pins the other thing that must not cross onto a served path:
+the code structure. FR-037 and SC-009 put it off the hot path, so a guidance
+answer must leave the semantic tables unread and the parsing package unloaded.
 """
 
 from __future__ import annotations
 
 import json
 import re
-from collections.abc import Collection, Iterator, Mapping
+import sqlite3
+import sys
+from collections.abc import Collection, Iterable, Iterator, Mapping
 from contextlib import closing
 from dataclasses import asdict
 from itertools import chain
@@ -32,6 +38,7 @@ from processrecall.graph.abstract import aggregate
 from processrecall.graph.derive import Derivation, _sequences
 from processrecall.graph.episodic import open_index
 from processrecall.graph.keys import group_by_sequence
+from processrecall.graph.schema import LAYERS
 from processrecall.graph.snapshot import SNAPSHOT_NAME
 from processrecall.graph.store import EpisodicStep, SQLiteEpisodicStore
 from processrecall.guidance.locate import locate
@@ -62,6 +69,15 @@ PRIVATE_FIELDS = ("prompt", "tool_result", "transcript_path")
 #: path segment) too common to prove a leak by; above it, it is content.
 MIN_SECRET_LENGTH = 12
 
+#: The tables the semantic layer persists its entities and relations to, taken
+#: from the schema so a table added there is covered without a change here.
+SEMANTIC_TABLES = frozenset(
+    table.name for layer in LAYERS if layer.name == "semantic" for table in layer.tables
+)
+
+#: The package that parses code, which nothing answering the agent may reach for.
+ARTIFACTS_PACKAGE = "processrecall.artifacts"
+
 
 def leaks(text: str, secrets: Collection[str]) -> tuple[str, ...]:
     """Every forbidden string *text* carries, in the order they were looked for."""
@@ -69,6 +85,21 @@ def leaks(text: str, secrets: Collection[str]) -> tuple[str, ...]:
     found += ABSOLUTE_PATH.findall(text)
     found += CREDENTIAL.findall(text)
     return tuple(found)
+
+
+def _semantic_reads(statements: Iterable[str]) -> tuple[str, ...]:
+    """Every statement in *statements* that names a table of the semantic layer."""
+    return tuple(
+        statement
+        for statement in statements
+        if any(table in statement for table in SEMANTIC_TABLES)
+    )
+
+
+def _loaded(package: str) -> tuple[str, ...]:
+    """Every module of *package* imported into this interpreter, in import order."""
+    prefix = f"{package}."
+    return tuple(name for name in tuple(sys.modules) if name == package or name.startswith(prefix))
 
 
 def _payloads(project: Path) -> Iterator[Mapping[str, Any]]:
@@ -141,7 +172,7 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture
-def store(project: Path) -> Iterator[SQLiteEpisodicStore]:
+def connection(project: Path) -> Iterator[sqlite3.Connection]:
     """The whole corpus, recorded through the capture path the harness uses.
 
     The index is named rather than defaulted: `open_index` binds its default
@@ -151,7 +182,13 @@ def store(project: Path) -> Iterator[SQLiteEpisodicStore]:
     with closing(open_index(home_dir() / "episodes.db")) as connection:
         for payload in _payloads(project):
             capture(payload, connection)
-        yield SQLiteEpisodicStore(connection)
+        yield connection
+
+
+@pytest.fixture
+def store(connection: sqlite3.Connection) -> SQLiteEpisodicStore:
+    """The recorded corpus as every served surface reads it back."""
+    return SQLiteEpisodicStore(connection)
 
 
 @pytest.fixture
@@ -216,3 +253,43 @@ def test_no_guidance_the_corpus_earns_is_servable_with_something_it_fed_in(
 
     assert firings, "guidance spoke over the corpus, so there was something to leak"
     assert leaks("\n".join(_servable(firing) for firing in firings), secrets) == ()
+
+
+def test_hot_path_never_opens_semantic_store(
+    connection: sqlite3.Connection,
+    store: SQLiteEpisodicStore,
+    config: Config,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FR-037, SC-009: a guidance answer reads episodes, never the code structure.
+
+    The import contracts pin what `guidance` names at import time; only a replay
+    can pin what it reaches for while the agent waits, so the parsing package is
+    unloaded before the fold and the statements the index ran are read after it.
+    FR-037's other half, the symbol layer, is left to the `guidance-is-rules-only`
+    contract in `tests/test_import_contracts.py`, which catches a lazy import
+    statically wherever it sits in the source rather than only when this corpus
+    happens to reach it.
+    """
+    for name in _loaded(ARTIFACTS_PACKAGE):
+        monkeypatch.delitem(sys.modules, name)
+    statements: list[str] = []
+    connection.set_trace_callback(statements.append)
+
+    try:
+        firings = _firings(store, config)
+    finally:
+        connection.set_trace_callback(None)
+
+    assert firings, "guidance spoke over the corpus, so it had the chance to read"
+    assert statements, "the fold reached the index"
+    assert _semantic_reads(statements) == ()
+    assert _loaded(ARTIFACTS_PACKAGE) == ()
+
+
+def test_the_detector_reads_a_semantic_table_reference_as_a_read() -> None:
+    """The control for the hot-path check: a statement naming a semantic table must show."""
+    table = next(iter(SEMANTIC_TABLES))
+    statement = f"SELECT * FROM {table}"
+
+    assert _semantic_reads((statement,)) == (statement,)
