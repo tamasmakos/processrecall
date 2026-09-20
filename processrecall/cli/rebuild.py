@@ -26,14 +26,24 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any, cast
 
+from processrecall.cli.derive import drain
 from processrecall.graph.abstract import edge_key
 from processrecall.graph.derive import Derivation
 from processrecall.graph.snapshot import Snapshot, SnapshotFile
 
 
 def rebuild(source: Derivation) -> str:
-    """Write both of *source*'s snapshots, reporting what landed where."""
-    lines = []
+    """Write both of *source*'s snapshots, reporting what landed where.
+
+    The collector file is drained first, so that once draining also ingests
+    records (`processrecall.cli.derive`, FR-004) the rows it takes are folded
+    into the snapshots this writes rather than into the next pass'. The
+    code-structure derive step plan.md places beside it is US3's
+    (`graph/semantic.py`, `artifacts/calls.py`), not yet built, so this only
+    drains and folds.
+    """
+    report = drain(source.config.telemetry_path, source.store)
+    lines = [] if report is None else [report]
     for path, snapshot, orphaned in source.snapshots():
         SnapshotFile(path, source.store).write(snapshot)
         lines.append(
