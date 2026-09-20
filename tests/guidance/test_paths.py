@@ -21,6 +21,7 @@ from processrecall.guidance.paths import (
     after_change_to_entity,
     generalised,
     on_entity,
+    ppr_neighbourhood,
     prompt_start_for_process,
     used_counter,
     usual_next,
@@ -34,6 +35,9 @@ EDIT = "ChangeImplementation/Edit/py"
 WRITE = "ChangeImplementation/Write/py"
 BASH = "ArtifactEvaluation/Bash/py"
 TEST = "ArtifactEvaluation/pytest/py"
+READ = "Inspection/Read/py"
+GREP = "Search/Grep/py"
+COMMIT = "Checkin/commit/py"
 
 LEVEL = "class/program"
 
@@ -42,6 +46,9 @@ EDIT_KEY = "ChangeImplementation/Edit"
 
 #: The `class/program` key of `BASH`, which is what a projection row names.
 BASH_KEY = "ArtifactEvaluation/Bash"
+
+#: The `class/program` key of `COMMIT`, which is what a projection row names.
+COMMIT_KEY = "Checkin/commit"
 
 #: One code entity, spelled the way `code_entities` keys a symbol.
 ENTITY = "processrecall/guidance/paths.py#after_change_to_entity"
@@ -301,3 +308,39 @@ def test_request_scopes_by_symbol_file_and_kind_of_work() -> None:
     assert [candidate.transition.edge_key for candidate in opening] == [
         "Start -> ChangeImplementation/Edit"
     ]
+
+
+def test_ppr_neighbourhood_is_bounded_and_reads_only_the_snapshot() -> None:
+    """FR-031: `PPR_ITERATIONS` hops out of the working state, and no further.
+
+    The chain runs six procedures deep, so `GREP` is out of budget from `EDIT`
+    and the moves out of `READ` and `GREP` are no candidates of this walk. What
+    the walk crosses is the two adjacencies the snapshot carries and nothing
+    else: the transitions, and the projection rows that put `COMMIT_KEY` on an
+    entity `EDIT_KEY` is worked on around — a procedure the transitions alone
+    never reach from here, and the row is the only thing that says so. The move
+    into `End` is a transition like any other, and every path over them answers
+    with it.
+    """
+    chain = walk(EDIT, BASH, TEST, WRITE, READ, GREP)
+    across_the_entity = walk(COMMIT, TEST, prompt="p2")
+    graph = replace(
+        aggregate(chain + across_the_entity, level=LEVEL),
+        precedes=(
+            PrecedesWorkOn(source=EDIT_KEY, entity_key=ENTITY, support=2),
+            PrecedesWorkOn(source=COMMIT_KEY, entity_key=ENTITY, support=2),
+        ),
+    )
+    counters = FakeCounters()
+
+    candidates = ppr_neighbourhood(Position(key=EDIT_KEY), graph, counters=counters)
+
+    assert [candidate.transition.edge_key for candidate in candidates] == [
+        "ArtifactEvaluation/Bash -> ArtifactEvaluation/pytest",
+        "ArtifactEvaluation/pytest -> ChangeImplementation/Write",
+        "ArtifactEvaluation/pytest -> End",
+        "ChangeImplementation/Edit -> ArtifactEvaluation/Bash",
+        "ChangeImplementation/Write -> Inspection/Read",
+        "Checkin/commit -> ArtifactEvaluation/pytest",
+    ]
+    assert counters.counted["path_ppr_neighbourhood"] == 1

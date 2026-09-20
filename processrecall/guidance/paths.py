@@ -32,6 +32,7 @@ from dataclasses import dataclass
 
 from processrecall.config import Counters
 from processrecall.graph.abstract import START_KEY, AbstractGraph, PitfallKind, TransitionEdge
+from processrecall.graph.schema import PPR_ITERATIONS
 from processrecall.guidance.locate import Position
 
 #: The traversal reading the moves out of the position itself (FR-034).
@@ -59,6 +60,10 @@ PROMPT_START = "prompt_start"
 
 #: The traversal reading the refusal pitfall, as its candidates name it (FR-034).
 USUALLY_REFUSED = "usually_refused"
+
+#: The traversal walking out over the snapshot's own adjacency, as its candidates
+#: name it (FR-034).
+PPR_NEIGHBOURHOOD = "ppr_neighbourhood"
 
 
 @dataclass(frozen=True, slots=True)
@@ -350,3 +355,61 @@ def usually_refused(
 def _is_usually_refused(edge: TransitionEdge) -> bool:
     """Whether *edge* carries the refusal pitfall the traversal reads."""
     return any(pitfall.kind is PitfallKind.REFUSED for pitfall in edge.pitfalls)
+
+
+def ppr_neighbourhood(
+    position: Position, graph: AbstractGraph, *, counters: Counters
+) -> tuple[Candidate, ...]:
+    """The moves out of the neighbourhood *position* sits in — what a walk out of it turns up.
+
+    The one traversal that does not stay where it was asked from: the working
+    state's own procedure is walked outward over the snapshot's adjacency for
+    `PPR_ITERATIONS` hops, and the moves out of every procedure reached are the
+    candidates. So a move two procedures away from where the agent stands can
+    answer, which is the multi-hop reach FR-031 asks for. The budget is the
+    constant `graph/schema.py` declares rather than a knob here, because what it
+    bounds is the snapshot read whose other half that module already bounds.
+
+    Nothing outside *graph* is read: both kinds of hop are edges the snapshot
+    carries, so the walk costs the one parse every guidance call already makes
+    and reaches no store (R17). Unordered, for the reason `usually_refused` is.
+
+    Dark until the gate clears it: the path runs and is counted either way
+    (FR-034), but `fusion.ADMITTED` does not name it, so its candidates reach no
+    reader until its measurement against the baseline is published (FR-036).
+    """
+    counters.bump(f"path_{PPR_NEIGHBOURHOOD}")
+    reached = _walk_out_of(graph, frozenset({position.key}))
+    return tuple(
+        Candidate(transition=edge, traversal=PPR_NEIGHBOURHOOD)
+        for edge in graph.edges
+        if edge.source in reached
+    )
+
+
+def _walk_out_of(graph: AbstractGraph, seeds: frozenset[str]) -> frozenset[str]:
+    """The procedures within `PPR_ITERATIONS` hops of *seeds*, *seeds* themselves included.
+
+    Breadth first, expanding each procedure once, so a cycle costs no more than
+    a chain does and a hop that reaches nothing new ends the walk early.
+    """
+    reached = seeds
+    frontier = seeds
+    for _ in range(PPR_ITERATIONS):
+        frontier = _adjacent_to(graph, frontier) - reached
+        if not frontier:
+            break
+        reached |= frontier
+    return reached
+
+
+def _adjacent_to(graph: AbstractGraph, keys: frozenset[str]) -> frozenset[str]:
+    """The procedures one hop from *keys* over the two adjacencies the snapshot carries.
+
+    A transition out of one of *keys* is the procedural hop; a projection row
+    naming an entity one of *keys* is worked on around, followed on to the other
+    procedures that same entity is worked on around, is the semantic one (FR-031).
+    """
+    onward = frozenset(edge.target for edge in graph.edges if edge.source in keys)
+    entities = frozenset(row.entity_key for row in graph.precedes if row.source in keys)
+    return onward | _procedures_preceding_work_on(graph, entities)

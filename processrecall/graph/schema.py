@@ -46,6 +46,13 @@ SNAPSHOT_FORMAT = 2
 PRECEDES_ENTITIES = 8
 CALLERS_PER_ENTITY = 8
 
+#: Hops the `ppr_neighbourhood` walk takes out of its seeds over the snapshot's
+#: own adjacency (FR-031). Declared here beside the projection bounds because it
+#: bounds the same read from the other side: those two say how much adjacency a
+#: snapshot carries, this one says how far a traversal follows it. If the latency
+#: budget fails, this number moves and the walk does not move onto the store.
+PPR_ITERATIONS = 3
+
 
 class FieldType(StrEnum):
     """What a field holds, in the layer-neutral spelling of the contract.
