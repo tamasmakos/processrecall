@@ -404,6 +404,31 @@ class StepTouch:
     resolution: TouchResolution = "file"
 
 
+#: How a `consumed` edge was established, in the vocabulary `step_consumes.link`
+#: holds (FR-003). The honesty column of that edge: no telemetry attribute joins a
+#: tool result to the model call that asked for it (R8), so `adjacent` is what the
+#: derivation writes, and `observed` waits for a harness that emits a join key.
+ConsumesLink = Literal["observed", "adjacent"]
+
+
+@dataclass(frozen=True, slots=True)
+class StepConsumes:
+    """One `step_consumes` row: which model call one recorded step consumed.
+
+    Attributes:
+        step_id: The recorded step that consumed the call, as the store assigned
+            it; the edge is written after the step it hangs off, never with it,
+            because the call it consumed is found by adjacency (R8).
+        inference_id: The `inferences` row consumed, as `_inference_id` built it.
+        link: How the edge was established. Carries no default, so a derived edge
+            cannot reach the row reading as an observed one (FR-003).
+    """
+
+    step_id: int
+    inference_id: str
+    link: ConsumesLink
+
+
 @runtime_checkable
 class EpisodicStore(Protocol):
     """Everything the pipeline asks of persistence, and nothing about a backend.
@@ -491,6 +516,14 @@ class EpisodicStore(Protocol):
 
     def touches_for(self, step_id: int) -> tuple[StepTouch, ...]:
         """Every entity the step *step_id* names touched, oldest touch first."""
+        ...
+
+    def derive_consumes(self, step: EpisodicStep) -> StepConsumes | None:
+        """Write the `consumed` edge *step* earns by adjacency, or count it unlinked (R8)."""
+        ...
+
+    def consumes_for(self, step_id: int) -> tuple[StepConsumes, ...]:
+        """Every model call the step *step_id* names consumed, oldest edge first."""
         ...
 
     def write_annotation(self, project_key: str, annotation: Annotation) -> None:
@@ -1065,6 +1098,31 @@ def _agent_from_row(row: tuple[Any, ...], agent_id: str) -> Agent:
     )
 
 
+def _preceding_inference(
+    inferences: Iterable[Inference], occurred_at: datetime
+) -> Inference | None:
+    """The latest of *inferences* placed at or before *occurred_at*, or ``None``.
+
+    At or before rather than strictly before: a call and the result it produced
+    are routinely stamped at the same instant by a coarse clock. Compared as
+    instants rather than as the text the column holds, for the reason
+    `inferences_for` does not order by it: two processes reporting one session
+    need not agree on a UTC offset (R5).
+
+    Ties on that instant break on *inferences*' own order — `inferences_for`'s
+    rowid order stands in for `event.sequence` (`data-model.md`) — so the one
+    written last, not the one that happens to sort first, wins.
+    """
+    before = [
+        (position, inference)
+        for position, inference in enumerate(inferences)
+        if inference.occurred_at <= occurred_at
+    ]
+    if not before:
+        return None
+    return max(before, key=lambda pair: (pair[1].occurred_at, pair[0]))[1]
+
+
 class SQLiteEpisodicStore:
     """The shipped store: one short transaction per write, over `open_index`.
 
@@ -1541,6 +1599,67 @@ class SQLiteEpisodicStore:
                 entity_key=str(row[0]),
                 mode=cast("TouchMode", row[1]),
                 resolution=cast("TouchResolution", row[2]),
+            )
+            for row in rows
+        )
+
+    def derive_consumes(self, step: EpisodicStep) -> StepConsumes | None:
+        """Write the `consumed` edge *step* earns by adjacency, or count it unlinked (R8).
+
+        No harness attribute joins a tool result to the model call that asked for
+        it, so the edge is the latest inference placed at or before *step* among
+        those filed under *step*'s own sequence key — the prompt and, for sub-agent
+        work, the actor inside it — and the row says `adjacent` so that a derived
+        edge is never read as an observed one (FR-003). Narrowing to `step`'s own
+        `SequenceKey.agent_id` rather than every agent of the prompt relies on
+        `agent_from_record`'s invariant: a sub-agent's inferences are filed under
+        that sub-agent's own key, the same one its steps are, not the parent's.
+
+        ``None`` when that turn holds no earlier inference: the step is counted in
+        `inference_unlinked` and no edge is written, rather than attributed to a
+        call that cannot have produced it.
+        """
+        preceding = _preceding_inference(self.inferences_for(step.sequence_key), step.occurred_at)
+        if preceding is None:
+            self.bump("inference_unlinked")
+            return None
+        consumes = StepConsumes(
+            step_id=step.step_id, inference_id=preceding.inference_id, link="adjacent"
+        )
+        self._write_consumes(consumes)
+        return consumes
+
+    def _write_consumes(self, consumes: StepConsumes) -> None:
+        """Insert *consumes*, counting the edge when it was derived rather than observed.
+
+        `inference_adjacent` bumps on `link` being `adjacent` and on nothing else,
+        so the count says how much of the consumed history is derivation
+        (`contracts/counters.md`).
+        """
+        with self._connection:
+            self._connection.execute(
+                "INSERT INTO step_consumes (step_id, inference_id, link) VALUES (?, ?, ?)",
+                (consumes.step_id, consumes.inference_id, consumes.link),
+            )
+        if consumes.link == "adjacent":
+            self.bump("inference_adjacent")
+
+    def consumes_for(self, step_id: int) -> tuple[StepConsumes, ...]:
+        """Every model call the step *step_id* names consumed, oldest edge first.
+
+        The stored `link` is trusted as the vocabulary it was written in, for the
+        reason `touches_for` trusts a mode: `_write_consumes` is its only writer,
+        and it takes a `StepConsumes` whose field is a `ConsumesLink` already.
+        """
+        rows = self._connection.execute(
+            "SELECT inference_id, link FROM step_consumes WHERE step_id = ? ORDER BY rowid",
+            (step_id,),
+        )
+        return tuple(
+            StepConsumes(
+                step_id=step_id,
+                inference_id=str(row[0]),
+                link=cast("ConsumesLink", row[1]),
             )
             for row in rows
         )

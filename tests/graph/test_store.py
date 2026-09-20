@@ -23,9 +23,11 @@ from processrecall.graph.store import (
     CaptureSource,
     EpisodicStep,
     EpisodicStore,
+    Inference,
     Sequence,
     SequenceKey,
     SQLiteEpisodicStore,
+    StepConsumes,
     StepTouch,
 )
 
@@ -58,6 +60,16 @@ def _open_sequence(store: SQLiteEpisodicStore) -> None:
 def _step(*, dedup_key: str = "t1", position: int = 0) -> EpisodicStep:
     """One recordable step, with only the fields a test varies exposed."""
     return make_step(dedup_key=dedup_key, sequence_key=KEY, position=position)
+
+
+def _inference(inference_id: str, occurred_at: datetime) -> Inference:
+    """One model call of this module's turn, placed at *occurred_at*."""
+    return Inference(
+        inference_id=inference_id,
+        sequence_key=KEY,
+        outcome="ok",
+        occurred_at=occurred_at,
+    )
 
 
 def test_a_recorded_step_comes_back_whole_from_the_sequence_it_was_recorded_on(
@@ -259,3 +271,46 @@ def test_spawn_edge_forms_when_subagent_arrives_first(store: SQLiteEpisodicStore
         completed, first_seen=spawned_at, parent_agent_id="main-1"
     )
     assert store.agent("main-1") == parent
+
+
+def test_consumed_edge_records_adjacency_link(store: SQLiteEpisodicStore) -> None:
+    """No attribute joins a tool result to the model call that asked for it (R8).
+
+    So the edge is derived from the inference most closely preceding the step
+    inside the same prompt, and the row says it was derived by adjacency rather
+    than observed — the honesty FR-003 asks of a field no telemetry source fills.
+    """
+    _open_sequence(store)
+    store.record_inference(_inference("req-1", datetime(2026, 9, 13, 9, 59, 58, tzinfo=UTC)))
+    store.record_inference(_inference("req-2", datetime(2026, 9, 13, 10, 0, tzinfo=UTC)))
+    store.record_inference(_inference("req-3", datetime(2026, 9, 13, 10, 0, 2, tzinfo=UTC)))
+    store.record(_step())
+    recorded = store.steps(KEY)[0]
+
+    consumed = store.derive_consumes(recorded)
+
+    assert consumed == StepConsumes(step_id=recorded.step_id, inference_id="req-2", link="adjacent")
+    assert store.consumes_for(recorded.step_id) == (consumed,)
+    assert store.counters()["inference_adjacent"] == 1
+    assert "inference_unlinked" not in store.counters()
+
+
+def test_a_step_with_no_earlier_inference_is_counted_unlinked(
+    store: SQLiteEpisodicStore,
+) -> None:
+    """A step whose turn holds no earlier model call is attributed to none (R8).
+
+    The only inference on the turn came after the step, so nothing can have
+    produced it: no edge is written, and the gap is counted rather than left as
+    an unexplained missing edge (FR-003).
+    """
+    _open_sequence(store)
+    store.record_inference(_inference("req-1", datetime(2026, 9, 13, 10, 0, 2, tzinfo=UTC)))
+    store.record(_step())
+    recorded = store.steps(KEY)[0]
+
+    assert store.derive_consumes(recorded) is None
+
+    assert store.consumes_for(recorded.step_id) == ()
+    assert store.counters()["inference_unlinked"] == 1
+    assert "inference_adjacent" not in store.counters()
