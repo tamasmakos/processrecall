@@ -30,6 +30,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from itertools import pairwise
 from math import sqrt
+from statistics import median
 from typing import Any, cast
 
 from processrecall.config import LEVELS, ActivityClass, Config, ProcessType
@@ -149,6 +150,12 @@ class ProcedureNode:
         templates: Its commonest invocations, by count.
         support: Episodic steps carried by this node.
         outcome_counts: How those steps went.
+        median_cost_micros: The middle of what its steps' model calls cost, or
+            ``None`` where no step reported a cost. The fold keeps this median
+            and none of the amounts behind it, so no step's own spend is carried
+            here (FR-014).
+        median_duration_ms: The middle of how long its steps took, or ``None``
+            where no step reported a duration.
         last_seen: The most recent of them.
         activation: Those steps' times as one recency-weighted count: one whole
             for a step observed at the newest time the fold saw, halving every
@@ -165,6 +172,8 @@ class ProcedureNode:
     templates: tuple[Template, ...]
     support: int
     outcome_counts: Mapping[Outcome, int]
+    median_cost_micros: int | None
+    median_duration_ms: int | None
     last_seen: datetime
     activation: float
 
@@ -492,6 +501,8 @@ class _NodeFold:
     last_seen: datetime = UNSEEN
     templates: Counter[str] = field(default_factory=Counter)
     outcomes: Counter[Outcome] = field(default_factory=Counter)
+    costs: list[int] = field(default_factory=list)
+    durations: list[int] = field(default_factory=list)
     _activation_weight: float = 0.0
 
     def observe(self, at: datetime) -> None:
@@ -518,11 +529,21 @@ class _NodeFold:
         else:
             self._activation_weight += 0.5 ** ((self.last_seen - at) / ACTIVATION_HALF_LIFE)
 
-    def record(self, step: EpisodicStep) -> None:
-        """Fold one episodic row into this node."""
+    def record(self, step: EpisodicStep, cost_micros: int | None = None) -> None:
+        """Fold one episodic row into this node, *cost_micros* being what it cost.
+
+        An amount the row did not report — *cost_micros* absent, or no duration
+        measured — is left out of the tally rather than counted as zero: a
+        procedure whose rows reported nothing has an unknown median, not a free
+        one.
+        """
         self.observe(step.occurred_at)
         self.templates[step.template] += 1
         self.outcomes[Outcome(step.outcome)] += 1
+        if cost_micros is not None:
+            self.costs.append(cost_micros)
+        if step.duration_ms is not None:
+            self.durations.append(step.duration_ms)
 
     def finish(self, reference: datetime) -> ProcedureNode:
         """The node this tally describes, its activation measured from *reference*.
@@ -547,10 +568,21 @@ class _NodeFold:
             ),
             support=self.support,
             outcome_counts=dict(self.outcomes),
+            median_cost_micros=_median(self.costs),
+            median_duration_ms=_median(self.durations),
             last_seen=self.last_seen,
             activation=self._activation_weight
             * 0.5 ** ((reference - self.last_seen) / ACTIVATION_HALF_LIFE),
         )
+
+
+def _median(amounts: list[int]) -> int | None:
+    """The middle of *amounts*, rounded, or ``None`` when none were reported.
+
+    The middle rather than the mean: one long or expensive step should not move
+    what a procedure usually costs.
+    """
+    return round(median(amounts)) if amounts else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -832,6 +864,7 @@ def aggregate(
     level: str,
     sequences: Mapping[SequenceKey, Sequence] | None = None,
     config: Config | None = None,
+    costs: Mapping[int, int] | None = None,
 ) -> AbstractGraph:
     """Fold every episodic row in *steps* into the abstract graph at *level*.
 
@@ -841,6 +874,12 @@ def aggregate(
     sequence missing from it is folded as `ProcessType.UNKNOWN` and as unclean —
     an unclassified prompt still has transitions, but a prompt nothing recorded
     the end of cannot be said to have ended cleanly.
+
+    *costs* is what each row's model call cost in micros, by ``step_id``, which
+    lives on the inference the step consumed and not on the row (FR-003). Only
+    the median over a procedure's rows leaves the fold, so a caller that passes
+    it cannot project a single step's spend (FR-014). A row missing from it
+    reports no cost and is left out of the median rather than counted as free.
 
     *config* is the tuning the fold reads: the support floor below which a move
     may not warn (FR-031), and how much a move observed in a cleanly ended
@@ -855,6 +894,7 @@ def aggregate(
     """
     lvl = Level.of(level)
     tuning = config or Config()
+    cost_of = costs or {}
     nodes: dict[str, _NodeFold] = {}
     edges: dict[tuple[str, str], _EdgeFold] = {}
     high_water = 0
@@ -865,7 +905,7 @@ def aggregate(
             key = key_at(step, lvl)
             if (fold := nodes.get(key)) is None:
                 fold = nodes[key] = _fold_for(step, lvl)
-            fold.record(step)
+            fold.record(step, cost_of.get(step.step_id))
         first, last = chain.steps[0], chain.steps[-1]
         nodes.setdefault(START_KEY, _synthetic_fold(START_KEY, lvl)).observe(first.occurred_at)
         nodes.setdefault(END_KEY, _synthetic_fold(END_KEY, lvl)).observe(last.occurred_at)
@@ -987,6 +1027,8 @@ def _node_body(node: ProcedureNode) -> dict[str, Any]:
         "templates": [[template.text, template.count] for template in node.templates],
         "support": node.support,
         "outcome_counts": _outcome_body(node.outcome_counts),
+        "median_cost_micros": node.median_cost_micros,
+        "median_duration_ms": node.median_duration_ms,
         "last_seen": node.last_seen.isoformat(),
         "activation": node.activation,
     }

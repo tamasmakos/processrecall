@@ -78,7 +78,7 @@ class Derivation:
         steps = tuple(self.store.iter_steps())
         sequences = _sequences(self.store, steps)
         every_reattached = reattach(
-            aggregate(steps, self.level, sequences, self.config),
+            aggregate(steps, self.level, sequences, self.config, _costs(self.store, steps)),
             self.store.annotations_for(None),
         )
         return (
@@ -129,7 +129,7 @@ class Derivation:
         mine_key = project_key(str(self.project_dir))
         mine = _recorded_against(steps, sequences, mine_key)
         reattached = reattach(
-            aggregate(mine, self.level, sequences, self.config),
+            aggregate(mine, self.level, sequences, self.config, _costs(self.store, mine)),
             self.store.annotations_for(mine_key),
         )
         delta = served(reattached.graph, _generated_at(mine))
@@ -142,7 +142,7 @@ class Derivation:
         mine_key = project_key(str(self.project_dir))
         mine = _recorded_against(steps, sequences, mine_key)
         reattached = reattach(
-            aggregate(mine, self.level, sequences, self.config),
+            aggregate(mine, self.level, sequences, self.config, _costs(self.store, mine)),
             self.store.annotations_for(mine_key),
         )
         return (
@@ -172,6 +172,38 @@ def _sequences(store: EpisodicStore, steps: Iterable[EpisodicStep]) -> dict[Sequ
     """
     opened = ((key, store.sequence(key)) for key in group_by_sequence(steps))
     return {key: sequence for key, sequence in opened if sequence is not None}
+
+
+def _costs(store: EpisodicStore, steps: Iterable[EpisodicStep]) -> dict[int, int]:
+    """What each of *steps* cost in micros, by ``step_id``, read off what it consumed (FR-003).
+
+    A step carries no cost of its own; what it cost is the sum of the
+    `inferences` rows its `consumes_for` edges name, read from cache once per
+    sequence rather than once per step. A step that consumed nothing, or
+    consumed only calls that reported no cost, is left out rather than counted
+    as free — `aggregate` folds this into a procedure's `median_cost_micros`
+    and never as a per-step amount (FR-014).
+    """
+    steps = tuple(steps)
+    cost_of_inference: dict[SequenceKey, dict[str, int]] = {}
+    costs: dict[int, int] = {}
+    for step in steps:
+        by_inference = cost_of_inference.get(step.sequence_key)
+        if by_inference is None:
+            by_inference = {
+                inference.inference_id: inference.cost_micros
+                for inference in store.inferences_for(step.sequence_key)
+                if inference.cost_micros is not None
+            }
+            cost_of_inference[step.sequence_key] = by_inference
+        consumed = [
+            by_inference[edge.inference_id]
+            for edge in store.consumes_for(step.step_id)
+            if edge.inference_id in by_inference
+        ]
+        if consumed:
+            costs[step.step_id] = sum(consumed)
+    return costs
 
 
 def _recorded_against(
@@ -262,6 +294,12 @@ def _merge_node(
     *existing*'s is decayed across the gap between those two references
     before *delta*'s is added, landing an incremental fold where a
     from-scratch rebuild over the same rows would (SC-004, FR-039).
+
+    ``median_cost_micros`` and ``median_duration_ms`` name a single winner
+    the way an edge's ``condition`` does, and for the same reason: a median
+    is not a running total, and recomputing it from *delta*'s handful of new
+    rows alone would replace the established median with a guess. *existing*
+    keeps its own, to be re-derived for real at the next full rebuild.
     """
     return {
         "level": existing["level"],
@@ -269,6 +307,8 @@ def _merge_node(
         "templates": _merged_templates(existing["templates"], delta["templates"]),
         "support": int(existing["support"]) + int(delta["support"]),
         "outcome_counts": _merged_counts(existing["outcome_counts"], delta["outcome_counts"]),
+        "median_cost_micros": existing["median_cost_micros"],
+        "median_duration_ms": existing["median_duration_ms"],
         "last_seen": _later(existing["last_seen"], delta["last_seen"]),
         "activation": _merged_activation(
             float(existing["activation"]),

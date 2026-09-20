@@ -19,6 +19,7 @@ from processrecall.graph.abstract import (
     AbstractGraph,
     TransitionEdge,
     aggregate,
+    served,
 )
 from processrecall.graph.store import EpisodicStep, SequenceKey
 from processrecall.guidance.render import next_statement
@@ -38,6 +39,7 @@ def make_step(
     outcome: str = "neutral",
     key: SequenceKey = KEY,
     at: datetime = AT,
+    duration_ms: int | None = None,
 ) -> EpisodicStep:
     """One recorded row, named by the node key the recorder derived for it."""
     activity_class, program, _ = node_key.split("/")
@@ -52,6 +54,7 @@ def make_step(
         occurred_at=at,
         outcome=outcome,
         step_id=step_id,
+        duration_ms=duration_ms,
     )
 
 
@@ -225,3 +228,30 @@ def test_activation_ranks_fresh_above_stale_at_equal_support() -> None:
     assert stale.activation < fresh.activation
     assert busier_stale.support > fresh.support
     assert busier_stale.activation < fresh.activation
+
+
+def test_procedure_reports_median_cost() -> None:
+    """FR-024, FR-014: what its steps cost reaches the node as one median, never per step."""
+    steps = tuple(
+        make_step("Inspection/Read/py", position=position, step_id=position + 1)
+        for position in range(3)
+    )
+
+    graph = aggregate(steps, level="class/program", costs={1: 100, 2: 200, 3: 900})
+
+    assert graph.nodes["Inspection/Read"].median_cost_micros == 200
+    body = served(graph, AT).nodes["Inspection/Read"]
+    assert 100 not in body.values()
+    assert 900 not in body.values()
+
+
+def test_procedure_reports_median_duration() -> None:
+    """FR-024: how long its steps took reaches the node as one median too."""
+    steps = tuple(
+        make_step("Inspection/Read/py", position=position, step_id=position + 1, duration_ms=took)
+        for position, took in enumerate((10, 30, 500))
+    )
+
+    graph = aggregate(steps, level="class/program")
+
+    assert graph.nodes["Inspection/Read"].median_duration_ms == 30
