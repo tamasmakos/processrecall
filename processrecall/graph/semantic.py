@@ -40,6 +40,11 @@ RelationKind = Literal["contains", "calls", "unresolved_call", "implements"]
 #: file, so its key carries that symbol's name after a ``#``.
 FILE_KIND: EntityKind = "file"
 
+#: The one relation whose target was never resolved. It is its own relation rather
+#: than a `calls` row with no target (R16), so a traversal that wants only resolved
+#: calls filters by the type instead of by nullness.
+UNRESOLVED_CALL: RelationKind = "unresolved_call"
+
 
 def entity_key(path: PurePath, qualified_name: str | None = None) -> str:
     """The `code_entities` key for *path*, or for the symbol it declares.
@@ -153,6 +158,31 @@ class CodeRelation:
     target_key: str | None = None
     target_name: str | None = None
     sites: int = 1
+
+    def __post_init__(self) -> None:
+        """Refuse a row that is dishonest about resolution.
+
+        Raises:
+            ValueError: the two target columns disagree with the relation. Only
+                `UNRESOLVED_CALL` names a target it could not resolve, and it
+                always names one: a resolved relation with no `target_key` would
+                be indistinguishable from a parse failure, and an unresolved one
+                without its `target_name` drops what FR-018 keeps.
+        """
+        if self.relation == UNRESOLVED_CALL and (
+            self.target_key is not None or self.target_name is None
+        ):
+            raise ValueError(
+                f"relation {self.relation!r} from {self.source_key!r}: an unresolved call is "
+                "keyed by the bare name it mentioned alone, never by a target"
+            )
+        if self.relation != UNRESOLVED_CALL and (
+            self.target_name is not None or self.target_key is None
+        ):
+            raise ValueError(
+                f"relation {self.relation!r} from {self.source_key!r}: a resolved relation names "
+                f"the entity it is to, so a missing target means {UNRESOLVED_CALL!r} instead"
+            )
 
 
 def containment(entities: Iterable[CodeEntity]) -> tuple[CodeRelation, ...]:

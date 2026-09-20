@@ -39,9 +39,16 @@ from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
 
+from processrecall.artifacts.calls import CodeRef, Relation, extract_relations
 from processrecall.artifacts.parse import parse_source
 from processrecall.config import Counters, home_dir
-from processrecall.graph.semantic import FILE_KIND, CodeEntity, entity_key
+from processrecall.graph.semantic import (
+    FILE_KIND,
+    UNRESOLVED_CALL,
+    CodeEntity,
+    CodeRelation,
+    entity_key,
+)
 from processrecall.graph.store import EpisodicStep
 from processrecall.trajectory.offset import OFFSET_NAME, OffsetFile
 from processrecall.trajectory.paths import EXTERNAL_ROOT, HOME_ROOT
@@ -104,12 +111,12 @@ def derive_semantic(work: SemanticPass, store: Counters) -> tuple[CodeEntity, ..
     the file needs reading at all.
     """
     derived = []
+    texts = _touched_texts(work, store)
     for touched in _touched_files(work.steps):
-        source = work.project_dir / touched.key
-        text = _readable_text(source)
+        text = texts.get(touched.key)
         if text is None:
-            store.bump("semantic_parse_failed")
             continue
+        source = work.project_dir / touched.key
         fingerprint = _fingerprint(text)
         if work.fingerprints.get(touched.key) == fingerprint:
             store.bump("semantic_files_skipped")
@@ -122,6 +129,90 @@ def derive_semantic(work: SemanticPass, store: Counters) -> tuple[CodeEntity, ..
         store.bump("semantic_files_parsed")
         derived.append(touched.entity(fingerprint, parsed.language or ""))
     return tuple(derived)
+
+
+def derive_relations(work: SemanticPass, store: Counters) -> tuple[CodeRelation, ...]:
+    """The `code_relations` rows the files *work* touched spell out (FR-018).
+
+    Read over every touched file rather than only the changed ones, because
+    resolution is by name across the set: a call in a file that changed resolves
+    into a definition in one that did not only while both are in the text
+    handed to the parser.
+
+    A call no definition answers keeps the name it mentioned as its own
+    relation and bumps ``semantic_unresolved_call``, so the count says how much
+    of the call graph is name-only rather than leaving it to be read off null
+    targets that a parse failure would look the same as (R16).
+
+    Re-derives every relation each pass rather than skipping by fingerprint the
+    way `derive_semantic` does: resolution depends on the whole touched set, so
+    an unchanged file's relations are not provably unchanged on their own.
+    Making relation derivation itself incremental is T037/SC-008's concern, not
+    this one's.
+    """
+    rows = tuple(_code_relation(parsed) for parsed in extract_relations(_sources(work, store)))
+    for row in rows:
+        if row.relation == UNRESOLVED_CALL:
+            store.bump("semantic_unresolved_call")
+    return rows
+
+
+def _touched_texts(work: SemanticPass, store: Counters) -> dict[str, str]:
+    """The text of every file *work* touched that this pass can read, keyed relative.
+
+    The one read of the touched set that `derive_semantic` and `_sources` both
+    need, so a touched file is read off disk once rather than the same loop
+    over `_touched_files` repeated per consumer. A file that cannot be read is
+    counted here rather than dropped silently, whichever derivation asked for it.
+    """
+    readable = {}
+    for touched in _touched_files(work.steps):
+        text = _readable_text(work.project_dir / touched.key)
+        if text is None:
+            store.bump("semantic_parse_failed")
+            continue
+        readable[touched.key] = text
+    return readable
+
+
+def _sources(work: SemanticPass, store: Counters) -> dict[Path, str]:
+    """The text of every file *work* touched that this pass can read, keyed relative.
+
+    The keys stay repository-relative so the refs the parser hands back key
+    straight through `processrecall.graph.semantic.entity_key`, with
+    `SemanticPass.project_dir` the only place the host path is joined on.
+    """
+    return {Path(key): text for key, text in _touched_texts(work, store).items()}
+
+
+def _code_relation(parsed: Relation) -> CodeRelation:
+    """*parsed* as the row the semantic layer stores it as.
+
+    The relation vocabulary is spelled on both sides of the `artifacts` / `graph`
+    boundary, so the kind travels as it is; what this translates is the ends,
+    from paths the parser read to the keys the column holds. Branches on the
+    kind itself rather than on whether a target was resolved, so a parser that
+    contradicts itself is caught by `CodeRelation`'s own validation instead of
+    being read here as if nullness were what decided the relation's type (R16).
+    """
+    if parsed.kind == UNRESOLVED_CALL:
+        return CodeRelation(
+            source_key=_ref_key(parsed.source),
+            relation=parsed.kind,
+            target_name=parsed.target_name,
+            sites=parsed.sites,
+        )
+    return CodeRelation(
+        source_key=_ref_key(parsed.source),
+        relation=parsed.kind,
+        target_key=_ref_key(parsed.target) if parsed.target is not None else None,
+        sites=parsed.sites,
+    )
+
+
+def _ref_key(ref: CodeRef) -> str:
+    """The `code_entities` key for one end of a parsed relation."""
+    return entity_key(ref.path, ref.qualified_name)
 
 
 @dataclass(frozen=True, slots=True)

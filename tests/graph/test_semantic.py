@@ -8,7 +8,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 
-from processrecall.cli.derive import SemanticPass, derive_semantic
+from processrecall.cli.derive import SemanticPass, derive_relations, derive_semantic
 from processrecall.graph.semantic import (
     CodeEntity,
     CodeRelation,
@@ -91,6 +91,23 @@ def test_symbol_without_its_file_entity_is_refused() -> None:
         containment([make_entity("processrecall/graph/semantic.py#CodeEntity", "class")])
 
 
+def test_calls_relation_refuses_a_null_target() -> None:
+    """A resolved `calls` row with no target is indistinguishable from a parse failure (R16)."""
+    with pytest.raises(ValueError, match="unresolved"):
+        CodeRelation(source_key="pkg/module.py#work", relation="calls", target_key=None)
+
+
+def test_unresolved_call_refuses_a_target_key() -> None:
+    """An unresolved call is keyed by the bare name alone, never by a resolved target (R16)."""
+    with pytest.raises(ValueError, match="bare name"):
+        CodeRelation(
+            source_key="pkg/module.py#work",
+            relation="unresolved_call",
+            target_key="pkg/module.py#helper",
+            target_name="helper",
+        )
+
+
 def test_containment_relates_each_file_to_the_symbols_it_holds() -> None:
     """The `contains` rows are derived from the keys, not declared a second time (FR-018)."""
     rows = containment(
@@ -149,3 +166,38 @@ def test_file_that_cannot_be_read_is_counted_and_passed_over(tmp_path: Path) -> 
 
     assert derived == ()
     assert counters.counted == Counter({"semantic_parse_failed": 1})
+
+
+CALLING_SOURCE = """def work(step):
+    return helper(transform(step))
+
+
+def helper(step):
+    return step
+"""
+
+
+def test_unresolved_call_keeps_target_name(tmp_path: Path) -> None:
+    """FR-018: a call nothing answers is its own relation, never a `calls` row with no target."""
+    source = tmp_path / "pkg" / "module.py"
+    source.parent.mkdir()
+    source.write_text(CALLING_SOURCE, encoding="utf-8")
+    counters = FakeCounters()
+
+    rows = derive_relations(
+        SemanticPass(project_dir=tmp_path, steps=edit_of("pkg/module.py")), counters
+    )
+
+    assert rows == (
+        CodeRelation(
+            source_key="pkg/module.py#work",
+            relation="calls",
+            target_key="pkg/module.py#helper",
+        ),
+        CodeRelation(
+            source_key="pkg/module.py#work",
+            relation="unresolved_call",
+            target_name="transform",
+        ),
+    )
+    assert counters.counted == Counter({"semantic_unresolved_call": 1})
