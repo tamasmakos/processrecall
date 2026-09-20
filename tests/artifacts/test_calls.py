@@ -15,6 +15,8 @@ from pathlib import Path
 import pytest
 
 from processrecall.artifacts.calls import CodeRef, Relation, extract_relations
+from processrecall.artifacts.parse import parse_tree
+from processrecall.artifacts.tags import tag_captures
 
 PYTHON_SOURCE = """\
 def helper(step):
@@ -224,3 +226,14 @@ def test_a_call_through_an_attribute_names_the_method_it_ends_in() -> None:
     assert _from(relations, "main") == [
         Relation(CodeRef(RECORDER, "main"), "calls", CodeRef(RECORDER, "Store.write"), None, 1)
     ]
+
+
+def test_vendored_tags_query_captures_call_sites() -> None:
+    """FR-018: the call sites come from the vendored query, which the pack ships none of."""
+    _, root = parse_tree(SINK, TYPESCRIPT_SOURCE)
+    assert root is not None
+
+    captured = tag_captures("typescript", root)
+
+    called = [node.text.decode() if node.text else "" for node in captured["name.reference.call"]]
+    assert sorted(called) == ["Base", "helper", "write"]

@@ -7,9 +7,10 @@ differs between Python, TypeScript/JavaScript, Go, Rust and shell is only which
 node types a grammar calls a definition and which field holds the name, so that
 pair is the whole per-language record and the traversal over it is written once.
 
-tree-sitter is imported here and in :mod:`processrecall.artifacts.calls` and
-nowhere else in the package: parsing is the one thing FR-064 keeps off the hot
-path, so nothing on it may import either module.
+tree-sitter is imported here, in :mod:`processrecall.artifacts.calls` and in
+:mod:`processrecall.artifacts.tags`, and nowhere else in the package: parsing is
+the one thing FR-064 keeps off the hot path, so nothing on it may import any of
+the three.
 """
 
 from __future__ import annotations

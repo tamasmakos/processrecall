@@ -13,8 +13,9 @@ naming its own symbol is taken at its word over a same-named one elsewhere.
 
 The definitions come from :func:`~processrecall.artifacts.parse.parse_source`,
 so a relation can only ever name a symbol that module also reports; what is read
-here is the half parsing does not cover, the call sites and the base types.
-tree-sitter is imported here and in that module and nowhere else in the package.
+here is the half parsing does not cover, the call sites and the base types,
+both of them captured by the queries :mod:`processrecall.artifacts.tags` vendors.
+tree-sitter is imported here, in those two modules, and nowhere else.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from processrecall.artifacts.parse import Symbol, enclosing_symbol, parse_tree
+from processrecall.artifacts.tags import LANGUAGES, tag_captures
 
 if TYPE_CHECKING:
     from tree_sitter import Node
@@ -62,63 +64,38 @@ class Relation:
     sites: int
 
 
-@dataclass(frozen=True, slots=True)
-class _CallGrammar:
-    """What one language calls a call site and a list of base types.
-
-    ``family`` is what resolution keys definitions and references on, so
-    languages that share a grammar — TypeScript, its JSX dialect and
-    JavaScript — resolve into one another rather than only among themselves.
-    ``calls`` maps a node type to the field holding the expression being called;
-    the bare name resolution works on is the last name in it, so
-    ``self.store.write`` mentions ``write``. ``heritage`` maps a class node type
-    to the field — or, where the grammar gives it no field, the child type —
-    holding the types it derives from. ``clauses`` are the nodes inside that one
-    which group the types rather than naming one, ``extends`` and ``implements``.
-    """
-
-    family: str
-    calls: Mapping[str, str]
-    heritage: Mapping[str, str]
-    clauses: frozenset[str] = frozenset()
-
-
-#: TypeScript, its JSX dialect and JavaScript are one grammar family with one set
-#: of node types, so they share the record rather than repeating it.
-_TYPESCRIPT = _CallGrammar(
-    family="typescript",
-    calls={"call_expression": "function", "new_expression": "constructor"},
-    heritage={"class_declaration": "class_heritage"},
-    clauses=frozenset({"extends_clause", "implements_clause"}),
-)
-
-_CALL_GRAMMARS: Mapping[str, _CallGrammar] = {
-    "python": _CallGrammar(
-        family="python",
-        calls={"call": "function"},
-        heritage={"class_definition": "superclasses"},
-    ),
-    "typescript": _TYPESCRIPT,
-    "tsx": _TYPESCRIPT,
-    "javascript": _TYPESCRIPT,
+#: The grammar family each language resolves names in: languages sharing a
+#: grammar — TypeScript, its JSX dialect and JavaScript — resolve into one
+#: another rather than only among themselves. Which languages relations are
+#: read from at all is :data:`~processrecall.artifacts.tags.LANGUAGES`, not this
+#: mapping, so a language named only here still reads none.
+_FAMILIES: Mapping[str, str] = {
+    "python": "python",
+    "typescript": "typescript",
+    "tsx": "typescript",
+    "javascript": "typescript",
 }
 
-#: The node types that spell a name rather than wrap one.
-_NAME_TYPES = frozenset({"identifier", "type_identifier", "property_identifier"})
-
-#: The node types a base type may be spelled as; a metaclass keyword argument or
-#: a list of type arguments is none of them, so neither is read as a base.
-_NAMED_TYPES = _NAME_TYPES | {"attribute", "member_expression"}
+#: What a capture of the vendored queries means as a relation.
+_CAPTURE_KINDS: Mapping[str, RelationKind] = {
+    "name.reference.call": "calls",
+    "name.reference.implements": "implements",
+}
 
 
 @dataclass(frozen=True, slots=True)
 class _Parsed:
-    """One file ready to be read for the names it mentions."""
+    """One file ready to be read for the names it mentions.
+
+    ``language`` selects the vendored query the names are captured with, and
+    ``family`` is the one resolution keys them on.
+    """
 
     path: Path
     symbols: tuple[Symbol, ...]
     root: Node
-    grammar: _CallGrammar
+    language: str
+    family: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,9 +126,14 @@ def _parsed(path: Path, text: str) -> _Parsed | None:
     """*text* parsed for relations, or ``None`` for a language without them."""
     parsed, root = parse_tree(path, text)
     language = parsed.language
-    if language is None or root is None or (grammar := _CALL_GRAMMARS.get(language)) is None:
+    if (
+        language is None
+        or root is None
+        or language not in LANGUAGES
+        or (family := _FAMILIES.get(language)) is None
+    ):
         return None
-    return _Parsed(path, parsed.symbols, root, grammar)
+    return _Parsed(path, parsed.symbols, root, language, family)
 
 
 def _definitions(parsed: Iterable[_Parsed]) -> _Definitions:
@@ -160,7 +142,7 @@ def _definitions(parsed: Iterable[_Parsed]) -> _Definitions:
     for one in parsed:
         for symbol in one.symbols:
             bare = symbol.qualified_name.rsplit(".", 1)[-1]
-            index[(one.grammar.family, bare)].append(CodeRef(symbol.path, symbol.qualified_name))
+            index[(one.family, bare)].append(CodeRef(symbol.path, symbol.qualified_name))
     return {key: tuple(refs) for key, refs in index.items()}
 
 
@@ -190,70 +172,17 @@ def _target(reference: _Reference, defined: _Definitions) -> CodeRef | None:
 
 
 def _mentions(parsed: _Parsed) -> Iterator[_Reference]:
-    """Every name in *parsed* that may relate, attributed to what encloses it.
-
-    An explicit stack rather than recursion: a real source file can nest deep
-    enough to exceed CPython's recursion limit, and this runs unattended.
-    """
-    stack = [parsed.root]
-    while stack:
-        node = stack.pop()
-        if node.type in parsed.grammar.calls:
-            yield from _called(node, parsed)
-        elif node.type in parsed.grammar.heritage:
-            yield from _derived(node, parsed)
-        stack.extend(reversed(node.named_children))
-
-
-def _called(node: Node, parsed: _Parsed) -> Iterator[_Reference]:
-    """The name *node* calls, as a reference from whatever encloses the site."""
-    field = parsed.grammar.calls[node.type]
-    callee = node.child_by_field_name(field)
-    if callee is not None and (name := _name_of(callee)):
-        yield _Reference(_encloser(parsed, node), "calls", name, parsed.grammar.family)
-
-
-def _derived(node: Node, parsed: _Parsed) -> Iterator[_Reference]:
-    """The types the class at *node* derives from, as references from the class."""
-    heritage = _held(node, parsed.grammar.heritage[node.type])
-    if heritage is None:
-        return
-    source = _encloser(parsed, node)
-    for name in _base_names(heritage, parsed.grammar.clauses):
-        yield _Reference(source, "implements", name, parsed.grammar.family)
-
-
-def _held(node: Node, held: str) -> Node | None:
-    """*node*'s child in field *held*, else its first child of that type."""
-    if (field := node.child_by_field_name(held)) is not None:
-        return field
-    return next((child for child in node.named_children if child.type == held), None)
-
-
-def _base_names(heritage: Node, clauses: frozenset[str]) -> Iterator[str]:
-    """The names *heritage* lists, looking through the clauses that group them.
-
-    Recursion is bounded by the grammar here — a clause holds names, not further
-    clauses — so it needs no explicit stack.
-    """
-    for child in heritage.named_children:
-        if child.type in clauses:
-            yield from _base_names(child, clauses)
-        elif child.type in _NAMED_TYPES and (name := _name_of(child)):
-            yield name
+    """Every name the vendored query captures in *parsed*, by what encloses it."""
+    captured = tag_captures(parsed.language, parsed.root)
+    for capture, kind in _CAPTURE_KINDS.items():
+        for node in captured.get(capture, ()):
+            yield _Reference(_encloser(parsed, node), kind, _text(node), parsed.family)
 
 
 def _encloser(parsed: _Parsed, node: Node) -> CodeRef:
     """The symbol *node* sits in, or the file itself when none does."""
     symbol = enclosing_symbol(parsed.symbols, node.start_point[0] + 1)
     return CodeRef(parsed.path) if symbol is None else CodeRef(symbol.path, symbol.qualified_name)
-
-
-def _name_of(node: Node) -> str:
-    """The bare name *node* ends in: ``self.store.write`` names ``write``."""
-    while node.type not in _NAME_TYPES and node.named_children:
-        node = node.named_children[-1]
-    return _text(node) if node.type in _NAME_TYPES else ""
 
 
 def _order(relation: Relation) -> tuple[str, str, str, str]:
