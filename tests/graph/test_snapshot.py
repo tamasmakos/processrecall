@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 
 from processrecall.graph.schema import CALLERS_PER_ENTITY, PRECEDES_ENTITIES
-from processrecall.graph.snapshot import SNAPSHOT_FORMAT, Snapshot, SnapshotFile
+from processrecall.graph.snapshot import Snapshot, SnapshotFile
 
 
 class FakeCounters:
@@ -65,16 +65,43 @@ def test_a_written_snapshot_reads_back_whole_and_counts_the_write(
     assert counters.counted["snapshot_written"] == 1
 
 
-def test_an_unknown_format_is_refused_rather_than_crashed_on(
+def test_snapshot_is_stamped_format_2(
     tmp_path: Path, counters: FakeCounters, snapshot: Snapshot
 ) -> None:
+    """The stamp a written snapshot carries, pinned at the literal `2`.
+
+    Spelled out rather than read back from the module's own constant: an
+    assertion against the constant moves with it, so it holds whatever the
+    build declares and can never report a snapshot stamped at the wrong
+    format. `2` is the format `contracts/graph-schema-v2.md` names.
+    """
+    path = tmp_path / "graph.json"
+
+    SnapshotFile(path, counters).write(snapshot)
+
+    assert json.loads(path.read_text(encoding="utf-8"))["format"] == 2
+
+
+def test_a_format_1_body_is_refused_rather_than_migrated(
+    tmp_path: Path, counters: FakeCounters, snapshot: Snapshot
+) -> None:
+    """A body of the previous format is refused, as is one of a format ahead.
+
+    The store carries a v1 database forward because its episodic rows cannot
+    be recovered; the snapshot is a pure fold of those rows (FR-028), so a
+    format-`1` body is refused for a rebuild to re-derive instead of being
+    read under v2 field names. A format this build is behind is refused the
+    same way, since the reader can do nothing different about either.
+    """
     path = tmp_path / "graph.json"
     SnapshotFile(path, counters).write(snapshot)
     written = json.loads(path.read_text(encoding="utf-8"))
-    path.write_text(json.dumps({**written, "format": SNAPSHOT_FORMAT + 1}), encoding="utf-8")
 
-    assert SnapshotFile(path, counters).read() is None
-    assert counters.counted["snapshot_unreadable"] == 1
+    for unserved in (1, 3):
+        path.write_text(json.dumps({**written, "format": unserved}), encoding="utf-8")
+        assert SnapshotFile(path, counters).read() is None
+
+    assert counters.counted["snapshot_unreadable"] == 2
 
 
 def test_a_truncated_snapshot_is_refused_rather_than_crashed_on(
@@ -100,7 +127,7 @@ def test_a_well_formed_but_incomplete_snapshot_is_refused_rather_than_crashed_on
     tmp_path: Path, counters: FakeCounters
 ) -> None:
     path = tmp_path / "graph.json"
-    path.write_text(json.dumps({"format": SNAPSHOT_FORMAT}), encoding="utf-8")
+    path.write_text(json.dumps({"format": 2}), encoding="utf-8")
 
     assert SnapshotFile(path, counters).read() is None
     assert counters.counted["snapshot_unreadable"] == 1
@@ -116,7 +143,7 @@ def test_a_write_interrupted_part_way_leaves_the_previous_snapshot_readable(
     file.write(snapshot)
 
     def die_half_way(document: object, stream: Any) -> None:
-        stream.write('{"format": 1, "nod')
+        stream.write('{"format": 2, "nod')
         raise OSError("no space left on device")
 
     monkeypatch.setattr(json, "dump", die_half_way)

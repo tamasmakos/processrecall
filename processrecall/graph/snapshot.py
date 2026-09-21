@@ -184,10 +184,15 @@ class SnapshotFile:
         """The snapshot at this path, or ``None`` when it cannot be served.
 
         A file that is missing, half-written or carrying a format this build
-        does not know is refused, counted and left alone: a hook has no error
+        does not serve is refused, counted and left alone: a hook has no error
         to show a developer, so silence plus a counter is the only honest
         answer (R11, R16). The three cases share one answer because the reader
         can do nothing different about them.
+
+        The previous format `1` is one of those rather than a body to migrate:
+        the abstract graph is a pure fold of episodic rows (FR-028), so a
+        rebuild re-derives a servable snapshot from the store the migration
+        already carried forward.
         """
         try:
             document = json.loads(self._path.read_text(encoding="utf-8"))
