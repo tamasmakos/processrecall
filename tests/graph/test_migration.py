@@ -10,8 +10,10 @@ from pathlib import Path
 
 import pytest
 
+from processrecall.graph.episodic import open_index
 from processrecall.graph.migrate import MIGRATION_COUNTER, migrate_forward
 from processrecall.graph.schema import LAYERS, STORE_SCHEMA_VERSION
+from processrecall.graph.store import SQLiteEpisodicStore
 
 V1_STORE = Path(__file__).resolve().parents[1] / "fixtures" / "stores" / "v1.db"
 
@@ -137,3 +139,36 @@ def test_a_migrated_store_is_not_migrated_again(v1_copy: Path) -> None:
         assert connection.execute(
             "SELECT value FROM counters WHERE name = ?", (MIGRATION_COUNTER,)
         ).fetchone() == (1,)
+
+
+#: The columns this feature adds to `steps`, checked against the fixture below
+#: rather than derived from the declaration, so a column that stops being an
+#: addition stops being asserted about here.
+ADDED_STEP_FIELDS = (
+    "result",
+    "kind",
+    "decision",
+    "decision_source",
+    "duration_ms",
+    "error_type",
+    "input_size_bytes",
+    "result_size_bytes",
+    "tool_source",
+    "source",
+)
+
+
+def test_migrated_store_keeps_every_step_readable(v1_copy: Path) -> None:
+    """Every v1 step reads back through the v2 store, the additions null (SC-013)."""
+    with closing(sqlite3.connect(v1_copy)) as connection:
+        recorded = _count(connection, "steps")
+        assert recorded, V1_STORE
+        assert not set(ADDED_STEP_FIELDS) & _columns(connection, "steps")
+
+    with closing(open_index(v1_copy)) as connection:
+        steps = tuple(SQLiteEpisodicStore(connection).iter_steps())
+
+    assert len(steps) == recorded
+    for step in steps:
+        added = {field: getattr(step, field) for field in ADDED_STEP_FIELDS}
+        assert all(value is None for value in added.values()), (step.dedup_key, added)
