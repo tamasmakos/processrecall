@@ -31,6 +31,41 @@ one short statement. Nothing in either direction leaves the machine.
    support floor and the token budget. The project's graph is consulted first
    and the cross-project one only for procedures unseen here.
 
+## The ingest path
+
+Telemetry is the primary source for the episodic layer, and it reaches the
+memory as a file the developer's own collector writes, named by the
+`telemetry_path` setting. Empty is the shipped state: until the file is named
+there is no telemetry source, which is reported rather than raised on.
+
+1. **Bind.** `SessionStart` records which project a session belongs to. No
+   telemetry record carries a working directory, so `session.id` is the only
+   way back to a project: ingest is strictly downstream of the hook rather than
+   a fallback for it, and a record whose session no hook opened is dropped at
+   the door and counted.
+2. **Drain.** `cli.derive` is the one place that file is read, inside the
+   detached job `SessionEnd` spawns — the same pass the snapshots are folded
+   in. Never on a hook path, which has a timeout the file has no bound to
+   respect, and never from a process that stays up to watch it, which would be
+   the listening port this memory does not open. The pass resumes from a
+   persisted offset, so its cost is what the last unit of work appended rather
+   than everything the session ever emitted.
+3. **Read.** `trajectory.telemetry` is the door every record comes through. One
+   exported line is a batch and all of it is read; attributes are bound from an
+   allow-list, so a prompt or a response body arriving under a new name is
+   unreadable by default; records are put back into the order the harness wrote
+   them in, by event time with the sequence number breaking a tie.
+4. **Reconcile.** Two captures of one tool call, telemetry's and the hook's,
+   become one step under one dedup key in either arrival order. Telemetry wins
+   every clash and the hook fills only the fields the record did not carry;
+   every clashing field is counted, so telemetry winning never hides that the
+   hook read something else.
+
+Joining the drained lines to that step ingest is the part of this path not yet
+built: the pass advances the offset and reports the lines it passed over, and
+`processrecall doctor` reads the file to report on the collector and on which
+harness gates the records it finds imply.
+
 ## What each package owns
 
 | Package | Owns |
@@ -49,6 +84,29 @@ one short statement. Nothing in either direction leaves the machine.
 `integrations` imports the standard library only, and `guidance` never imports
 `symbolic` or `artifacts`: the hook's latency budget is what those rules protect,
 and import-linter holds them.
+
+## The three layers
+
+`graph/schema.py` declares the graph once, as three layers bottom to top, and
+every column the store holds is checked against that declaration. The
+**semantic layer** is what the code is: entities keyed by path and, where known,
+by qualified symbol, with the containment, call, unresolved-call and
+implementation relations between them. It is derived at the end of a unit of
+work rather than on the hook path, and incrementally — a file whose content
+fingerprint is already derived is not read again. The **episodic layer** is what
+happened: sequences, steps, inferences and agents, with the ordering,
+membership, performance, spawn, consumption and touched relations. A step
+carries two independent outcome axes, a result of ok or failure and a decision
+of accepted or rejected, because a refusal is a policy signal and a failure a
+capability one, and one enumeration for both would corrupt either statistic.
+The **procedural layer** is what to do next: procedures at three levels of
+generality, the subsumption between them, and their transitions with support,
+condition, guidance and pitfalls. It is the one layer with no rows of its own —
+a procedure is a fold over episodic rows, so the rows are the record and the
+snapshot is a cache of the aggregation.
+
+These three are the graph's layers; the two below are the Tensor Brain's, and
+all three of these sit in its index layer.
 
 ## The two layers
 

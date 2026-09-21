@@ -7,6 +7,7 @@ import tomllib
 from pathlib import Path
 
 from processrecall.cli.__main__ import COMMANDS, SUBJECTS
+from processrecall.graph.schema import LAYERS
 from processrecall.guidance.triggers import Trigger
 from processrecall.integrations.claude_code.hooks import DENY_LIST, OPTOUT_MARKER
 from processrecall.server.mcp.stdio_server import TOOLS
@@ -18,6 +19,8 @@ EVENT_SOURCES_HEADING = "### 3.2 Event sources"
 DEFERRED_HEADING = "### 3.13 Deferred"
 DEPENDENCIES_HEADING = "## 5. Dependencies"
 LEDGER_HEADING = "## 6. Removal ledger"
+LAYERS_HEADING = "## The three layers"
+INGEST_HEADING = "## The ingest path"
 
 
 def _package_source() -> str:
@@ -205,3 +208,46 @@ def test_design_record_names_telemetry_the_primary_event_source() -> None:
     deferred = _section_body(design, DEFERRED_HEADING)
     assert deferred, f"docs/design.md has no {DEFERRED_HEADING!r} section"
     assert "OTel adapter" not in deferred, f"{DEFERRED_HEADING} still defers the OTel adapter"
+
+
+def test_architecture_names_every_declared_layer() -> None:
+    """The architecture doc must name the three declared layers (FR-015).
+
+    The names are read off `processrecall.graph.schema.LAYERS` rather than
+    written out here, so a layer renamed in the contract fails this instead of
+    ageing quietly in prose. Each is required in its layer-naming spelling, so
+    a section that mentions "procedural" only in passing does not pass for
+    documenting the layer.
+    """
+    architecture = (REPO_ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
+    section = _section_body(architecture, LAYERS_HEADING)
+    assert section, f"docs/architecture.md has no {LAYERS_HEADING!r} section"
+
+    missing = sorted(
+        f"{layer.name} layer" for layer in LAYERS if f"{layer.name} layer" not in section
+    )
+    assert not missing, f"{LAYERS_HEADING} does not document {missing}"
+
+
+def test_architecture_documents_the_ingest_path() -> None:
+    """The architecture doc must say what reads telemetry, and when (FR-004).
+
+    Telemetry arrives as a file someone else's collector writes, so a reader
+    who cannot see which module opens it, and in which pass, has no way to tell
+    the memory from a listener. Each part is asserted on its own, so a rewrite
+    that drops one fails here naming which.
+    """
+    architecture = (REPO_ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
+    section = _section_body(architecture, INGEST_HEADING)
+    assert section, f"docs/architecture.md has no {INGEST_HEADING!r} section"
+
+    required = {
+        "the configured collector file": "telemetry_path",
+        "the reader every record comes through": "trajectory.telemetry",
+        "the pass that drains it": "cli.derive",
+        "the hook that spawns that pass": "SessionEnd",
+        "that no hook path reads the file": "hook path",
+        "the offset the next pass resumes from": "offset",
+    }
+    missing = sorted(part for part, token in required.items() if token not in section)
+    assert not missing, f"{INGEST_HEADING} does not document {missing}"
