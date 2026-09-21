@@ -25,6 +25,7 @@ from processrecall.graph.snapshot import SNAPSHOT_NAME, SnapshotFile
 from processrecall.graph.store import EpisodicStore, SequenceKey, counter_table
 from processrecall.graph.store import Sequence as RecordedSequence
 from processrecall.trajectory.paths import project_key
+from processrecall.trajectory.telemetry import GAP_CAUSES
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,8 +72,20 @@ def _or_unset(value: object) -> str:
 
 
 def counter_report(store: EpisodicStore) -> str:
-    """Every counter the package can increment, against what *store* kept (R16)."""
-    return _table(counter_table(store))
+    """Every counter the package can increment, against what *store* kept (R16).
+
+    A gap counter's row also carries why the field is not there
+    (`contracts/counters.md`): the count alone does not say what to fix, and the
+    fixes differ — turn spans on, turn the tool-details gate on, upgrade the
+    harness. A name still at zero carries its cause too, since the gap nobody
+    has hit yet is the one an operator has still to be told about (SC-012).
+    """
+    return _table(
+        {
+            name: f"{count} {GAP_CAUSES[name]}" if name in GAP_CAUSES else count
+            for name, count in counter_table(store).items()
+        }
+    )
 
 
 def config_report() -> str:

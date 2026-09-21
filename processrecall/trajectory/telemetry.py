@@ -224,18 +224,24 @@ _RESULT_FAILURE = "failure"
 #: differ: turn spans on, turn the tool-details gate on, or upgrade the harness
 #: (`contracts/counters.md`, R9). The set is closed. Spelled out here rather than
 #: read off `processrecall/graph/store.py`'s ``COUNTERS``, which this layer sits
-#: below and so may not import.
-GAP_COUNTERS = frozenset(
-    {
-        "gap_ttft",
-        "gap_permission_wait",
-        "gap_agent_nesting",
-        "gap_stop_reason",
-        "gap_error_class",
-        "gap_tool_details",
-        "gap_version_floor",
-    }
-)
+#: below and so may not import. The cause travels with the name because a gap
+#: counted alone names nothing to fix: `processrecall show gaps` prints the pair.
+GAP_CAUSES: Mapping[str, str] = {
+    "gap_ttft": "first_content_ms is span-only",
+    "gap_permission_wait": "span-only",
+    "gap_agent_nesting": "agent_id / parent_agent_id are span-only, so spawned cannot be derived",
+    "gap_stop_reason": "span-only enrichment; the model's outcome is unaffected",
+    "gap_error_class": "span-only enrichment, floor v2.1.268; the model's outcome is unaffected",
+    "gap_tool_details": "OTEL_LOG_TOOL_DETAILS is off",
+    "gap_version_floor": (
+        "a consumed field is below its floor, or app.version was never emitted so no floor"
+        " can be checked"
+    ),
+}
+
+#: The names :data:`GAP_CAUSES` explains, which is the closed set `SessionGaps.report`
+#: admits: one declaration, so no gap can be bumped without a cause to read it by.
+GAP_COUNTERS = frozenset(GAP_CAUSES)
 
 
 #: What a pass found where the collector file was configured, when it found

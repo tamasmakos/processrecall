@@ -17,6 +17,7 @@ from processrecall.config import ActivityClass, Config, ProcessType
 from processrecall.graph.episodic import open_index
 from processrecall.graph.snapshot import Snapshot, SnapshotFile
 from processrecall.graph.store import (
+    COUNTERS,
     EpisodicStep,
     Sequence,
     SequenceKey,
@@ -69,11 +70,45 @@ def test_show_counters_prints_every_counter_the_package_can_increment(tmp_path: 
     store.bump("steps_recorded")
     connection.close()
 
-    counted = dict(line.split() for line in run_show("counters", home).splitlines())
+    counted = dict(
+        line.split(maxsplit=1) for line in run_show("counters", home).splitlines()
+    )
 
     assert counted["steps_recorded"] == "2"
     assert set(counted) >= _bumped_counter_names(), "a counter the package increments has no reader"
     assert counted["guidance_silent"] == "0", "an unseen counter must print, not be omitted"
+
+
+def test_show_counters_prints_every_gap_name(tmp_path: Path) -> None:
+    """Every gap counter reads back with the cause an operator can act on (SC-012).
+
+    The counter table names all seven whatever they stand at, and a count alone
+    says nothing about the fix: the causes differ — turn spans on, turn the
+    tool-details gate on, upgrade the harness. A name still at zero carries its
+    cause too, because the gap nobody has hit yet is the one an operator has
+    still to be told about.
+    """
+    home = tmp_path / "home"
+    connection = open_index(home / ".processrecall" / "episodes.db")
+    store = SQLiteEpisodicStore(connection)
+    store.bump("gap_tool_details")
+    connection.close()
+
+    reported = {
+        name: (count, cause)
+        for name, count, cause in (
+            line.split(maxsplit=2)
+            for line in run_show("counters", home).splitlines()
+            if line.startswith("gap_")
+        )
+    }
+
+    expected = {name for name in COUNTERS if name.startswith("gap_")}
+    assert set(reported) == expected, "a gap counter has no reader"
+    assert reported["gap_tool_details"] == ("1", "OTEL_LOG_TOOL_DETAILS is off")
+    assert reported["gap_ttft"] == ("0", "first_content_ms is span-only"), (
+        "a gap still at zero must print, and print its cause"
+    )
 
 
 def test_show_config_names_where_every_value_came_from(tmp_path: Path) -> None:
