@@ -23,10 +23,15 @@ Telemetry is the first channel that makes a listening port plausible here — a
 collector speaks OTLP, and the easy way to consume it is to answer it — so the
 ledger covers that path as well: the second test points the end-of-unit-of-work
 pass at a collector file and drains it, which is where FR-004 puts the read.
+
+A receiver no caller reaches yet would leave no trace in either replay, so the
+third test — Transport B stays declared and not built (FR-005) — reads the
+package's syntax instead of the ledger.
 """
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -34,13 +39,14 @@ import socket
 import subprocess
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import closing
+from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from processrecall.cli.rebuild import Derivation, rebuild
-from processrecall.config import STORE_DIR, load_config
+from processrecall.config import STORE_DIR, Config, load_config
 from processrecall.graph.episodic import open_index
 from processrecall.graph.store import SQLiteEpisodicStore
 from processrecall.integrations.claude_code import hooks
@@ -81,6 +87,60 @@ GUARDED: tuple[tuple[Any, str], ...] = (
     (os, "fork"),
     (os, "posix_spawn"),
 )
+
+
+#: The package whose source the Transport B pin below reads.
+PACKAGE = REPO_ROOT / "processrecall"
+
+#: Transport B's declaration, and the heading that carries it.
+TRANSPORT_CONTRACT = (
+    REPO_ROOT
+    / ".claude"
+    / "specs"
+    / "007-otel-graph-schema-v2"
+    / "contracts"
+    / "collector-transport.md"
+)
+TRANSPORT_B_HEADING = "## Transport B — an in-plugin OTLP receiver (declared, not built)"
+
+#: Every framework whose bind happens inside its own code, where no call below
+#: appears. ``socket`` and ``grpc`` are deliberately not here: a bare import of
+#: either is legitimate (a hostname lookup, an OTLP *exporter* client) and
+#: `PORT_ACQUIRING_CALLS` already catches the bind/listen call itself. Prefixes:
+#: ``http.server`` is one of these and ``http`` is not.
+SERVER_MODULES = (
+    "socketserver",
+    "http.server",
+    "wsgiref",
+    "xmlrpc.server",
+    "uvicorn",
+    "flask",
+    "fastapi",
+    "aiohttp",
+)
+
+#: Every call that turns a socket into a listening one. ``stdio_server`` and the
+#: MCP ``Server`` are deliberately not here: FR-065 serves JSON-RPC over stdin
+#: and stdout, which takes no port.
+PORT_ACQUIRING_CALLS = frozenset(
+    {"bind", "listen", "serve_forever", "create_server", "start_server"}
+)
+
+#: The words a setting would carry to name a receiver's endpoint. Matched against
+#: a field name's underscore-separated parts and never as substrings, because
+#: ``min_support`` contains "port".
+RECEIVER_SETTING_WORDS = frozenset({"receiver", "listener", "listen", "port", "endpoint", "bind"})
+
+#: What a branch or a stub would have to name, together, to be anticipating the
+#: undeclared receiver: OTLP *and* receiving or listening for it, or the
+#: contract's own name for it outright. "receiv" alone is not enough —
+#: `artifacts/parse.py` walrus-binds a `receiver` for a Go method receiver,
+#: unrelated to OTLP — so the topic and the action are matched separately and
+#: both required, case-insensitively, as substrings of the branch's own
+#: unparsed source.
+RECEIVER_ANTICIPATION_TOPIC = "otlp"
+RECEIVER_ANTICIPATION_ACTIONS = ("receiv", "listen")
+RECEIVER_ANTICIPATION_NAMES = ("transport b", "transport_b")
 
 
 def _refusing(attempts: list[str], channel: str) -> Callable[..., Any]:
@@ -318,4 +378,148 @@ def test_telemetry_ingest_opens_no_socket_and_spawns_no_process(
     assert recorded["offset"] == TELEMETRY_CORPUS.stat().st_size, (
         f"the pass stopped at byte {recorded['offset']} of {TELEMETRY_CORPUS}: the drain "
         "read less than the collector wrote, so the ledger covers less than the whole file"
+    )
+
+
+def _package_syntax_trees() -> Iterator[tuple[Path, ast.Module]]:
+    """Every shipped module of the package, parsed.
+
+    Parsed rather than searched as text: "receiver" is ordinary code here —
+    `artifacts/parse.py` reads a Go method receiver — and prose that *mentions*
+    a receiver is the declaration FR-005 asks for, not a breach of it. An
+    import, a call and a branch are syntax, so that is what is read.
+    """
+    for path in sorted(PACKAGE.rglob("*.py")):
+        yield path, ast.parse(path.read_text(encoding="utf-8"))
+
+
+def _modules_imported(node: ast.Import | ast.ImportFrom) -> tuple[str, ...]:
+    """The dotted module names *node* imports."""
+    if isinstance(node, ast.Import):
+        return tuple(alias.name for alias in node.names)
+    return (node.module or "",)
+
+
+def _server_imports(tree: ast.Module) -> Iterator[str]:
+    """Every socket or server module *tree* imports, with the line importing it."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Import | ast.ImportFrom):
+            continue
+        for module in _modules_imported(node):
+            if any(module == named or module.startswith(f"{named}.") for named in SERVER_MODULES):
+                yield f"line {node.lineno}: imports {module}"
+
+
+def _port_acquiring_calls(tree: ast.Module) -> Iterator[str]:
+    """Every call in *tree* that would leave a port bound, with the line calling it."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Attribute):
+            called = node.func.attr
+        elif isinstance(node.func, ast.Name):
+            called = node.func.id
+        else:
+            continue
+        if called in PORT_ACQUIRING_CALLS:
+            yield f"line {node.lineno}: calls {called}()"
+
+
+def _raises_not_implemented(node: ast.Raise) -> bool:
+    """Whether *node* raises ``NotImplementedError``, bare or called."""
+    exc = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
+    return isinstance(exc, ast.Name) and exc.id == "NotImplementedError"
+
+
+def _names_the_undeclared_receiver(segment: str) -> bool:
+    """Whether *segment* ties itself to OTLP receiving, listening or Transport B."""
+    lowered = segment.lower()
+    topic_and_action = RECEIVER_ANTICIPATION_TOPIC in lowered and any(
+        action in lowered for action in RECEIVER_ANTICIPATION_ACTIONS
+    )
+    return topic_and_action or any(name in lowered for name in RECEIVER_ANTICIPATION_NAMES)
+
+
+def _receiver_anticipating_branches(tree: ast.Module) -> Iterator[str]:
+    """Every branch or stub in *tree* whose source names the undeclared receiver.
+
+    A live ``if transport == "b": ...`` or a ``raise NotImplementedError`` that
+    already names OTLP receiving, listening or Transport B acquires no port and
+    enables no setting, and would still slip past both checks above — this is
+    the anticipation FR-005 rules out as well.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.If):
+            segment = ast.unparse(node.test)
+        elif isinstance(node, ast.Match):
+            segment = ast.unparse(node.subject)
+        elif isinstance(node, ast.Raise) and _raises_not_implemented(node):
+            segment = ast.unparse(node)
+        else:
+            continue
+        if _names_the_undeclared_receiver(segment):
+            yield f"line {node.lineno}: {segment}"
+
+
+def _settings_that_would_enable_a_receiver() -> list[str]:
+    """Every ``Config`` field whose name would configure a receiver's endpoint.
+
+    The field list is the whole surface: the file and environment readers
+    recognise ``Config`` fields and discard every other key, so a receiver the
+    operator could switch on has to appear here first.
+    """
+    return [
+        field.name
+        for field in fields(Config)
+        if RECEIVER_SETTING_WORDS & set(field.name.split("_"))
+    ]
+
+
+def test_no_inplugin_otlp_receiver_exists() -> None:
+    """Transport B stays a declaration and nothing more (FR-005).
+
+    The shipped transport is a file the developer's own collector writes. The
+    alternative — the plugin answering OTLP itself on a loopback port — is
+    declared in `contracts/collector-transport.md` and deliberately not built,
+    because a port that exists is a port whether or not a setting enables it.
+
+    The two replays above watch a *running* turn, and a half-built receiver no
+    caller reaches yet would leave no trace in one, so this reads the source
+    instead: nothing in the package acquires a port, no setting names one, and
+    the declaration the standing decision would be reopened against is still
+    written down.
+    """
+    acquiring = {
+        path.relative_to(REPO_ROOT).as_posix(): found
+        for path, tree in _package_syntax_trees()
+        if (found := [*_server_imports(tree), *_port_acquiring_calls(tree)])
+    }
+    assert acquiring == {}, (
+        f"the package reaches for a listening socket in {acquiring} — FR-005 leaves the "
+        "in-plugin OTLP receiver declared and not built, and adopting it reopens the "
+        "standing no-listening-port decision rather than landing as an import"
+    )
+
+    enabling = _settings_that_would_enable_a_receiver()
+    assert enabling == [], (
+        f"Config declares {enabling}: a setting naming a receiver's endpoint is Transport B "
+        "already half-built, and FR-005 has the decision reopened in docs/design.md rather "
+        "than taken as a settings default"
+    )
+
+    anticipating = {
+        path.relative_to(REPO_ROOT).as_posix(): found
+        for path, tree in _package_syntax_trees()
+        if (found := list(_receiver_anticipating_branches(tree)))
+    }
+    assert anticipating == {}, (
+        f"the package anticipates the receiver in {anticipating} — FR-005 leaves Transport B "
+        "declared and not built, and a branch or stub already naming it is the receiver "
+        "half-built rather than merely documented"
+    )
+
+    assert TRANSPORT_B_HEADING in TRANSPORT_CONTRACT.read_text(encoding="utf-8"), (
+        f"{TRANSPORT_CONTRACT.name} no longer declares Transport B under "
+        f"{TRANSPORT_B_HEADING!r}: FR-005 asks for the contract to be written down, so that "
+        "adopting the transport later is a decision and not a re-derivation"
     )
