@@ -64,7 +64,7 @@ index*.
 
 ### 3.2 Event sources
 - **Primary: OTel.** The telemetry event stream is the primary source for the episodic layer
-  (`OTEL_LOG_TOOL_CONTENT=1` carries content), read from a file the developer's own
+  (`OTEL_LOG_TOOL_DETAILS=1` carries content), read from a file the developer's own
   collector writes; every consumed field traces to a named record and attribute.
 - **Reconciled: hooks.** PostToolUse still writes one episodic step to SQLite (stdlib
   `sqlite3`), deduplicated by `tool_use_id`, but supplies only the fields telemetry does

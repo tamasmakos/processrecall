@@ -262,6 +262,31 @@ def test_design_record_names_telemetry_the_primary_event_source() -> None:
     assert "OTel adapter" not in deferred, f"{DEFERRED_HEADING} still defers the OTel adapter"
 
 
+def test_design_record_names_the_shipped_tool_details_gate() -> None:
+    """The design record may only name harness variables that exist (FR-001).
+
+    3.2 told a reader to export `OTEL_LOG_TOOL_CONTENT`, which no harness
+    export spells, so the gate that puts commands and tool inputs on the
+    records stays off. Both the required gate and the set of permitted names are
+    read off the shipped collector configuration, so a rename fails here instead
+    of ageing the design record in silence.
+    """
+    configuration = COLLECTOR_CONFIG.read_text(encoding="utf-8")
+    gate = TOOL_DETAILS_GATE.search(configuration)
+    assert gate, f"{COLLECTOR_CONFIG.name} no longer names the tool-details gate"
+
+    design = (REPO_ROOT / "docs" / "design.md").read_text(encoding="utf-8")
+    sources = _section_body(design, EVENT_SOURCES_HEADING)
+    assert sources, f"docs/design.md has no {EVENT_SOURCES_HEADING!r} section"
+    assert gate.group(1) in sources, (
+        f"{EVENT_SOURCES_HEADING} does not name the {gate.group(1)} gate"
+    )
+
+    named = set(re.findall(r"OTEL_[A-Z_]+", sources))
+    invented = sorted(named - set(HARNESS_EXPORT.findall(configuration)))
+    assert not invented, f"{EVENT_SOURCES_HEADING} names {invented}, which no harness export spells"
+
+
 def test_architecture_names_every_declared_layer() -> None:
     """The architecture doc must name the three declared layers (FR-015).
 
