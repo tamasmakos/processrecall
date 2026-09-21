@@ -8,8 +8,8 @@ harness recorded that step before telemetry existed (R14).
 The whole move is one transaction. Either the store comes out stamped `2` with
 the columns and the tables the declaration names, or it comes out exactly the v1
 store it went in as, which v1 code still reads. There is no downgrade and no
-dual-read path: a store this migration does not recognise is left for
-`open_index` to refuse.
+dual-read path: a store stamped at neither `1` nor `2` is refused with
+`sqlite3.DatabaseError`, the same way `open_index` refuses it.
 
 The statements are rendered from `graph/schema.py` via `graph/ddl.py`, so a field
 added to the declaration migrates an existing store without being spelled a
@@ -38,8 +38,8 @@ from processrecall.graph.schema import LAYERS, STORE_SCHEMA_VERSION, Table
 #: transaction as the move, so a rolled-back migration is not counted as one.
 MIGRATION_COUNTER = "migration_v1_v2"
 
-#: The one stamp this migration reads. Forward only, so a store at any other
-#: version — including one already at `2` — is left untouched.
+#: The one stamp this migration moves. Forward only, so a store already at
+#: `STORE_SCHEMA_VERSION` is left untouched, and any other stamp is refused.
 MIGRATABLE_VERSION = "1"
 
 
@@ -99,15 +99,24 @@ def migrate_forward(connection: sqlite3.Connection) -> bool:
         every open after the first finds it stamped `2` already.
 
     Raises:
+        sqlite3.DatabaseError: The store is stamped at neither `1` nor `2`.
+            Refused rather than answered `False`, which a caller reads as "there
+            was nothing to do" — a store of an unrecognised shape is the one
+            case where there is no safe way to carry on.
         BaseException: Whatever interrupted the move, re-raised after the
             transaction is rolled back. The store is then still the v1 store it
             was, stamp included.
     """
     connection.execute("BEGIN IMMEDIATE")
     try:
-        if _stamped_version(connection) != MIGRATABLE_VERSION:
+        if (stamped := _stamped_version(connection)) == STORE_SCHEMA_VERSION:
             connection.rollback()
             return False
+        if stamped != MIGRATABLE_VERSION:
+            raise sqlite3.DatabaseError(
+                f"store is stamped schema version {stamped}; this migration carries version"
+                f" {MIGRATABLE_VERSION} forward to {STORE_SCHEMA_VERSION}. Nothing was written."
+            )
         align_to_declaration(connection)
         connection.execute(
             "UPDATE meta SET value = ? WHERE key = 'schema_version'",

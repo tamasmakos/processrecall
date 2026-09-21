@@ -21,6 +21,7 @@ V1_STORE = Path(__file__).resolve().parents[1] / "fixtures" / "stores" / "v1.db"
 #: every field the declaration gives it.
 DECLARED_TABLES = tuple(table for layer in LAYERS if layer.persisted for table in layer.tables)
 
+
 @pytest.fixture
 def v1_copy(tmp_path: Path) -> Path:
     """A scratch copy of the frozen v1 store, since the migration writes."""
@@ -172,3 +173,31 @@ def test_migrated_store_keeps_every_step_readable(v1_copy: Path) -> None:
     for step in steps:
         added = {field: getattr(step, field) for field in ADDED_STEP_FIELDS}
         assert all(value is None for value in added.values()), (step.dedup_key, added)
+
+
+#: A stamp no build ever wrote: neither the version this migration carries
+#: forward nor the one it leaves alone.
+UNKNOWN_VERSION = "99"
+
+
+def test_unknown_schema_stamp_is_refused(v1_copy: Path) -> None:
+    """A stamp that is neither `1` nor `2` stops the caller, unsoftened."""
+    with closing(sqlite3.connect(v1_copy)) as connection:
+        with connection:
+            connection.execute(
+                "UPDATE meta SET value = ? WHERE key = 'schema_version'", (UNKNOWN_VERSION,)
+            )
+
+        with pytest.raises(sqlite3.DatabaseError, match=UNKNOWN_VERSION):
+            migrate_forward(connection)
+
+        assert not connection.in_transaction
+        stamp = connection.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+        assert stamp == (UNKNOWN_VERSION,)
+        assert "source" not in _columns(connection, "sequences")
+        assert (
+            connection.execute(
+                "SELECT value FROM counters WHERE name = ?", (MIGRATION_COUNTER,)
+            ).fetchone()
+            is None
+        )
