@@ -32,8 +32,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
@@ -77,6 +78,27 @@ _UNPROJECTED_KEYS = frozenset(
     for field in table.fields
     if not field.projected
 )
+
+#: Every field name a served body may never carry (FR-014): the content fields
+#: `contracts/telemetry-records.md` never reads — the prompt and the response
+#: themselves, a raw request or response body, and `result_snippet` — the
+#: step's own record of what a tool call read back (`graph/record.py`) — and
+#: one step's monetary amount. A procedure's `median_cost_micros` is the
+#: middle of many steps' amounts and is not one of these. Spelled out here
+#: rather than imported from `trajectory/telemetry.py`: that set is the
+#: record reader's own, and this module is read on the hot path and stays
+#: standard library only.
+_PRIVATE_KEYS = frozenset(
+    {"prompt", "user_prompt", "response", "body", "body_ref", "result_snippet", "cost_micros"}
+)
+
+#: An absolute path in either spelling a host writes one, drive-lettered or
+#: POSIX-rooted. A node key (``"Inspection/Read/py"``) carries no separator at
+#: its head and is not one; neither does `trajectory/paths.py`'s sanitised
+#: forms — ``~/...`` (home-relative), ``<external>/...`` and a glob's
+#: ``**/...`` — which is why those lead-in characters are excluded from the
+#: lookbehind: those are the committable spellings FR-013 exists to produce.
+_ABSOLUTE_PATH = re.compile(r"(?:[A-Za-z]:[\\/]|(?<![\w.~>*])/)[\w.\-/\\]+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,13 +159,15 @@ class SnapshotFile:
 
         Raises:
             ValueError: A body sits on the wrong side of the routing rule
-                (FR-016), or carries a field the declaration stores and never
-                projects (FR-044). Nothing is written: the served form is the
-                form that gets traversed, so such a body is refused here rather
-                than left for every reader of the file to trip over.
+                (FR-016), carries a field the declaration stores and never
+                projects (FR-044), or carries what a published file may not
+                (FR-014). Nothing is written: the served form is the form that
+                gets traversed, so such a body is refused here rather than left
+                for every reader of the file to trip over.
         """
         _routed_as_declared(snapshot)
         _nothing_stored_only_is_projected(snapshot)
+        _nothing_private_is_served(snapshot)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         handle, temporary = tempfile.mkstemp(dir=self._path.parent, suffix=".tmp")
         try:
@@ -211,6 +235,57 @@ def _nothing_stored_only_is_projected(snapshot: Snapshot) -> None:
                 f"edge {position} carries {', '.join(projected)}: the declaration stores "
                 "these and never projects them, so a rebuild would stop equalling a fold"
             )
+
+
+def _nothing_private_is_served(snapshot: Snapshot) -> None:
+    """Refuse *snapshot* where a body carries what a published file may not (FR-014).
+
+    Nodes, edges and both projections alike: every one of them is read back out
+    of the file, so a prohibition holding on one side only would be none. A
+    body's own keys are matched against the names a prohibited field is
+    declared under, and its strings are read at whatever depth they sit, since
+    a path lands inside a list of templates as readily as against a key of its
+    own.
+    """
+    for label, body in _bodies(snapshot):
+        if private := sorted(_PRIVATE_KEYS.intersection(_body_keys(body))):
+            raise ValueError(
+                f"{label} carries {', '.join(private)}: a published snapshot carries "
+                "no prompt text, no file contents and no per-step monetary amount"
+            )
+        if rooted := _absolute_path(body):
+            raise ValueError(
+                f"{label} carries the absolute path {rooted!r}: a published snapshot "
+                "names a project by its key, never by a path on the developer's host"
+            )
+
+
+def _bodies(snapshot: Snapshot) -> Iterator[tuple[str, object]]:
+    """Every body *snapshot* serves, each against how a refusal names it."""
+    yield from ((f"node {key!r}", body) for key, body in snapshot.nodes.items())
+    yield from ((f"edge {at}", body) for at, body in enumerate(snapshot.edges))
+    yield from ((f"precedes row {at}", row) for at, row in enumerate(snapshot.precedes))
+    yield from ((f"episode {at}", row) for at, row in enumerate(snapshot.episodes))
+
+
+def _absolute_path(body: object) -> str | None:
+    """The first absolute path *body* carries, or ``None`` where it carries none."""
+    for text in _nested_strings(body):
+        if found := _ABSOLUTE_PATH.search(text):
+            return found.group()
+    return None
+
+
+def _nested_strings(value: object) -> Iterator[str]:
+    """Every string inside *value*, however deep, each byte-for-byte as written."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, Mapping):
+        for item in value.values():
+            yield from _nested_strings(item)
+    elif isinstance(value, Sequence):
+        for item in value:
+            yield from _nested_strings(item)
 
 
 def _nodes_carry_no_reference(nodes: Mapping[str, object]) -> None:

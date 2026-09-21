@@ -24,7 +24,7 @@ import re
 import sqlite3
 import sys
 from collections.abc import Collection, Iterable, Iterator, Mapping
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from itertools import chain
 from pathlib import Path
 from typing import Any
@@ -37,7 +37,7 @@ from processrecall.graph.abstract import aggregate
 from processrecall.graph.derive import Derivation, _sequences
 from processrecall.graph.keys import group_by_sequence
 from processrecall.graph.schema import LAYERS
-from processrecall.graph.snapshot import SNAPSHOT_NAME
+from processrecall.graph.snapshot import SNAPSHOT_NAME, SnapshotFile
 from processrecall.graph.store import EpisodicStep, SQLiteEpisodicStore
 from processrecall.guidance.locate import locate
 from processrecall.guidance.neighborhood import extract
@@ -212,6 +212,56 @@ def test_the_project_snapshot_carries_nothing_the_corpus_fed_in(
 
     assert json.loads(text)["nodes"], "the replay recorded something that could leak"
     assert leaks(text, secrets) == ()
+
+
+@pytest.fixture
+def published(project: Path, store: SQLiteEpisodicStore, config: Config) -> SnapshotFile:
+    """The project's own snapshot file, with the corpus's fold landed in it."""
+    rebuild(Derivation(store=store, project_dir=project, level=config.level))
+    return SnapshotFile(project / STORE_DIR / SNAPSHOT_NAME, store)
+
+
+def test_snapshot_carries_no_absolute_path_or_per_step_cost(
+    published: SnapshotFile, project: Path
+) -> None:
+    """FR-014, SC-011: the write refuses what this detector hunts for.
+
+    That the corpus's own snapshot is clean says nothing about the one the next
+    fold writes, so this asks the seam that writes it, with the two bodies the
+    corpus cannot produce: a template that failed to abstract a path of this
+    machine, and the per-step amount whose median a procedure may carry.
+    """
+    served = published.read()
+    assert served is not None, "the replay wrote a snapshot to leak from"
+
+    for body, refused in (
+        ({"templates": [f"Read {project.as_posix()}/notes.md"]}, "absolute path"),
+        ({"median_cost_micros": 41, "cost_micros": 1200}, r"carries cost_micros\b"),
+    ):
+        with pytest.raises(ValueError, match=refused):
+            published.write(replace(served, nodes={"Inspection/Read/py": body}))
+
+    assert published.read() == served, "a refused write leaves the served snapshot alone"
+
+
+def test_no_snapshot_body_may_carry_prompt_text_or_file_contents(
+    published: SnapshotFile,
+) -> None:
+    """FR-014: what is forbidden at the door is forbidden in the file as well.
+
+    The fields are the ones `contracts/telemetry-records.md` never reads and the
+    hook payload's own spellings for the same two things, so no fold can produce
+    one today; the refusal is what keeps the day some fold does from being the
+    day a snapshot carries a developer's words.
+    """
+    served = published.read()
+    assert served is not None, "the replay wrote a snapshot to leak from"
+
+    for field in ("prompt", "response", "body", "body_ref", "user_prompt", "result_snippet"):
+        with pytest.raises(ValueError, match=rf"carries {field}\b"):
+            published.write(replace(served, nodes={"Inspection/Read/py": {field: "do the thing"}}))
+
+    assert published.read() == served, "a refused write leaves the served snapshot alone"
 
 
 def test_no_guidance_the_corpus_earns_is_servable_with_something_it_fed_in(

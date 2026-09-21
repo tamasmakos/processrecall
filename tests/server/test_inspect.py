@@ -88,6 +88,20 @@ def _written(home: Path, project: Path, snapshot: Snapshot) -> None:
         SnapshotFile(path, SQLiteEpisodicStore(connection)).write(snapshot)
 
 
+def _spliced(home: Path, project: Path, edge: dict[str, Any]) -> None:
+    """Land the served graph for *project* with *edge* as its only move.
+
+    `SnapshotFile.write` refuses a body carrying payloads (FR-014), so a served
+    file that carries them arrives the only way one now can: by editing a file
+    that was written cleanly. What `inspect` has to narrow is what it finds on
+    disk, which is what this puts there.
+    """
+    _written(home, project, _SNAPSHOT)
+    path = project / STORE_DIR / SNAPSHOT_NAME
+    document = json.loads(path.read_text(encoding="utf-8"))
+    path.write_text(json.dumps({**document, "edges": [edge]}), encoding="utf-8")
+
+
 #: One procedure and one move between it and another, in the served form of
 #: `contracts/storage.md`: the shape aggregation writes, so what `inspect`
 #: answers with is asserted against the file it will really read.
@@ -219,19 +233,17 @@ def test_a_project_with_no_served_graph_is_told_why_rather_than_answered_emptily
 def test_no_payload_of_the_private_store_reaches_the_answer(homes: tuple[Path, Path]) -> None:
     """FR-054: `inspect` narrows what it reads, so a body with payloads still answers in counts."""
     home, project = homes
-    leaky = replace(
-        _SNAPSHOT,
-        edges=[
-            {
-                **_SNAPSHOT.edges[0],
-                "record_ref": "conversation/prompt-a#12793",
-                "result_snippet": "FAILED tests/server/test_inspect.py::test_leak",
-                "prompt": "fix the inspect tool",
-                "path": str(project / "processrecall" / "server" / "mcp" / "tools" / "inspect.py"),
-            }
-        ],
+    _spliced(
+        home,
+        project,
+        {
+            **_SNAPSHOT.edges[0],
+            "record_ref": "conversation/prompt-a#12793",
+            "result_snippet": "FAILED tests/server/test_inspect.py::test_leak",
+            "prompt": "fix the inspect tool",
+            "path": str(project / "processrecall" / "server" / "mcp" / "tools" / "inspect.py"),
+        },
     )
-    _written(home, project, leaky)
 
     reported = asyncio.run(_called(home, project))
 
