@@ -31,6 +31,13 @@ TELEMETRY_HEADING = "## Telemetry"
 #: reader to export, in the comment block above the collector pipeline.
 HARNESS_EXPORT = re.compile(r"^#\s+export (\w+)=", re.MULTILINE)
 
+#: The one export among those the shipped configuration marks as the gate that
+#: puts commands and tool inputs on the records.
+TOOL_DETAILS_GATE = re.compile(r"^#\s+export (\w+)=\S*\s+# the tool-details gate", re.MULTILINE)
+
+#: The readme's promise about what the memory keeps, whose limit FR-013 names.
+STORAGE_PROMISE = "never prompt text, file contents or credentials"
+
 
 def _package_source() -> str:
     """The concatenated text of every module under `processrecall/`."""
@@ -307,3 +314,30 @@ def test_configuration_documents_the_collector_requirement() -> None:
     assert gates, f"{COLLECTOR_CONFIG.name} tells a reader to export nothing"
     undocumented = sorted(gate for gate in gates if gate not in section)
     assert not undocumented, f"{TELEMETRY_HEADING} does not document {undocumented}"
+
+
+def test_readme_separates_what_is_stored_from_what_the_collector_sees() -> None:
+    """The readme's privacy promise must name its own limit (FR-013).
+
+    The lead paragraph promises the memory keeps no prompt text, file contents
+    or credentials. That promise covers what is *stored*; the tool-details gate
+    the plugin requires exports commands and tool inputs to the developer's own
+    collector before any of it reaches the memory. The gate is read off the
+    shipped collector configuration so a rename fails here too, and each part
+    of the distinction is asserted on its own.
+    """
+    gate = TOOL_DETAILS_GATE.search(COLLECTOR_CONFIG.read_text(encoding="utf-8"))
+    assert gate, f"{COLLECTOR_CONFIG.name} no longer names the tool-details gate"
+
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    lead = readme.split("\n## ", 1)[0]
+    assert STORAGE_PROMISE in lead, f"README.md lead no longer promises {STORAGE_PROMISE!r}"
+
+    required = {
+        "the gate that exports commands and tool inputs": gate.group(1),
+        "the collector they are exported to": "collector",
+        "that the promise covers what the memory stores": "stores",
+        "not what the collector sees": "sees",
+    }
+    missing = sorted(part for part, token in required.items() if token not in lead)
+    assert not missing, f"README.md's privacy promise does not state {missing}"

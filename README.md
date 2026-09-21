@@ -10,7 +10,11 @@ It ships as a Claude Code plugin and runs inside the session: no background
 service, no listening port, and no network call on the capture or guidance
 path (the one-time install below is the one exception, once per plugin
 version). What it keeps is shape — action templates, counts, conditions and
-annotations — never prompt text, file contents or credentials.
+annotations — never prompt text, file contents or credentials. That promise
+covers what the memory *stores*, not what your collector *sees*: the
+`OTEL_LOG_TOOL_DETAILS` gate this requires exports your commands and tool
+inputs to your own collector's file in the clear, before the memory reads a
+line of it.
 
 ## Install
 
