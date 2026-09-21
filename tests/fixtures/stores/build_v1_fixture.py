@@ -59,52 +59,89 @@ class _StepSpec:
 
 _P1_STEPS = (
     _StepSpec(
-        "Search/grep/py", ActivityClass.SEARCH, "grep", "grep <File>",
-        ("processrecall/graph/store.py",), datetime(2026, 9, 13, 10, 0, 0, tzinfo=UTC),
+        "Search/grep/py",
+        ActivityClass.SEARCH,
+        "grep",
+        "grep <File>",
+        ("processrecall/graph/store.py",),
+        datetime(2026, 9, 13, 10, 0, 0, tzinfo=UTC),
     ),
     _StepSpec(
-        "Inspection/cat/py", ActivityClass.INSPECTION, "cat", "cat <File>",
-        ("processrecall/graph/store.py",), datetime(2026, 9, 13, 10, 0, 1, tzinfo=UTC),
+        "Inspection/cat/py",
+        ActivityClass.INSPECTION,
+        "cat",
+        "cat <File>",
+        ("processrecall/graph/store.py",),
+        datetime(2026, 9, 13, 10, 0, 1, tzinfo=UTC),
     ),
     _StepSpec(
-        "ChangeImplementation/edit/py", ActivityClass.CHANGE_IMPLEMENTATION, "edit", "edit <File>",
-        ("processrecall/graph/store.py",), datetime(2026, 9, 13, 10, 0, 2, tzinfo=UTC),
+        "ChangeImplementation/edit/py",
+        ActivityClass.CHANGE_IMPLEMENTATION,
+        "edit",
+        "edit <File>",
+        ("processrecall/graph/store.py",),
+        datetime(2026, 9, 13, 10, 0, 2, tzinfo=UTC),
     ),
     _StepSpec(
-        "ArtifactEvaluation/pytest/py", ActivityClass.ARTIFACT_EVALUATION, "pytest", "pytest <File>",
-        ("tests/graph/test_store.py",), datetime(2026, 9, 13, 10, 0, 3, tzinfo=UTC),
+        "ArtifactEvaluation/pytest/py",
+        ActivityClass.ARTIFACT_EVALUATION,
+        "pytest",
+        "pytest <File>",
+        ("tests/graph/test_store.py",),
+        datetime(2026, 9, 13, 10, 0, 3, tzinfo=UTC),
     ),
 )
 
 _P2_STEPS = (
     _StepSpec(
-        "Inspection/cat/md", ActivityClass.INSPECTION, "cat", "cat <File>",
-        ("contracts/storage.md",), datetime(2026, 9, 13, 11, 0, 0, tzinfo=UTC),
+        "Inspection/cat/md",
+        ActivityClass.INSPECTION,
+        "cat",
+        "cat <File>",
+        ("contracts/storage.md",),
+        datetime(2026, 9, 13, 11, 0, 0, tzinfo=UTC),
     ),
     _StepSpec(
-        "ChangeImplementation/edit/py", ActivityClass.CHANGE_IMPLEMENTATION, "edit", "edit <File>",
-        ("processrecall/graph/episodic.py",), datetime(2026, 9, 13, 11, 0, 1, tzinfo=UTC),
+        "ChangeImplementation/edit/py",
+        ActivityClass.CHANGE_IMPLEMENTATION,
+        "edit",
+        "edit <File>",
+        ("processrecall/graph/episodic.py",),
+        datetime(2026, 9, 13, 11, 0, 1, tzinfo=UTC),
     ),
     _StepSpec(
-        "ArtifactEvaluation/pytest/py", ActivityClass.ARTIFACT_EVALUATION, "pytest", "pytest <File>",
-        ("tests/graph/test_episodic.py",), datetime(2026, 9, 13, 11, 0, 2, tzinfo=UTC),
+        "ArtifactEvaluation/pytest/py",
+        ActivityClass.ARTIFACT_EVALUATION,
+        "pytest",
+        "pytest <File>",
+        ("tests/graph/test_episodic.py",),
+        datetime(2026, 9, 13, 11, 0, 2, tzinfo=UTC),
     ),
 )
 
 _P3_STEPS = (
     _StepSpec(
-        "Search/rg/--", ActivityClass.SEARCH, "rg", "rg <Pattern>",
-        (), datetime(2026, 9, 13, 12, 0, 0, tzinfo=UTC),
+        "Search/rg/--",
+        ActivityClass.SEARCH,
+        "rg",
+        "rg <Pattern>",
+        (),
+        datetime(2026, 9, 13, 12, 0, 0, tzinfo=UTC),
     ),
     _StepSpec(
-        "Inspection/cat/py", ActivityClass.INSPECTION, "cat", "cat <File>",
-        ("processrecall/guidance/render.py",), datetime(2026, 9, 13, 12, 0, 1, tzinfo=UTC),
+        "Inspection/cat/py",
+        ActivityClass.INSPECTION,
+        "cat",
+        "cat <File>",
+        ("processrecall/guidance/render.py",),
+        datetime(2026, 9, 13, 12, 0, 1, tzinfo=UTC),
     ),
 )
 
 
-def _write_steps(store: SQLiteEpisodicStore, key: SequenceKey, prompt_id: str,
-                  specs: tuple[_StepSpec, ...]) -> None:
+def _write_steps(
+    store: SQLiteEpisodicStore, key: SequenceKey, prompt_id: str, specs: tuple[_StepSpec, ...]
+) -> None:
     """Record every one of *specs* against *key*, in position order."""
     for position, spec in enumerate(specs):
         store.record(
@@ -135,9 +172,12 @@ def build(path: Path) -> None:
         c1 = SequenceIdentity(connection, "c1")
         key_p1 = c1.key("p1")
         store.open_sequence(
-            Sequence(key=key_p1, project_dir_key=PROJECT_KEY,
-                      started_at=datetime(2026, 9, 13, 10, 0, 0, tzinfo=UTC),
-                      process_type=ProcessType.BUG_FIX)
+            Sequence(
+                key=key_p1,
+                project_dir_key=PROJECT_KEY,
+                started_at=datetime(2026, 9, 13, 10, 0, 0, tzinfo=UTC),
+                process_type=ProcessType.BUG_FIX,
+            )
         )
         _write_steps(store, key_p1, "p1", _P1_STEPS)
         store.derive_outcome(key_p1, "success")
@@ -145,9 +185,12 @@ def build(path: Path) -> None:
 
         key_p2 = c1.key("p2")
         store.open_sequence(
-            Sequence(key=key_p2, project_dir_key=PROJECT_KEY,
-                      started_at=datetime(2026, 9, 13, 11, 0, 0, tzinfo=UTC),
-                      process_type=ProcessType.FEATURE_ADDITION)
+            Sequence(
+                key=key_p2,
+                project_dir_key=PROJECT_KEY,
+                started_at=datetime(2026, 9, 13, 11, 0, 0, tzinfo=UTC),
+                process_type=ProcessType.FEATURE_ADDITION,
+            )
         )
         _write_steps(store, key_p2, "p2", _P2_STEPS)
         store.derive_outcome(key_p2, "failure")
@@ -157,9 +200,12 @@ def build(path: Path) -> None:
         c2.begin("clear")  # rotates c2 to epoch 1, leaving the `epochs` row (c2, 1)
         key_p3 = c2.key("p3")
         store.open_sequence(
-            Sequence(key=key_p3, project_dir_key=PROJECT_KEY,
-                      started_at=datetime(2026, 9, 13, 12, 0, 0, tzinfo=UTC),
-                      process_type=ProcessType.INVESTIGATION)
+            Sequence(
+                key=key_p3,
+                project_dir_key=PROJECT_KEY,
+                started_at=datetime(2026, 9, 13, 12, 0, 0, tzinfo=UTC),
+                process_type=ProcessType.INVESTIGATION,
+            )
         )
         _write_steps(store, key_p3, "p3", _P3_STEPS)
         # p3 is left open, at the default `derived_outcome` of "neutral".

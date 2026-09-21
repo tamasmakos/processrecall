@@ -254,7 +254,10 @@ assert set(FORBIDDEN_CONTENT) == {*NEVER_BOUND[:4], NEVER_BOUND[-1]}
 
 def _attribute(key: str, value: str | int) -> dict[str, object]:
     """One OTLP key/value pair, an int written as the string the wire format uses."""
-    return {"key": key, "value": {"intValue": str(value)} if isinstance(value, int) else {"stringValue": value}}
+    return {
+        "key": key,
+        "value": {"intValue": str(value)} if isinstance(value, int) else {"stringValue": value},
+    }
 
 
 def _otlp_line(
@@ -279,7 +282,12 @@ def _otlp_line(
         payload["resourceSpans"] = [
             {
                 "scopeSpans": [
-                    {"spans": [{"attributes": [_attribute(k, v) for k, v in span.items()]} for span in spans]}
+                    {
+                        "spans": [
+                            {"attributes": [_attribute(k, v) for k, v in span.items()]}
+                            for span in spans
+                        ]
+                    }
                 ]
             }
         ]
@@ -307,10 +315,14 @@ def test_forbidden_fields_never_reach_the_store(tmp_path: Path, counters: FakeCo
         "decision": "accept",
         "source": "user_permanent",
     }
-    log_content = {name: FORBIDDEN_CONTENT[name] for name in ("prompt", "response", "body", "body_ref")}
+    log_content = {
+        name: FORBIDDEN_CONTENT[name] for name in ("prompt", "response", "body", "body_ref")
+    }
     span_content = FORBIDDEN_CONTENT["user_prompt"]
 
-    line = _otlp_line(log_records=[{**verdict, **log_content}], spans=({"user_prompt": span_content},))
+    line = _otlp_line(
+        log_records=[{**verdict, **log_content}], spans=({"user_prompt": span_content},)
+    )
 
     (record,) = recognised_records(line, counters)
 

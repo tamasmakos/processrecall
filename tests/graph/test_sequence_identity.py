@@ -160,7 +160,7 @@ def test_epoch_at_resolves_to_the_rotation_in_force_at_a_past_instant(
     """A telemetry record lands on the epoch in force at its own timestamp, not the current one (R5)."""
     identity = SequenceIdentity(index, "c1")
     identity.begin("clear")
-    first_rotation, = index.execute(
+    (first_rotation,) = index.execute(
         "SELECT started_at FROM epochs WHERE conversation_id = 'c1' AND session_epoch = 1"
     ).fetchone()
     identity.begin("clear")

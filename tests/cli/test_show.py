@@ -70,9 +70,7 @@ def test_show_counters_prints_every_counter_the_package_can_increment(tmp_path: 
     store.bump("steps_recorded")
     connection.close()
 
-    counted = dict(
-        line.split(maxsplit=1) for line in run_show("counters", home).splitlines()
-    )
+    counted = dict(line.split(maxsplit=1) for line in run_show("counters", home).splitlines())
 
     assert counted["steps_recorded"] == "2"
     assert set(counted) >= _bumped_counter_names(), "a counter the package increments has no reader"

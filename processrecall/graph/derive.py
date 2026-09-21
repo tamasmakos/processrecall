@@ -327,7 +327,10 @@ def _merged_activation(
 ) -> float:
     """*existing*'s activation decayed to *delta*'s reference, plus *delta*'s own."""
     age = delta_generated_at - existing_generated_at
-    return existing * 0.5 ** (age / ACTIVATION_HALF_LIFE) + delta
+    # Annotated: typeshed types `float ** float` as `Any` (a negative base with a
+    # fractional exponent is complex), and a base of 0.5 can only give a float.
+    decay: float = 0.5 ** (age / ACTIVATION_HALF_LIFE)
+    return existing * decay + delta
 
 
 def _merged_edges(existing: Seq[object], delta: Seq[object]) -> list[dict[str, Any]]:

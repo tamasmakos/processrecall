@@ -91,6 +91,10 @@ evaluation/results/.judge_cache/
 graphify-out
 prototypes
 .scratch*
+# Agent working tree. Feature 007's four contract documents are read BY THE SUITE
+# (tests/graph/test_schema.py, tests/test_no_services.py, tests/test_quickstart_007.py),
+# so they are force-added and stay tracked: a check whose contract never reaches the
+# runner is a check CI reports as a missing file instead of running.
 .claude
 .serena
 research

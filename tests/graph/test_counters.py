@@ -136,7 +136,11 @@ def _module_dict_values(tree: ast.Module, name: str) -> set[str]:
         if not any(isinstance(target, ast.Name) and target.id == name for target in targets):
             continue
         values = node.value.values if isinstance(node.value, ast.Dict) else node.value.elts
-        return {value.value for value in values if isinstance(value, ast.Constant) and isinstance(value.value, str)}
+        return {
+            value.value
+            for value in values
+            if isinstance(value, ast.Constant) and isinstance(value.value, str)
+        }
     return set()
 
 

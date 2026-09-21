@@ -212,10 +212,7 @@ def test_activation_ranks_fresh_above_stale_at_equal_support() -> None:
             )
             for n in range(5)
         ),
-        *(
-            make_step("ArtifactEvaluation/pytest/--", position=n, step_id=n + 20)
-            for n in range(3)
-        ),
+        *(make_step("ArtifactEvaluation/pytest/--", position=n, step_id=n + 20) for n in range(3)),
     )
 
     graph = aggregate(steps, level="class/program")
