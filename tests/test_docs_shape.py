@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import re
 import tomllib
+from dataclasses import fields
 from pathlib import Path
 
 from processrecall.cli.__main__ import COMMANDS, SUBJECTS
+from processrecall.cli.doctor import COLLECTOR_CONFIG
+from processrecall.config import Config
 from processrecall.graph.schema import LAYERS
 from processrecall.guidance.triggers import Trigger
 from processrecall.integrations.claude_code.hooks import DENY_LIST, OPTOUT_MARKER
@@ -21,6 +24,12 @@ DEPENDENCIES_HEADING = "## 5. Dependencies"
 LEDGER_HEADING = "## 6. Removal ledger"
 LAYERS_HEADING = "## The three layers"
 INGEST_HEADING = "## The ingest path"
+SETTINGS_HEADING = "## The settings"
+TELEMETRY_HEADING = "## Telemetry"
+
+#: How the shipped example configuration spells a harness variable it tells a
+#: reader to export, in the comment block above the collector pipeline.
+HARNESS_EXPORT = re.compile(r"^#\s+export (\w+)=", re.MULTILINE)
 
 
 def _package_source() -> str:
@@ -251,3 +260,50 @@ def test_architecture_documents_the_ingest_path() -> None:
     }
     missing = sorted(part for part, token in required.items() if token not in section)
     assert not missing, f"{INGEST_HEADING} does not document {missing}"
+
+
+def test_configuration_documents_every_setting() -> None:
+    """The settings table must list every field `Config` resolves (FR-004).
+
+    The names are read off `processrecall.config.Config` rather than written out
+    here, so a field added to the dataclass fails this instead of going
+    undocumented — an operator who cannot find `telemetry_path` in the table has
+    nowhere to learn that naming the collector's file is a setting at all.
+    """
+    configuration = (REPO_ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
+    section = _section_body(configuration, SETTINGS_HEADING)
+    assert section, f"docs/configuration.md has no {SETTINGS_HEADING!r} section"
+
+    missing = sorted(
+        f"`{field.name}`" for field in fields(Config) if f"`{field.name}`" not in section
+    )
+    assert not missing, f"{SETTINGS_HEADING} does not document {missing}"
+
+
+def test_configuration_documents_the_collector_requirement() -> None:
+    """Configuration must say what writes the telemetry file, and what fills it (FR-004).
+
+    Naming `telemetry_path` points the memory at a file nothing writes yet: the
+    collector is the developer's to run, and the harness exports nothing to it
+    until its own gates are on. The gate names are read off the shipped example
+    rather than written out here, so one renamed there cannot leave this page
+    telling a reader to export the old spelling. Each prose part is asserted on
+    its own so a rewrite that drops one fails here naming which.
+    """
+    configuration = (REPO_ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
+    section = _section_body(configuration, TELEMETRY_HEADING)
+    assert section, f"docs/configuration.md has no {TELEMETRY_HEADING!r} section"
+
+    required = {
+        "the shipped example configuration": "otel-collector.yaml",
+        "the flag that prints it": "--collector-config",
+        "that the memory runs no collector of its own": "never installs",
+        "the readiness check on the named file": "doctor",
+    }
+    missing = sorted(part for part, token in required.items() if token not in section)
+    assert not missing, f"{TELEMETRY_HEADING} does not document {missing}"
+
+    gates = set(HARNESS_EXPORT.findall(COLLECTOR_CONFIG.read_text(encoding="utf-8")))
+    assert gates, f"{COLLECTOR_CONFIG.name} tells a reader to export nothing"
+    undocumented = sorted(gate for gate in gates if gate not in section)
+    assert not undocumented, f"{TELEMETRY_HEADING} does not document {undocumented}"
