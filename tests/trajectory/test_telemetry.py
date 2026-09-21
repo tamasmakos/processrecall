@@ -238,9 +238,111 @@ def test_content_gates_on_strips_and_counts(counters: FakeCounters) -> None:
     assert by_type["claude_code.api_request"]["input_tokens"] == 1200
 
 
+#: The five fields `contracts/telemetry-records.md` forbids the memory to store, each with a
+#: value a search of the store can look for (SC-002). Keyed off `NEVER_BOUND` above — its
+#: leading four (a log record's content) plus its trailing one (a span's) — rather than
+#: re-listing the names.
+FORBIDDEN_CONTENT: dict[str, str] = {
+    "prompt": "synthetic prompt text that must never be stored",
+    "response": "synthetic response text that must never be stored",
+    "body": '{"messages":[{"role":"user","content":"synthetic"}]}',
+    "body_ref": "/work/demo/.telemetry/bodies/synthetic-0093.json",
+    "user_prompt": "synthetic span-attribute copy of the prompt",
+}
+assert set(FORBIDDEN_CONTENT) == {*NEVER_BOUND[:4], NEVER_BOUND[-1]}
+
+
+def _attribute(key: str, value: str | int) -> dict[str, object]:
+    """One OTLP key/value pair, an int written as the string the wire format uses."""
+    return {"key": key, "value": {"intValue": str(value)} if isinstance(value, int) else {"stringValue": value}}
+
+
+def _otlp_line(
+    *, log_records: list[dict[str, str | int]], spans: tuple[dict[str, str], ...] = ()
+) -> str:
+    """One batched OTLP/JSON line: *log_records* under `resourceLogs`, *spans* under `resourceSpans`."""
+    payload: dict[str, object] = {
+        "resourceLogs": [
+            {
+                "scopeLogs": [
+                    {
+                        "logRecords": [
+                            {"attributes": [_attribute(k, v) for k, v in record.items()]}
+                            for record in log_records
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+    if spans:
+        payload["resourceSpans"] = [
+            {
+                "scopeSpans": [
+                    {"spans": [{"attributes": [_attribute(k, v) for k, v in span.items()]} for span in spans]}
+                ]
+            }
+        ]
+    return json.dumps(payload)
+
+
+def test_forbidden_fields_never_reach_the_store(tmp_path: Path, counters: FakeCounters) -> None:
+    """The four log-record content fields, and the span-carried fifth, never reach the store.
+
+    `user_prompt` rides an interaction span in the real harness (contracts/telemetry-records.md),
+    not a log record's attributes — see the span in `forbidden_content.jsonl` — but
+    `records_in_line` walks only `resourceLogs`/`scopeLogs`/`logRecords` and no task in this
+    feature reads `resourceSpans`. So this asserts what is actually true today: the door strips
+    and counts the four it reads, and the span-carried fifth reaches neither a record nor the
+    store simply because nothing here reads spans at all (FR-011, SC-002).
+    """
+    verdict: dict[str, str | int] = {
+        "event.name": "claude_code.tool_decision",
+        "event.timestamp": "2026-01-05T10:00:06.400Z",
+        "event.sequence": 6,
+        "session.id": "session-synthetic-1",
+        "prompt.id": "prompt-synthetic-1",
+        "tool_name": "Bash",
+        "tool_use_id": "toolu_synthetic_0002",
+        "decision": "accept",
+        "source": "user_permanent",
+    }
+    log_content = {name: FORBIDDEN_CONTENT[name] for name in ("prompt", "response", "body", "body_ref")}
+    span_content = FORBIDDEN_CONTENT["user_prompt"]
+
+    line = _otlp_line(log_records=[{**verdict, **log_content}], spans=({"user_prompt": span_content},))
+
+    (record,) = recognised_records(line, counters)
+
+    # Content is stripped at the door rather than made a reason to refuse the record
+    # carrying it (FR-012), and every strip off the log record is reported.
+    assert set(record).isdisjoint(log_content)
+    assert counters.counted["telemetry_content_stripped"] == 4
+    # The span produced no record at all, so its attribute could not have reached one.
+    assert "user_prompt" not in record
+
+    connection = open_index(tmp_path / "episodes.db")
+    try:
+        (step,) = record_event(step_from_verdict(record), connection)
+        store = SQLiteEpisodicStore(connection)
+        (recorded,) = store.steps(step.sequence_key)
+    finally:
+        connection.close()
+
+    # SC-002 measures the store, not the reader: the verdict is there as a step, and
+    # searching everything written for the file — the database and whatever journal it
+    # left beside it — finds none of the five, the span-carried one included.
+    assert recorded.template == "Bash"
+    assert recorded.record_ref == "claude_code.tool_decision#toolu_synthetic_0002"
+    stored = b"".join(path.read_bytes() for path in sorted(tmp_path.iterdir()))
+    for field, content in log_content.items():
+        assert content.encode() not in stored, field
+    assert span_content.encode() not in stored
+
+
 def _log_record(event_name: str) -> dict[str, object]:
     """A minimal OTLP log record carrying only the attribute the reader keys on."""
-    return {"attributes": [{"key": "event.name", "value": {"stringValue": event_name}}]}
+    return {"attributes": [_attribute("event.name", event_name)]}
 
 
 def test_unknown_record_is_refused_and_counted(counters: FakeCounters) -> None:
