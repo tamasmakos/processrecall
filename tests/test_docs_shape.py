@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -13,6 +14,8 @@ from processrecall.server.mcp.stdio_server import TOOLS
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RECOVERY_HEADING = "## Recovering a broken release"
 RETIRED_BUILD_BACKEND = "hatchling"
+EVENT_SOURCES_HEADING = "### 3.2 Event sources"
+DEFERRED_HEADING = "### 3.13 Deferred"
 DEPENDENCIES_HEADING = "## 5. Dependencies"
 LEDGER_HEADING = "## 6. Removal ledger"
 
@@ -101,12 +104,16 @@ def test_docs_name_no_removed_service() -> None:
 
 
 def _section_body(text: str, heading: str) -> str:
-    """The text under `heading`, up to the next heading of that level — empty if absent."""
+    """The text under `heading`, up to the next heading of that depth or shallower.
+
+    Empty if the heading is absent.
+    """
     if (start := text.find(f"\n{heading}\n")) == -1:
         return ""
     body = text[start + len(heading) + 2 :]
-    end = body.find("\n## ")
-    return body if end == -1 else body[:end]
+    depth = len(heading) - len(heading.lstrip("#"))
+    following = re.compile(rf"^#{{1,{depth}}} ", re.MULTILINE).search(body)
+    return body if following is None else body[: following.start()]
 
 
 def test_docs_document_the_recovery_route() -> None:
@@ -175,3 +182,26 @@ def test_removal_ledger_records_what_replaced_the_release_machinery() -> None:
     }
     missing = sorted(part for part, token in required.items() if token not in ledger)
     assert not missing, f"{LEDGER_HEADING} does not record {missing}"
+
+
+def test_design_record_names_telemetry_the_primary_event_source() -> None:
+    """The design record must rank telemetry first and stop deferring it (FR-001).
+
+    3.2 ranked OTel last, behind hooks, as later work, and 3.13 listed the OTel
+    adapter as deferred. This feature builds the episodic layer out of the
+    telemetry stream, so both statements are false and either one still standing
+    sends a reader to the wrong source. Each half is asserted on its own so a
+    partial amendment fails here naming which.
+    """
+    design = (REPO_ROOT / "docs" / "design.md").read_text(encoding="utf-8")
+
+    sources = _section_body(design, EVENT_SOURCES_HEADING)
+    assert sources, f"docs/design.md has no {EVENT_SOURCES_HEADING!r} section"
+    assert "primary source for the episodic layer" in sources, (
+        f"{EVENT_SOURCES_HEADING} does not name telemetry the primary source"
+    )
+    assert "Later: OTel" not in sources, f"{EVENT_SOURCES_HEADING} still ranks OTel as later"
+
+    deferred = _section_body(design, DEFERRED_HEADING)
+    assert deferred, f"docs/design.md has no {DEFERRED_HEADING!r} section"
+    assert "OTel adapter" not in deferred, f"{DEFERRED_HEADING} still defers the OTel adapter"

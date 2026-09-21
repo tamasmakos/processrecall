@@ -63,12 +63,18 @@ index*.
   procedure classes. Claude Code is the only implementation in this phase.
 
 ### 3.2 Event sources
-- **Primary: hooks.** PostToolUse writes one episodic step to SQLite (stdlib `sqlite3`),
-  deduplicated by `tool_use_id`. This is the documented, stable contract.
+- **Primary: OTel.** The telemetry event stream is the primary source for the episodic layer
+  (`OTEL_LOG_TOOL_CONTENT=1` carries content), read from a file the developer's own
+  collector writes; every consumed field traces to a named record and attribute.
+- **Reconciled: hooks.** PostToolUse still writes one episodic step to SQLite (stdlib
+  `sqlite3`), deduplicated by `tool_use_id`, but supplies only the fields telemetry does
+  not carry; where both carry one, the telemetry value is stored and the disagreement is
+  counted.
 - **Backfill: transcript JSONL** behind the same protocol, used for old sessions and for
   the rationale text (assistant text before a tool call) that GLiNER2 classifies. A format
   break degrades classification, not the graph.
-- **Later: OTel** (`OTEL_LOG_TOOL_CONTENT=1` carries content); near-trivial given 3.1.
+- The plugin receiving telemetry directly is a declared, unbuilt alternative transport;
+  adopting it reopens the standing no-listening-port decision.
 - The transcript checkpoint keyed by record uuid goes; `tool_use_id` is the dedup key.
 
 ### 3.3 Procedure model
@@ -179,8 +185,7 @@ index*.
 - Evaluation harness (replay, next-step top-k, loop rate, entity recall). The prototypes
   seed it, kept unchanged outside the published tree.
 - Self-evolution refiner (later a Claude skill, not a separate LLM client).
-- Entity layer, bitemporal validity, tree-sitter-bash, OTel adapter, second harness,
-  marketplace listing.
+- Entity layer, bitemporal validity, tree-sitter-bash, second harness, marketplace listing.
 
 ## 4. Package layout
 
