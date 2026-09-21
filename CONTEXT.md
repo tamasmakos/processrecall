@@ -49,6 +49,135 @@ _Avoid_: encoding, tagging
 Retrieval: an activated symbol re-activating the working state and pulling back everything
 attached to it. A channel that only decodes and is never encoded from is dead weight.
 
+## The three layers
+
+Where a fact is stored, and what it is stored as. Orthogonal to the two layers above:
+that pair is the representation/symbol split, this one is the data model.
+
+**Semantic layer**:
+What the work is about — code entities and the containment, call and implementation
+relationships between them. Persisted, and derived at the end of a unit of work rather
+than on the hook path.
+_Avoid_: the code graph, the static layer
+
+**Episodic layer**:
+What happened — sequences, steps, inferences and agents, with the ordering, membership,
+performance, spawn, consumption and touched relationships between them. Persisted, and
+sourced from telemetry records.
+_Avoid_: the log, the history table
+
+**Procedural layer**:
+What usually happens next — procedures, the subsumption between them, the membership of
+steps in them, the transitions between them and their precedence on an entity. It has no
+rows of its own: a procedure is an aggregation of episodic rows, and the served snapshot
+is a cache of that aggregation.
+_Avoid_: the pattern layer, the learned graph
+
+## What the layers hold
+
+**Code entity**:
+One file, or one qualified symbol within it, keyed by path and — where known — symbol
+name. The unit the semantic layer counts support on.
+_Avoid_: node, file, symbol (each names only part of it)
+
+**Line range**:
+The first and last line a code entity encloses, or nothing at all for a whole file. A
+symbol declares both bounds or neither, because the pair is what a touched position is
+resolved against.
+_Avoid_: span (that is an extraction term), location
+
+**Inference**:
+One model call, with its model, token counts, cost, stop reason, attempt and
+time-to-first-token.
+_Avoid_: LLM call, completion, request
+
+**Agent**:
+The actor a step is performed by — the main agent or a sub-agent — and the run it belongs
+to. The model is the inference's, not the agent's.
+_Avoid_: assistant, model, session
+
+**Touched**:
+The edge from a step to the code entity it read or modified, recording which of the two
+it did.
+_Avoid_: edited, accessed, changed
+
+**Resolution**:
+How far down a touched edge landed: `symbol` when the modification's position fell inside
+a code entity's line range, `file` when no entity enclosed it. File level is the honest
+answer when nothing encloses the position, never a default for a position nobody matched.
+_Avoid_: granularity, precision, level
+
+**Consumed**:
+The edge from a step to the inference it spent. A step consumes inferences; it does not
+contain them.
+_Avoid_: used, called
+
+**Subsumption**:
+The edge saying one procedure is a more specific form of another — the taxonomy's "is-a",
+at procedure level.
+_Avoid_: parent, generalisation
+
+**Precedence on an entity**:
+The edge saying a procedure historically precedes work on a given code entity. A claim
+about what came before the work, not about who called whom.
+_Avoid_: precedes, dependency
+
+## Telemetry and the served graph
+
+**Telemetry record**:
+One OTel log record the episodic layer is sourced from, paired with the episodic shape it
+becomes. The consumed set is declared: an unlisted record has no row to become.
+_Avoid_: event, log line, span, trace
+
+**Decision source**:
+Who decided a step's decision axis — configuration, a hook, or the user. Distinct from
+the decision itself, which says only whether the call was allowed to try.
+_Avoid_: reason, actor, cause
+
+**Routing rule**:
+What decides where a declared field goes when the snapshot is written: a plain value is a
+node attribute, a reference to another identity is an edge. A violation in either
+direction is rejected with an actionable reason.
+_Avoid_: serialisation, mapping, projection
+
+**Working state**:
+What the agent's recent actions leave it in — the last few steps, the file and symbol
+being worked on, the kind of work, and the previous step's result and decision. Guidance
+is assembled from this rather than from the last step alone, and it is built per request
+and written nowhere.
+_Avoid_: context, session state, transcript
+
+**Activation**:
+A procedure's recency-weighted support, and the order candidates are served in, so that a
+stale high-count transition ranks below a fresh one of equal support. Computed in the fold
+and carried on the procedure, never on the hook path.
+_Avoid_: score, relevance, weight (weight is the transition's own field)
+
+**Dependency measure**:
+The directional measure a transition carries, derived from the counts observed in both
+directions between the same pair of procedures. Where it is not positive the pair is
+mutual co-occurrence and may not be phrased as what usually follows.
+_Avoid_: correlation, probability, confidence
+
+**Lift**:
+How much more often a transition is observed than the two procedures' independent rates
+would predict. Symmetric, which is why the dependency measure is carried beside it rather
+than instead of it.
+_Avoid_: strength, significance
+
+**Lower-bound rate**:
+Every rate a served statement reports, as the lower bound of a 95% confidence interval
+over the observed counts rather than the naive proportion — so one failure in three is not
+reported as a third.
+_Avoid_: rate, proportion, percentage (unqualified)
+
+**Provenance alignment**:
+The recorded correspondence between each declared node and edge type and its standard
+provenance term, and between each model-call field and its generative-AI convention
+attribute. Documentary only: the store stays a property graph, and nothing in the
+alignment obliges a triple store.
+_Avoid_: RDF export, ontology mapping
+
 ## Memory and its lifecycle
 
 **Memory**:

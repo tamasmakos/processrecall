@@ -38,6 +38,33 @@ TOOL_DETAILS_GATE = re.compile(r"^#\s+export (\w+)=\S*\s+# the tool-details gate
 #: The readme's promise about what the memory keeps, whose limit FR-013 names.
 STORAGE_PROMISE = "never prompt text, file contents or credentials"
 
+#: How `CONTEXT.md` writes the term an entry defines: a bolded headword ending in
+#: a colon. One entry may define several terms, separated by a slash.
+GLOSSARY_HEADWORD = re.compile(r"^\*\*(.+?)\*\*:", re.MULTILINE)
+
+#: The data-model terms this feature adds, as the spec's key entities spell them
+#: (FR-016 through FR-046). The layer names are read off `LAYERS` instead.
+DATA_MODEL_TERMS = (
+    "code entity",
+    "inference",
+    "agent",
+    "touched",
+    "consumed",
+    "subsumption",
+    "precedence on an entity",
+    "telemetry record",
+    "decision source",
+    "resolution",
+    "routing rule",
+    "working state",
+    "activation",
+    "dependency measure",
+    "lift",
+    "lower-bound rate",
+    "line range",
+    "provenance alignment",
+)
+
 
 def _package_source() -> str:
     """The concatenated text of every module under `processrecall/`."""
@@ -120,6 +147,15 @@ def test_docs_name_no_removed_service() -> None:
         assert not still_sold, (
             f"{document.relative_to(REPO_ROOT)} still documents the service: {still_sold}"
         )
+
+
+def _glossary_headwords(glossary: str) -> set[str]:
+    """Every term the glossary defines, lowercased and split on its slashes."""
+    return {
+        term.strip().lower()
+        for headword in GLOSSARY_HEADWORD.findall(glossary)
+        for term in headword.split("/")
+    }
 
 
 def _section_body(text: str, heading: str) -> str:
@@ -341,3 +377,21 @@ def test_readme_separates_what_is_stored_from_what_the_collector_sees() -> None:
     }
     missing = sorted(part for part, token in required.items() if token not in lead)
     assert not missing, f"README.md's privacy promise does not state {missing}"
+
+
+def test_context_defines_every_data_model_term() -> None:
+    """The glossary must resolve every term this feature's data model uses.
+
+    An unresolvable data-model term is a defect in `CONTEXT.md`, so each term
+    the schema declaration, the guidance path and the tracker all spell is
+    required to be a glossary headword rather than merely mentioned somewhere in
+    the prose. The three layer names are read off
+    `processrecall.graph.schema.LAYERS`, so a layer renamed in the contract
+    fails here instead of ageing in the glossary.
+    """
+    glossary = (REPO_ROOT / "CONTEXT.md").read_text(encoding="utf-8")
+    defined = _glossary_headwords(glossary)
+
+    required = [f"{layer.name} layer" for layer in LAYERS] + list(DATA_MODEL_TERMS)
+    missing = sorted(term for term in required if term not in defined)
+    assert not missing, f"CONTEXT.md defines no headword for {missing}"
