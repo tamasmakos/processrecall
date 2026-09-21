@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from processrecall.graph.episodic import SCHEMA_VERSION, open_index
+from processrecall.graph.episodic import open_index
 
 
 @pytest.fixture
@@ -103,7 +103,15 @@ def test_a_step_whose_sequence_does_not_exist_is_refused(index: sqlite3.Connecti
         _insert_step(index, prompt_id="no-such-prompt")
 
 
-def test_a_new_store_stamps_the_schema_version_it_was_created_at(tmp_path: Path) -> None:
+def test_store_is_stamped_schema_version_2(tmp_path: Path) -> None:
+    """The stamp a created store carries, pinned at the literal `2`.
+
+    Spelled out rather than read back from the module's own constant: an
+    assertion against the constant moves with it, so it holds whatever the
+    build declares and can never report a store stamped at the wrong shape.
+    `2` is the version `contracts/graph-schema-v2.md` names and the one the
+    migration carries a v1 store forward to.
+    """
     path = tmp_path / "episodes.db"
     open_index(path).close()
 
@@ -112,7 +120,7 @@ def test_a_new_store_stamps_the_schema_version_it_was_created_at(tmp_path: Path)
         stored = reopened.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
     finally:
         reopened.close()
-    assert stored == (SCHEMA_VERSION,)
+    assert stored == ("2",)
 
 
 def test_a_store_of_an_unknown_schema_version_is_refused_not_written_to(tmp_path: Path) -> None:

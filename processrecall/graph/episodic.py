@@ -165,7 +165,7 @@ def open_index(path: Path = DEFAULT_DATABASE_PATH) -> sqlite3.Connection:
 
     Applies the settings R10 fixes and leaves the store at the shape the
     declaration in `graph/schema.py` specifies: a store already at
-    `SCHEMA_VERSION` gains whatever the declaration has since added, and one at
+    `STORE_SCHEMA_VERSION` gains whatever the declaration has since added, and one at
     `MIGRATABLE_VERSION` is carried forward by `migrate_forward` (FR-029).
 
     Raises:
@@ -183,21 +183,21 @@ def open_index(path: Path = DEFAULT_DATABASE_PATH) -> sqlite3.Connection:
     connection = sqlite3.connect(path)
     for pragma in _PRAGMAS:
         connection.execute(pragma)
-    known = (None, SCHEMA_VERSION, MIGRATABLE_VERSION)
+    known = (None, STORE_SCHEMA_VERSION, MIGRATABLE_VERSION)
     if (stored := _stored_schema_version(connection)) not in known:
         connection.close()
         raise sqlite3.DatabaseError(
             f"{path} was written at schema version {stored}; this processrecall understands"
-            f" version {SCHEMA_VERSION}. Nothing was read and nothing was written."
+            f" version {STORE_SCHEMA_VERSION}. Nothing was read and nothing was written."
         )
     connection.executescript(_SCHEMA)
     if stored == MIGRATABLE_VERSION:
         if not migrate_forward(connection):
-            if _stored_schema_version(connection) != SCHEMA_VERSION:
+            if _stored_schema_version(connection) != STORE_SCHEMA_VERSION:
                 connection.close()
                 raise sqlite3.DatabaseError(
                     f"{path} was written at schema version {stored}; this processrecall understands"
-                    f" version {SCHEMA_VERSION}. Nothing was read and nothing was written."
+                    f" version {STORE_SCHEMA_VERSION}. Nothing was read and nothing was written."
                 )
             with connection:
                 align_to_declaration(connection)
@@ -207,7 +207,7 @@ def open_index(path: Path = DEFAULT_DATABASE_PATH) -> sqlite3.Connection:
         connection.execute(
             "INSERT INTO meta (key, value) VALUES ('schema_version', ?)"
             " ON CONFLICT (key) DO NOTHING",
-            (SCHEMA_VERSION,),
+            (STORE_SCHEMA_VERSION,),
         )
     return connection
 
