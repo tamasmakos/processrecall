@@ -10,7 +10,23 @@ import json
 from pathlib import Path
 
 from processrecall.cli.__main__ import COMMANDS
+from processrecall.graph.store import COUNTERS
+from processrecall.trajectory.offset import OFFSET_NAME
 from tests.cli.conftest import run_cli
+
+#: The synthetic OTLP corpus, shared with `tests/trajectory/test_telemetry.py`:
+#: `gate_off.jsonl` is the run whose tool records carry no detail attributes.
+_TELEMETRY_FIXTURES = Path(__file__).parents[1] / "fixtures" / "telemetry"
+
+
+def _persist_offset(home: Path, telemetry_path: Path, offset: int) -> None:
+    """Record *offset* bytes of *telemetry_path* as already drained under *home*."""
+    directory = home / ".processrecall"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / OFFSET_NAME).write_text(
+        json.dumps({"path": str(telemetry_path), "offset": offset, "digest": "", "size": offset}),
+        encoding="utf-8",
+    )
 
 
 def _name_telemetry_file(home: Path, telemetry_path: Path) -> None:
@@ -82,3 +98,35 @@ def test_doctor_prints_the_shipped_example_collector_config(tmp_path: Path) -> N
     assert any("Privacy" in line for line in _comments(printed.stdout)), (
         "the tool-details gate ships without its privacy consequence in a comment"
     )
+
+
+def test_doctor_reports_source_then_gates_then_counters(tmp_path: Path) -> None:
+    """The readiness report holds the order `contracts/collector-transport.md` fixes.
+
+    An operator reads it top to bottom: which file, when it was last written and
+    how much of it no pass has taken, then the two gated attributes and the gates
+    the records themselves imply, then every telemetry counter — including the
+    names still at zero, since a drain that never ran reads like one that found
+    nothing unless the name is printed anyway.
+    """
+    home, telemetry = tmp_path / "home", tmp_path / "otel.jsonl"
+    telemetry.write_bytes((_TELEMETRY_FIXTURES / "gate_off.jsonl").read_bytes())
+    _name_telemetry_file(home, telemetry)
+    _persist_offset(home, telemetry, 100)
+
+    report = run_cli(home, "doctor")
+
+    assert report.returncode == 0, report.stderr
+    expected = [
+        f"{telemetry}  exists=True",
+        "last modified",
+        f"unread bytes  {telemetry.stat().st_size - 100}",
+        "app.version  observed",
+        "session.id  observed",
+        "content gate  off",
+        "tool details gate  off",
+        *(name for name in COUNTERS if name.startswith("telemetry_")),
+    ]
+    found = [report.stdout.find(text) for text in expected]
+    assert -1 not in found, [text for text, at in zip(expected, found, strict=True) if at == -1]
+    assert found == sorted(found), f"out of the contract's order:\n{report.stdout}"

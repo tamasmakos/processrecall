@@ -47,6 +47,12 @@ RECORD_TYPE_ATTRIBUTE = "event.name"
 #: every record is unattributable rather than wrongly attributed.
 SESSION_ATTRIBUTE = "session.id"
 
+#: The flattened attribute carrying the harness release a record was written by.
+#: Gated by ``OTEL_METRICS_INCLUDE_VERSION``: with the gate off no version floor
+#: can be checked, which is why `processrecall doctor` reports on whether it
+#: arrived at all.
+VERSION_ATTRIBUTE = "app.version"
+
 #: The flattened attribute carrying the user turn a record belongs to, the
 #: correlation key threaded through every record type.
 PROMPT_ATTRIBUTE = "prompt.id"
@@ -73,7 +79,7 @@ _STANDARD_ATTRIBUTES = frozenset(
         TIMESTAMP_ATTRIBUTE,
         SEQUENCE_ATTRIBUTE,
         SESSION_ATTRIBUTE,
-        "app.version",
+        VERSION_ATTRIBUTE,
         PROMPT_ATTRIBUTE,
     }
 )
@@ -507,8 +513,9 @@ _TOOL_RECORD_NAMES = frozenset({"claude_code.tool_result", "claude_code.tool_dec
 #: What the gate gates: the arguments of the call and the revision it ran
 #: against (`contracts/telemetry-records.md`). With the gate on, every tool
 #: record carries at least the arguments, so a tool record carrying none of
-#: these was written with it off.
-_TOOL_DETAIL_ATTRIBUTES = frozenset(
+#: these was written with it off. Read by `processrecall doctor` too, which
+#: reports the gate the records it finds imply.
+TOOL_DETAIL_ATTRIBUTES = frozenset(
     {"tool_parameters", "tool_input", "vcs.ref.head.revision", "vcs.ref.head.name"}
 )
 
@@ -527,7 +534,7 @@ def report_tool_detail_gap(record: TelemetryRecord, gaps: SessionGaps) -> None:
     """
     if record.get(RECORD_TYPE_ATTRIBUTE) not in _TOOL_RECORD_NAMES:
         return
-    if not _TOOL_DETAIL_ATTRIBUTES.isdisjoint(record):
+    if not TOOL_DETAIL_ATTRIBUTES.isdisjoint(record):
         return
     session_id = record.get(SESSION_ATTRIBUTE)
     if isinstance(session_id, str):

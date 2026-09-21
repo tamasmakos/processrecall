@@ -134,11 +134,17 @@ def _bootstrap(arguments: argparse.Namespace) -> int:
 
 
 def _doctor(arguments: argparse.Namespace) -> int:
-    """Print the example collector configuration, or the readiness report (FR-004)."""
+    """Print the example collector configuration, or the readiness report (FR-004).
+
+    The configuration prints without opening the store: it is package data, and a
+    developer reading it has nothing recorded yet. The readiness report ends in
+    every telemetry counter, so that half needs the store the counts are kept in.
+    """
     if arguments.collector_config:
         print(collector_config())
         return 0
-    print(readiness(load_config().telemetry_path))
+    with closing(open_index()) as connection:
+        print(readiness(load_config().telemetry_path, SQLiteEpisodicStore(connection)))
     return 0
 
 
